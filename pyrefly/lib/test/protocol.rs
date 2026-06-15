@@ -1006,3 +1006,33 @@ class Ok(Protocol):
     y: str = "default"
 "#,
 );
+
+testcase!(
+    bug = "Overloaded protocol member matched without filtering by the overloads' explicit `self:` types; `timedelta` receiver wrongly selects the `int` overload.",
+    test_protocol_overloaded_method_filtered_by_self,
+    r#"
+from __future__ import annotations
+from datetime import timedelta
+from typing import Generic, TypeVar, Protocol, overload, assert_type
+
+T_contra = TypeVar("T_contra", contravariant=True)
+S1_co = TypeVar("S1_co", bound=timedelta | int | float, covariant=True)
+S2_co = TypeVar("S2_co", bound=timedelta | int | float, covariant=True)
+
+class SupportsProtoTrueDiv(Protocol[T_contra, S2_co]):
+    def _proto_truediv(self, other: T_contra, /) -> ElementOpsMixin[S2_co]: ...
+
+class ElementOpsMixin(Protocol, Generic[S2_co]):
+    @overload
+    def _proto_truediv(self: ElementOpsMixin[int], other: int, /) -> ElementOpsMixin[float]: ...
+    @overload
+    def _proto_truediv(self: ElementOpsMixin[timedelta], other: timedelta, /) -> ElementOpsMixin[float]: ...
+
+class Series(ElementOpsMixin[S2_co], Protocol):
+    def __truediv__(self: SupportsProtoTrueDiv[T_contra, S1_co], other: T_contra) -> Series[S1_co]: ...
+
+def main2(s: Series[timedelta]) -> None:
+    td = timedelta(1)
+    _ = s / td  # E: `/` is not supported between `Series[timedelta]` and `timedelta`
+"#,
+);

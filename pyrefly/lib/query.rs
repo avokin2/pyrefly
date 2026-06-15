@@ -8,6 +8,7 @@
 //! Query interface for pyrefly. Just experimenting for the moment - not intended for external use.
 
 use core::panic;
+use std::collections::HashMap;
 use std::iter;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -177,7 +178,7 @@ pub struct Attribute {
     pub is_final: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct TypeQueryTiming {
     pub located_count: usize,
     pub setup: Duration,
@@ -185,7 +186,16 @@ pub struct TypeQueryTiming {
     pub cache: Duration,
     pub transform: Duration,
     pub total: Duration,
+    pub shape_profiles: TypeQueryProfileMap,
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct TypeQueryProfile {
+    pub count: usize,
+    pub total: Duration,
+}
+
+pub type TypeQueryProfileMap = HashMap<&'static str, TypeQueryProfile>;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TypeShape {
@@ -329,6 +339,7 @@ fn type_to_string(ty: &Type) -> String {
 struct TypeShapeContext<'a> {
     transaction: &'a Transaction<'a>,
     source_handle: &'a Handle,
+    profile: Option<&'a Mutex<TypeQueryProfileMap>>,
 }
 
 impl TypeShapeContext<'_> {
@@ -350,14 +361,82 @@ impl TypeShapeContext<'_> {
 }
 
 fn type_shape_from(context: &TypeShapeContext, ty: &Type, display: String) -> TypeShape {
-    TypeShape {
-        display,
-        kind: type_shape_kind(context, ty),
+    if let Some(profile) = context.profile {
+        let kind_name = type_kind_name(ty);
+        let start = Instant::now();
+        let kind = type_shape_kind(context, ty);
+        let elapsed = start.elapsed();
+        let mut profile = profile.lock();
+        let entry = profile.entry(kind_name).or_default();
+        entry.count += 1;
+        entry.total += elapsed;
+        TypeShape { display, kind }
+    } else {
+        TypeShape {
+            display,
+            kind: type_shape_kind(context, ty),
+        }
     }
 }
 
 fn type_to_shape(context: &TypeShapeContext, ty: &Type) -> TypeShape {
     type_shape_from(context, ty, type_to_string(ty))
+}
+
+fn type_kind_name(ty: &Type) -> &'static str {
+    match ty {
+        Type::ClassDef(_) => "class_def",
+        Type::ClassType(_) => "class_type",
+        Type::TypedDict(_) => "typed_dict",
+        Type::PartialTypedDict(_) => "partial_typed_dict",
+        Type::Type(_) => "type",
+        Type::Callable(_) => "callable",
+        Type::Function(_) => "function",
+        Type::BoundMethod(_) => "bound_method",
+        Type::Overload(_) => "overload",
+        Type::Forall(_) => "forall",
+        Type::Union(_) => "union",
+        Type::Intersect(_) => "intersect",
+        Type::Tuple(_) => "tuple",
+        Type::Literal(_) => "literal",
+        Type::Sentinel(_) => "sentinel",
+        Type::LiteralString(_) => "literal_string",
+        Type::Quantified(_) => "quantified",
+        Type::QuantifiedValue(_) => "quantified_value",
+        Type::TypeVar(_) => "type_var",
+        Type::ParamSpec(_) => "param_spec",
+        Type::TypeVarTuple(_) => "type_var_tuple",
+        Type::ElementOfTypeVarTuple(_) => "element_of_type_var_tuple",
+        Type::TypeGuard(_) => "type_guard",
+        Type::TypeIs(_) => "type_is",
+        Type::Annotated(_, _) => "annotated",
+        Type::Unpack(_) => "unpack",
+        Type::Concatenate(_, _) => "concatenate",
+        Type::ParamSpecValue(_) => "param_spec_value",
+        Type::Args(_) => "args",
+        Type::ArgsValue(_) => "args_value",
+        Type::Kwargs(_) => "kwargs",
+        Type::KwargsValue(_) => "kwargs_value",
+        Type::Module(_) => "module",
+        Type::TypeAlias(_) => "type_alias",
+        Type::UntypedAlias(_) => "untyped_alias",
+        Type::SuperInstance(_) => "super_instance",
+        Type::SelfType(_) => "self_type",
+        Type::CallableResidual(_) => "callable_residual",
+        Type::KwCall(_) => "kw_call",
+        Type::Any(_) => "any",
+        Type::Never(_) => "never",
+        Type::None => "none",
+        Type::SpecialForm(_) => "special_form",
+        Type::Ellipsis => "ellipsis",
+        Type::Materialization => "materialization",
+        Type::Var(_) => "var",
+        Type::ShapedArray(_) => "shaped_array",
+        Type::NNModule(_) => "nn_module",
+        Type::Size(_) => "size",
+        Type::Dim(_) => "dim",
+        Type::TypeForm(_) => "type_form",
+    }
 }
 
 fn type_shape_kind(context: &TypeShapeContext, ty: &Type) -> TypeShapeKind {
@@ -1749,9 +1828,13 @@ impl Query {
         let module_info = transaction.get_module_info(&handle)?;
         let answers = transaction.get_answers(&handle)?;
         let bindings = transaction.get_bindings(&handle)?;
+        let profile = timing
+            .as_ref()
+            .map(|_| Mutex::new(TypeQueryProfileMap::new()));
         let type_shape_context = TypeShapeContext {
             transaction: &transaction,
             source_handle: &handle,
+            profile: profile.as_ref(),
         };
         if let (Some(timing), Some(setup_start)) = (timing.as_deref_mut(), setup_start) {
             timing.setup = setup_start.elapsed();
@@ -1891,6 +1974,9 @@ impl Query {
                 &mut timing,
             )
         });
+        if let (Some(timing), Some(profile)) = (timing, profile) {
+            timing.shape_profiles = profile.into_inner();
+        }
         Some(res)
     }
 

@@ -469,10 +469,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
     }
 
-    /// Unwrap a class object for isinstance narrowing. When the right-hand side is `tuple`
-    /// and the left-hand side is a heterogeneous tuple type, creates a TypeVarTuple for
-    /// precise narrowing. Otherwise falls back to standard class object unwrapping.
-    fn unwrap_isinstance_target(&self, left: &Type, right: &Type) -> Option<(TParams, Type)> {
+    /// Unwrap a class-info target to the instance type used for narrowing. When the right-hand
+    /// side is `tuple` and the left-hand side is a heterogeneous tuple type, creates a TypeVarTuple
+    /// for precise narrowing. Otherwise falls back to standard class object unwrapping.
+    fn unwrap_class_info_target(&self, left: &Type, right: &Type) -> Option<(TParams, Type)> {
         let right_is_tuple = match right {
             Type::Type(f) if matches!(&**f, Type::Tuple(_)) => true,
             Type::ClassDef(cls) => cls.is_builtin("tuple"),
@@ -491,15 +491,31 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
     }
 
+    /// Run `f` with the freshened instance type produced by unwrapping `right` as class info.
+    fn with_fresh_class_info_target(
+        &self,
+        left: &Type,
+        right: &Type,
+        f: impl FnOnce(Type) -> Type,
+    ) -> Option<Type> {
+        let (tparams, right) = self.unwrap_class_info_target(left, right)?;
+        let (vs, right) = self
+            .solver()
+            .fresh_quantified(&tparams, right, self.uniques);
+        let result = f(right);
+        // These are safe to ignore, as the only possible specialization errors are handled elsewhere:
+        // * If `left` is an invalid specialization, the error has already been reported at its definition site.
+        // * Unsafe runtime protocol overlaps are separately checked for in special_calls.rs.
+        let _specialization_errors = self.finish_quantified(vs, false);
+        Some(result)
+    }
+
     fn narrow_isinstance(&self, left: &Type, right: &Type) -> Type {
         let mut res = Vec::new();
         for right in self.as_class_info(right.clone()) {
             res.push(self.distribute_over_union(left, |l| {
-                if let Some((tparams, right)) = self.unwrap_isinstance_target(l, &right) {
-                    let (vs, right) = self
-                        .solver()
-                        .fresh_quantified(&tparams, right, self.uniques);
-                    let result = self.intersect_with_fallback(l, &right, &|| {
+                self.with_fresh_class_info_target(l, &right, |right| {
+                    self.intersect_with_fallback(l, &right, &|| {
                         // TODO: falling back to Never when the lhs is a union is a hack to get
                         // reasonable behavior in cases like this:
                         //     def f(x: int | list[int]):
@@ -511,15 +527,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         } else {
                             right.clone()
                         }
-                    });
-                    // These are safe to ignore, as the only possible specialization errors are handled elsewhere:
-                    // * If `left` is an invalid specialization, the error has already been reported at its definition site.
-                    // * Unsafe runtime protocol overlaps are separately checked for in special_calls.rs.
-                    let _specialization_errors = self.finish_quantified(vs, false);
-                    result
-                } else {
-                    l.clone()
-                }
+                    })
+                })
+                .unwrap_or_else(|| l.clone())
             }));
         }
         self.unions(res)
@@ -548,7 +558,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 if !allows_negative_narrow {
                     continue;
                 }
-                if let Some((tparams, right)) = self.unwrap_isinstance_target(&result, right) {
+                if let Some((tparams, right)) = self.unwrap_class_info_target(&result, right) {
                     let (vs, right) = self
                         .solver()
                         .fresh_quantified(&tparams, right, self.uniques);
@@ -581,7 +591,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             && self.is_final(cls)
         {
             self.distribute_over_union(left, |l| {
-                if let Some((tparams, unwrapped)) = self.unwrap_isinstance_target(l, &right) {
+                if let Some((tparams, unwrapped)) = self.unwrap_class_info_target(l, &right) {
                     let (vs, unwrapped) =
                         self.solver()
                             .fresh_quantified(&tparams, unwrapped, self.uniques);
@@ -667,22 +677,22 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
         let narrow = |left: &Type, right| {
             if let Some(left_untyped) = self.untype_opt(left.clone(), range, errors) {
-                self.issubclass_result(
-                    self.intersect_with_fallback(&left_untyped, &right, &|| right.clone()),
-                    left,
-                )
+                self.with_fresh_class_info_target(&left_untyped, &right, |right| {
+                    self.issubclass_result(
+                        self.intersect_with_fallback(&left_untyped, &right, &|| right.clone()),
+                        left,
+                    )
+                })
+                .unwrap_or_else(|| left.clone())
             } else {
                 left.clone()
             }
         };
 
         for right in self.as_class_info(right.clone()) {
-            if let Some((tparams, right_unwrapped)) = self.unwrap_class_object_silently(&right) {
+            if self.unwrap_class_object_silently(&right).is_some() {
                 // Handle type vars specially: we need to enforce restrictions and avoid
                 // simplifying them away.
-                let (vs, right_unwrapped) =
-                    self.solver()
-                        .fresh_quantified(&tparams, right_unwrapped, self.uniques);
                 let mut quantifieds = Vec::new();
                 let mut nonquantifieds = Vec::new();
                 self.map_over_union(left, |left| {
@@ -694,10 +704,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 });
                 for q in quantifieds {
                     // The only time it's safe to simplify a quantified away is when the entire intersection is Never.
-                    let intersection = narrow(
-                        &q.upper_bound(self.stdlib, self.heap),
-                        right_unwrapped.clone(),
-                    );
+                    let intersection =
+                        narrow(&q.upper_bound(self.stdlib, self.heap), right.clone());
                     res.push(if matches!(&intersection, Type::Type(t) if t.is_never()) {
                         intersection
                     } else {
@@ -709,12 +717,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     })
                 }
                 if !nonquantifieds.is_empty() {
-                    res.push(narrow(&self.unions(nonquantifieds), right_unwrapped));
+                    res.push(narrow(&self.unions(nonquantifieds), right.clone()));
                 }
-                // These are safe to ignore, as the only possible specialization errors are handled elsewhere:
-                // * If `left` is an invalid specialization, the error has already been reported at its definition site.
-                // * Unsafe runtime protocol overlaps are separately checked for in special_calls.rs.
-                let _specialization_errors = self.finish_quantified(vs, false);
             } else {
                 res.push(left.clone())
             }

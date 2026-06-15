@@ -1207,6 +1207,38 @@ def f(x: type[A | B | C]):
 );
 
 testcase!(
+    test_isinstance_type_and_issubclass_alignment,
+    r#"
+from typing import assert_type, final
+
+class A: ...
+class B: ...
+class C: ...
+def f(obj: A | B | C, cls_obj: type[A | B | C], cls: type[A] | type[B]) -> None:
+    if isinstance(obj, cls):
+        assert_type(obj, A | B)
+    if issubclass(cls_obj, cls):
+        assert_type(cls_obj, type[A] | type[B])
+
+class Base: ...
+class Child(Base): ...
+@final
+class Other: ...
+def g(obj: Child | Other, cls_obj: type[Child] | type[Other], cls: type[Base]) -> None:
+    if isinstance(obj, cls):
+        assert_type(obj, Child)
+    if issubclass(cls_obj, cls):
+        assert_type(cls_obj, type[Child])
+
+def h(obj: tuple[int, str] | int, cls_obj: type[tuple[int, str]] | type[int]) -> None:
+    if isinstance(obj, tuple):
+        assert_type(obj, tuple[int, str])
+    if issubclass(cls_obj, tuple):
+        assert_type(cls_obj, type[tuple[int, str]])
+    "#,
+);
+
+testcase!(
     test_isinstance_alias,
     r#"
 from typing import assert_type

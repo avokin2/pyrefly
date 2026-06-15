@@ -1008,7 +1008,6 @@ class Ok(Protocol):
 );
 
 testcase!(
-    bug = "Overloaded protocol member matched without filtering by the overloads' explicit `self:` types; `timedelta` receiver wrongly selects the `int` overload.",
     test_protocol_overloaded_method_filtered_by_self,
     r#"
 from __future__ import annotations
@@ -1033,6 +1032,6 @@ class Series(ElementOpsMixin[S2_co], Protocol):
 
 def main2(s: Series[timedelta]) -> None:
     td = timedelta(1)
-    _ = s / td  # E: `/` is not supported between `Series[timedelta]` and `timedelta`
+    assert_type(s / td, Series[float])
 "#,
 );

@@ -2693,6 +2693,45 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         ty.finalize_callable_residuals_at_boundary(self.heap, false)
     }
 
+    /// Filter out overload signatures whose explicit `self:` annotation is not
+    /// compatible with the receiver `self_type`.
+    ///
+    /// If filtering would remove every signature, the original overload is returned unchanged.
+    pub(crate) fn filter_overloads_by_self_type(
+        &self,
+        overload: &Overload,
+        self_type: &Type,
+    ) -> Option<Overload> {
+        let filtered: Vec<_> = overload
+            .signatures
+            .iter()
+            .filter(|sig| {
+                let func = match sig {
+                    OverloadType::Function(f) => f,
+                    OverloadType::Forall(forall) => &forall.body,
+                };
+                // Only instance methods have a `self` first parameter; static and
+                // class methods' first parameter is a regular argument.
+                if func.metadata.flags.is_staticmethod || func.metadata.flags.is_classmethod {
+                    return true;
+                }
+                func.signature
+                    .get_first_param()
+                    .is_none_or(|p| self.is_subset_eq(self_type, &p))
+            })
+            .cloned()
+            .collect();
+        if let Ok(filtered_sigs) = vec1::Vec1::try_from_vec(filtered)
+            && filtered_sigs.len() < overload.signatures.len()
+        {
+            return Some(Overload {
+                signatures: filtered_sigs,
+                metadata: overload.metadata.clone(),
+            });
+        }
+        None
+    }
+
     fn as_instance_attribute(
         &self,
         field_name: &Name,
@@ -2848,39 +2887,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 // on str methods). These overloads only apply when the instance is known to be the
                 // narrower type; for unbound access from the class, the self parameter is the
                 // general class type, so the narrowing overloads should not participate.
-                if let Type::Overload(overload) = &ty {
-                    let class_self_type = cls.clone().to_self_type(self.heap);
-                    let filtered: Vec<_> = overload
-                        .signatures
-                        .iter()
-                        .filter(|sig| {
-                            let func = match sig {
-                                OverloadType::Function(f) => f,
-                                OverloadType::Forall(forall) => &forall.body,
-                            };
-                            // Only check instance methods — static methods and class methods
-                            // don't have a self parameter, so their first parameter is a
-                            // regular argument unrelated to the class type.
-                            if func.metadata.flags.is_staticmethod
-                                || func.metadata.flags.is_classmethod
-                            {
-                                return true;
-                            }
-                            func.signature
-                                .get_first_param()
-                                .is_none_or(|p| self.is_subset_eq(&class_self_type, &p))
-                        })
-                        .cloned()
-                        .collect();
-                    if let Ok(filtered_sigs) = vec1::Vec1::try_from_vec(filtered)
-                        && filtered_sigs.len() < overload.signatures.len()
-                    {
-                        ty = self.heap.mk_overload(Overload {
-                            signatures: filtered_sigs,
-                            metadata: overload.metadata.clone(),
-                        });
-                    }
-                }
+                if let Type::Overload(overload) = &ty
+                    && let Some(filtered_overload) = self.filter_overloads_by_self_type(
+                        overload,
+                        &cls.clone().to_self_type(self.heap),
+                    )
+                {
+                    ty = self.heap.mk_overload(filtered_overload);
+                };
                 if let Some(quantified) = self_quantified {
                     ty = self.wrap_with_quantified(ty, quantified);
                 }

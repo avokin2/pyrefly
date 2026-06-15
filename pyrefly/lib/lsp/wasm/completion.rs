@@ -970,6 +970,14 @@ impl Transaction<'_> {
         let covering_nodes = ast
             .as_ref()
             .map(|module| Ast::locate_node(module.as_ref(), position));
+        // Dict-key completion applies in any subscript / dict-key position (`d["k|"]`,
+        // `{"k|": ...}`, or the empty `d[|]`), which cuts across the identifier-context
+        // branches below, so handle it once up front. It claims the position only when
+        // the base actually has known keys; when claimed we suppress the overload
+        // literal completions that would otherwise duplicate the keys.
+        let dict_key_claimed = ast.as_ref().is_some_and(|module| {
+            self.add_dict_key_completions(handle, module.as_ref(), position, &mut result)
+        });
         // Because of parser error recovery, `from x impo...` looks like `from x import impo...`
         // If the user might be typing the `import` keyword, add that as an autocomplete option.
         match covering_nodes
@@ -1183,12 +1191,8 @@ impl Transaction<'_> {
                             &mut result,
                             in_string_literal,
                         );
-                        let dict_key_claimed = self.add_dict_key_completions(
-                            handle,
-                            mod_module.as_ref(),
-                            position,
-                            &mut result,
-                        );
+                        // `dict_key_claimed` was computed up front; when a dict key was
+                        // offered we skip the overload literal completions.
                         if !dict_key_claimed {
                             self.add_literal_completions(
                                 handle,

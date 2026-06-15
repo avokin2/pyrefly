@@ -20,6 +20,12 @@ use crate::typed_dict::TypedDict;
 use crate::types::Type;
 
 /// Turn unions of unions into a flattened list for one union, and return the deduped list.
+///
+/// Invariant: this function relies on `simplify_intersections` only ever introducing `Never`
+/// types (never new `Union`s or other composites). That coupling lets us drop the resulting
+/// `Never`s with a simple `retain` rather than performing a second flatten pass. If
+/// `simplify_intersections` is ever changed to introduce other kinds of types, this function
+/// must be updated to re-flatten accordingly.
 fn flatten_and_dedup(xs: Vec<Type>, heap: &TypeHeap) -> Vec<Type> {
     fn flatten(xs: Vec<Type>, res: &mut Vec<Type>) {
         for x in xs {
@@ -33,12 +39,13 @@ fn flatten_and_dedup(xs: Vec<Type>, heap: &TypeHeap) -> Vec<Type> {
     let mut flattened = Vec::with_capacity(xs.len());
     flatten(xs, &mut flattened);
     simplify_intersections(&mut flattened, heap);
-    let mut res = Vec::with_capacity(flattened.len());
-    flatten(flattened, &mut res);
-
-    res.sort();
-    res.dedup();
-    res
+    // Per the invariant documented on `simplify_intersections`, that call only ever introduces
+    // `Never`s (by replacing absorbed intersection types), so dropping them in place here
+    // suffices and we don't need a second flatten pass.
+    flattened.retain(|x| !x.is_never());
+    flattened.sort();
+    flattened.dedup();
+    flattened
 }
 
 /// Given a list of types to union together,
@@ -55,6 +62,15 @@ fn try_collapse(mut xs: Vec<Type>, heap: &TypeHeap) -> Result<Type, Vec<Type>> {
     }
 }
 
+/// Simplify intersections within a union in place: if `A | (A & B)` appears, the intersection
+/// is absorbed by `A` and we replace the `A & B` member with `Never`.
+///
+/// Invariant: this function must only ever introduce `Never` types into `xs` (by overwriting
+/// absorbed intersection members). `flatten_and_dedup` is coupled to this invariant: it relies
+/// on the fact that no new `Union`s (or other composite types needing flattening) are produced
+/// here so that it can clean up with a single `retain` pass over `Never`s rather than
+/// re-running the flatten step. If you extend this function to introduce other kinds of
+/// types, update `flatten_and_dedup` accordingly.
 fn simplify_intersections(xs: &mut [Type], heap: &TypeHeap) {
     // Simplify `A | (A & B)` to `A`
     let (mut intersects, non_intersects): (Vec<_>, Vec<_>) =

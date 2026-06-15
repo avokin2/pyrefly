@@ -11,6 +11,8 @@ use core::panic;
 use std::iter;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
 use dashmap::DashMap;
 use dupe::Dupe;
@@ -173,6 +175,16 @@ pub struct Attribute {
     pub kind: Option<String>,
     pub annotation: String,
     pub is_final: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TypeQueryTiming {
+    pub located_count: usize,
+    pub setup: Duration,
+    pub stringify: Duration,
+    pub cache: Duration,
+    pub transform: Duration,
+    pub total: Duration,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1682,6 +1694,14 @@ impl Query {
         self.get_types_in_file_with(name, path, type_shape_from)
     }
 
+    pub fn get_type_shapes_in_file_with_timing(
+        &self,
+        name: ModuleName,
+        path: ModulePath,
+    ) -> Option<(Vec<(PythonASTRange, TypeShape)>, TypeQueryTiming)> {
+        self.get_types_in_file_with_timing(name, path, type_shape_from)
+    }
+
     fn get_types_in_file_with<T, F>(
         &self,
         name: ModuleName,
@@ -1691,6 +1711,37 @@ impl Query {
     where
         F: Fn(&TypeShapeContext, &Type, String) -> T,
     {
+        self.get_types_in_file_with_optional_timing(name, path, transform, None)
+    }
+
+    fn get_types_in_file_with_timing<T, F>(
+        &self,
+        name: ModuleName,
+        path: ModulePath,
+        transform: F,
+    ) -> Option<(Vec<(PythonASTRange, T)>, TypeQueryTiming)>
+    where
+        F: Fn(&TypeShapeContext, &Type, String) -> T,
+    {
+        let mut timing = TypeQueryTiming::default();
+        let total_start = Instant::now();
+        let types =
+            self.get_types_in_file_with_optional_timing(name, path, transform, Some(&mut timing))?;
+        timing.total = total_start.elapsed();
+        Some((types, timing))
+    }
+
+    fn get_types_in_file_with_optional_timing<T, F>(
+        &self,
+        name: ModuleName,
+        path: ModulePath,
+        transform: F,
+        mut timing: Option<&mut TypeQueryTiming>,
+    ) -> Option<Vec<(PythonASTRange, T)>>
+    where
+        F: Fn(&TypeShapeContext, &Type, String) -> T,
+    {
+        let setup_start = timing.as_ref().map(|_| Instant::now());
         let handle = self.make_handle(name, path);
 
         let transaction = self.state.transaction();
@@ -1702,8 +1753,9 @@ impl Query {
             transaction: &transaction,
             source_handle: &handle,
         };
-
-        let mut res = Vec::new();
+        if let (Some(timing), Some(setup_start)) = (timing.as_deref_mut(), setup_start) {
+            timing.setup = setup_start.elapsed();
+        }
 
         fn add_type<T, F>(
             ty: &Type,
@@ -1715,19 +1767,41 @@ impl Query {
             type_cache: &TypeCache,
             transform: &F,
             type_shape_context: &TypeShapeContext,
+            timing: &mut Option<&mut TypeQueryTiming>,
         ) where
             F: Fn(&TypeShapeContext, &Type, String) -> T,
         {
+            let stringify_start = timing.as_ref().map(|_| Instant::now());
             let display = type_to_string(ty);
+            if let (Some(timing), Some(stringify_start)) = (timing.as_deref_mut(), stringify_start)
+            {
+                timing.stringify += stringify_start.elapsed();
+            }
+
             // Only clone ty if not already in cache
+            let cache_start = timing.as_ref().map(|_| Instant::now());
             type_cache
                 .cache
                 .entry(display.clone())
                 .or_insert_with(|| ty.clone());
+            if let (Some(timing), Some(cache_start)) = (timing.as_deref_mut(), cache_start) {
+                timing.cache += cache_start.elapsed();
+            }
+
+            let transform_start = timing.as_ref().map(|_| Instant::now());
+            let transformed = transform(type_shape_context, ty, display);
+            if let (Some(timing), Some(transform_start)) = (timing.as_deref_mut(), transform_start)
+            {
+                timing.transform += transform_start.elapsed();
+            }
+
             res.push((
                 python_ast_range_for_expr(module_info, range, e, parent),
-                transform(type_shape_context, ty, display),
+                transformed,
             ));
+            if let Some(timing) = timing.as_deref_mut() {
+                timing.located_count += 1;
+            }
         }
         fn try_find_key_for_name(name: &ExprName, bindings: &Bindings) -> Option<Key> {
             let key = Key::BoundName(ShortIdentifier::expr_name(name));
@@ -1751,6 +1825,7 @@ impl Query {
             type_cache: &TypeCache,
             transform: &F,
             type_shape_context: &TypeShapeContext,
+            timing: &mut Option<&mut TypeQueryTiming>,
         ) where
             F: Fn(&TypeShapeContext, &Type, String) -> T,
         {
@@ -1769,6 +1844,7 @@ impl Query {
                     type_cache,
                     transform,
                     type_shape_context,
+                    timing,
                 );
             } else if let Some(ty) = answers.get_type_trace(range) {
                 add_type(
@@ -1781,6 +1857,7 @@ impl Query {
                     type_cache,
                     transform,
                     type_shape_context,
+                    timing,
                 );
             }
             x.recurse(&mut |c| {
@@ -1794,10 +1871,12 @@ impl Query {
                     type_cache,
                     transform,
                     type_shape_context,
+                    timing,
                 )
             });
         }
 
+        let mut res = Vec::new();
         ast.visit(&mut |x| {
             f(
                 x,
@@ -1809,6 +1888,7 @@ impl Query {
                 &self.type_cache,
                 &transform,
                 &type_shape_context,
+                &mut timing,
             )
         });
         Some(res)

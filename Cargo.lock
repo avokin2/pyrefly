@@ -2001,6 +2001,7 @@ dependencies = [
  "pretty_assertions",
  "pyrefly_python",
  "pyrefly_util",
+ "regex",
  "serde",
  "serde_json",
  "starlark_map",

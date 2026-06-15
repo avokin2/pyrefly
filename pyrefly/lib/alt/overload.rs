@@ -373,23 +373,27 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         {
             *targs = chosen_targs;
         }
-        // Record the closest overload to power IDE services.
-        let mut overload_trace = |target: &TargetWithTParams<Function>| {
-            let tparams = target
-                .0
-                .as_ref()
-                .filter(|tparams| !tparams.is_empty())
-                .cloned();
-            OverloadTrace::new(target.1.signature.clone(), tparams)
-        };
-        let all_overload_traces = overloads.iter().map(&mut overload_trace).collect();
-        let closest_overload_trace = overload_trace(closest_overload.func);
-        self.record_overload_trace(
-            arguments_range,
-            all_overload_traces,
-            closest_overload_trace,
-            matched,
-        );
+        // Record the closest overload to power IDE services. Guard on the trace
+        // sink before building the (per-signature cloned) traces, which would
+        // otherwise be wasted work in a normal non-tracing check.
+        if self.current().tracing_enabled() {
+            let mut overload_trace = |target: &TargetWithTParams<Function>| {
+                let tparams = target
+                    .0
+                    .as_ref()
+                    .filter(|tparams| !tparams.is_empty())
+                    .cloned();
+                OverloadTrace::new(target.1.signature.clone(), tparams)
+            };
+            let all_overload_traces = overloads.iter().map(&mut overload_trace).collect();
+            let closest_overload_trace = overload_trace(closest_overload.func);
+            self.record_overload_trace(
+                arguments_range,
+                all_overload_traces,
+                closest_overload_trace,
+                matched,
+            );
+        }
         if matched {
             // If the selected overload is deprecated, we log a deprecation error.
             if let Some(deprecation) = &closest_overload.func.1.metadata.flags.deprecation {

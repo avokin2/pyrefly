@@ -1921,8 +1921,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
     /// Record an expected type trace.
     pub(crate) fn record_expected_type_trace(&self, loc: TextRange, ty: &Type) {
-        self.trace_state()
-            .record_expected_type_trace(loc, Arc::new(ty.clone()));
+        // Guard on the trace sink before cloning: in a normal (non-tracing) check
+        // there is no sink installed, so the clone would be pure waste.
+        if self.current().tracing_enabled() {
+            self.trace_state()
+                .record_expected_type_trace(loc, Arc::new(ty.clone()));
+        }
     }
 
     /// Store a partial answer for inline first-use pinning.

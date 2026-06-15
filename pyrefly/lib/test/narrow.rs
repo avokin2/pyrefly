@@ -1384,6 +1384,23 @@ def f(x:  A | B | C, y: A | C):
 );
 
 testcase!(
+    test_typeis_type_intersection,
+    r#"
+from typing import TypeIs, assert_type, final
+class Struct: ...
+class Point(Struct): ...
+@final
+class Other: ...
+def is_struct_type(tp: object) -> TypeIs[type[Struct]]: ...
+def f(tp: type[Point] | type[Other]) -> None:
+    if is_struct_type(tp):
+        assert_type(tp, type[Point])
+    else:
+        assert_type(tp, type[Other])
+    "#,
+);
+
+testcase!(
     test_narrow_and,
     r#"
 from typing import assert_type

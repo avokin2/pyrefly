@@ -205,6 +205,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             }
         } else if self.is_subset_eq(left, right) {
             left.clone()
+        } else if let (Type::Type(left), Type::Type(right)) = (left, right) {
+            let inner = self.intersect_with_fallback(left, right, &|| match fallback() {
+                Type::Type(fallback) => *fallback,
+                fallback if fallback.is_never() => fallback,
+                // Mixed union fallbacks like `type[A] | int` cannot be unwrapped for this leaf.
+                _ => (**right).clone(),
+            });
+            if inner.is_never() {
+                inner
+            } else {
+                self.heap.mk_type_of(inner)
+            }
         } else if let (Type::ClassType(cls), Type::SelfType(self_cls))
         | (Type::SelfType(self_cls), Type::ClassType(cls)) = (left, right)
             && self.as_superclass(cls, self_cls.class_object()).as_ref() == Some(self_cls)

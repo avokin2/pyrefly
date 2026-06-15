@@ -133,11 +133,18 @@ impl<'a> Transaction<'a> {
         for node in nodes {
             let candidate = match node {
                 AnyNodeRef::ExprSubscript(sub) => {
-                    if let Expr::StringLiteral(lit) = sub.slice.as_ref() {
-                        Some((sub.value.as_ref().clone(), lit.clone()))
-                    } else {
-                        None
-                    }
+                    // A complete `d["k"]` parses the slice as a string literal directly.
+                    // A half-typed `d["` recovers as a slice whose lower bound is the
+                    // (unclosed) string, so accept that form too.
+                    let literal = match sub.slice.as_ref() {
+                        Expr::StringLiteral(lit) => Some(lit),
+                        Expr::Slice(slice) => match slice.lower.as_deref() {
+                            Some(Expr::StringLiteral(lit)) => Some(lit),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    literal.map(|lit| (sub.value.as_ref().clone(), lit.clone()))
                 }
                 AnyNodeRef::ExprCall(call) => self.typed_dict_get_string_literal(handle, call),
                 _ => None,

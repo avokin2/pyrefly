@@ -1714,8 +1714,6 @@ Completion Results:
     );
 }
 
-// todo(kylei): completion on known dict values
-// Pyright completes "a", "b"
 #[test]
 fn completion_dict() {
     let code = r#"
@@ -1731,6 +1729,8 @@ x["
 3 | x["
       ^
 Completion Results:
+- (Field) a: Literal[3]
+- (Field) b: Literal[4]
 "#
         .trim(),
         report.trim(),

@@ -300,6 +300,12 @@ impl ClassFieldInitialization {
 #[derive(Debug, Clone, TypeEq, PartialEq, Eq, VisitMut)]
 pub struct ClassField(ClassFieldInner, IsInherited);
 
+pub enum ClassFieldVariance<'a> {
+    Method(&'a Type),
+    Property(&'a Type),
+    Field { ty: &'a Type, read_only: bool },
+}
+
 #[derive(Debug, Clone, TypeEq, PartialEq, Eq, VisitMut)]
 enum ClassFieldInner {
     /// Properties discovered via @property decorator.
@@ -454,6 +460,20 @@ impl ClassField {
             ClassFieldInner::InstanceAttribute { ty, annotation, .. } => {
                 (ty, annotation.as_ref(), self.is_read_only())
             }
+        }
+    }
+
+    pub fn variance_inference(&self) -> ClassFieldVariance<'_> {
+        match &self.0 {
+            ClassFieldInner::Method { ty, .. } => ClassFieldVariance::Method(ty),
+            ClassFieldInner::Property { ty, .. } => ClassFieldVariance::Property(ty),
+            ClassFieldInner::Descriptor { ty, .. }
+            | ClassFieldInner::NestedClass { ty, .. }
+            | ClassFieldInner::ClassAttribute { ty, .. }
+            | ClassFieldInner::InstanceAttribute { ty, .. } => ClassFieldVariance::Field {
+                ty,
+                read_only: self.is_read_only(),
+            },
         }
     }
 

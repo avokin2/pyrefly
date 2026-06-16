@@ -280,6 +280,26 @@ assert_type(f([1], [2]), list[int])
 );
 
 testcase!(
+    test_overloaded_shadow_builtin_range,
+    r#"
+from typing import overload
+
+class Block[T]:
+    pass
+
+@overload
+def range(stop: int) -> Block[int]: ...
+@overload
+def range(stop: int, stop2: int) -> Block[int]: ...
+def range(stop: int, stop2: int | None = None) -> Block[int]:
+    return Block()
+
+def f() -> Block[int]:
+    return range(1)  # E: Returned type `Block[int] | range`
+"#,
+);
+
+testcase!(
     test_unordered_defs,
     r#"
 def f() -> int:

@@ -430,9 +430,7 @@ impl<'a> BindingsBuilder<'a> {
                 if self.scopes.is_definitely_unreachable() {
                     return self.insert_binding(key, Binding::Any(AnyStyle::Implicit));
                 }
-                let suggestion = self
-                    .scopes
-                    .suggest_similar_name(&name.id, name.range.start());
+                let suggestion = self.suggest_similar_name(&name.id, name.range.start());
                 if is_special_name(name.id.as_str()) {
                     self.error(
                         name.range,

@@ -1529,22 +1529,31 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     && let Some(dm) = metadata.dataclass_metadata()
                     && let Expr::Call(call) = e
                 {
-                    // attrs `attr.ib(type=T)` / `field(type=T)` supplies the field's type
-                    // when there is no annotation. An annotation always wins (attrs rejects
-                    // both at runtime), so this only fires for an unannotated field.
-                    if direct_annotation.is_none()
-                        && matches!(&dm.kind, DataclassKind::Attrs { .. })
+                    // attrs `attr.ib(type=T)` / `field(type=T)` supplies the field's type when
+                    // unannotated; attrs raises `ValueError` at runtime if both are present.
+                    if matches!(&dm.kind, DataclassKind::Attrs { .. })
                         && let Some(type_expr) = call.arguments.find_keyword("type")
                     {
-                        let ty = self.untype(
-                            self.expr_infer(&type_expr.value, errors),
-                            type_expr.value.range(),
-                            errors,
-                        );
-                        direct_annotation = Some(Annotation {
-                            qualifiers: Vec::new(),
-                            ty: Some(ty),
-                        });
+                        if direct_annotation.is_some() {
+                            self.error(
+                                errors,
+                                range,
+                                ErrorKind::BadClassDefinition,
+                                format!(
+                                    "`{name}` cannot have both a type annotation and a `type` argument"
+                                ),
+                            );
+                        } else {
+                            let ty = self.untype(
+                                self.expr_infer(&type_expr.value, errors),
+                                type_expr.value.range(),
+                                errors,
+                            );
+                            direct_annotation = Some(Annotation {
+                                qualifiers: Vec::new(),
+                                ty: Some(ty),
+                            });
+                        }
                     }
                     let flags = self.compute_dataclass_field_initialization(call, dm);
                     // A bare assignment of a `field()` specifier with no type annotation is a runtime error in CPython

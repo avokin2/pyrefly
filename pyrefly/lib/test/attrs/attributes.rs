@@ -259,6 +259,44 @@ Sub()  # E: Missing argument `a`
 "#,
 );
 
+// attrs raises `ValueError` at runtime if a field has both a type annotation and a
+// `type=` argument. Matching types are used so the only error is the conflict itself.
+attrs_testcase!(
+    test_attrs_attrib_type_and_annotation_conflict,
+    r#"
+import attr
+
+@attr.s
+class C:
+    x: int = attr.ib(type=int)  # E: both a type annotation and a `type` argument
+"#,
+);
+
+// The conflict applies to the modern API too: next-gen `field()` under `@define`.
+attrs_testcase!(
+    test_attrs_field_type_and_annotation_conflict_define,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field(type=int)  # E: both a type annotation and a `type` argument
+"#,
+);
+
+// The conflict is reported regardless of whether the annotation and `type=` agree. The
+// extra assignment error comes from the general annotated-assignment check, not attrs.
+attrs_testcase!(
+    test_attrs_attrib_type_and_annotation_conflict_mismatch,
+    r#"
+import attr
+
+@attr.s
+class C:
+    x: int = attr.ib(type=str)  # E: both a type annotation and a `type` argument # E: `str` is not assignable to `int`
+"#,
+);
+
 // Scoping: `type=` handling is attrs-only. A stdlib `@dataclass` is unaffected
 // (`dataclasses.field` has no `type=`), so `x` does not become a typed field.
 attrs_testcase!(

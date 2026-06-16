@@ -693,13 +693,15 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
         let strict: Option<bool> = map.0.get(&STRICT).and_then(|v| v.as_bool());
 
-        let mut converter_param = map
+        // Read the converter from an explicit `converter=` argument only, not the specifier
+        // signature (which always declares one) — else every plain field's param goes Unknown.
+        let converter_param = map
             .0
             .get(&DataclassFieldKeywords::CONVERTER)
             .map(|converter| self.get_converter_param(converter));
         // Note that we intentionally don't try to fill in `default`, since we can't distinguish
         // between a real default and something like `dataclasses.MISSING`.
-        if init.is_none() || kw_only.is_none() || alias.is_none() || converter_param.is_none() {
+        if init.is_none() || kw_only.is_none() || alias.is_none() {
             self.fill_in_field_keywords_from_function_signature(
                 func,
                 args,
@@ -712,7 +714,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 &mut init,
                 &mut kw_only,
                 &mut alias,
-                &mut converter_param,
             );
         }
         DataclassFieldKeywords {
@@ -741,7 +742,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         init: &mut Option<bool>,
         kw_only: &mut Option<bool>,
         alias: &mut Option<Name>,
-        converter_param: &mut Option<Type>,
     ) {
         // Class-based field specifiers (e.g. `field_specifiers=(CustomField,)`) need to be
         // resolved to their constructor callable so that we can read keyword defaults from
@@ -806,9 +806,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         Type::Literal(lit) if let Lit::Str(s) = &lit.value => Some(Name::new(s)),
                         _ => None,
                     });
-                }
-                if converter_param.is_none() && name == &DataclassFieldKeywords::CONVERTER {
-                    *converter_param = Some(self.get_converter_param(ty));
                 }
             }
         }

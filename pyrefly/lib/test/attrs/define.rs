@@ -106,14 +106,10 @@ assert_type(c.y, int | None)
 "#,
 );
 
-// `c.x` is correctly `int`, but the synthesized `__init__` params come out `Unknown`.
-// Cause: attrs' `field()` has a `converter` parameter, so `as_param` uses the (empty)
-// converter's input type instead of the field's declared type. Field specifiers without
-// a `converter` (plain dataclasses, custom transforms) keep the annotation. Same root
-// cause as `attributes::test_attrs_attrib_fail`. When fixed, drop the `bug` marker and
-// flip the expectation to `(self: C, x: int, y: int = ...)`.
+// `field()` with an explicit annotation and no `converter`: the synthesized `__init__`
+// param types are the declared annotations. (A converter is only read from an explicit
+// `converter=` argument, never from the field specifier's signature.)
 attrs_testcase!(
-    bug = "field() annotation not propagated into synthesized __init__; params are Unknown, it should be (self: C, x: int, y: int = ...)",
     test_attrs_define_field_init_signature,
     r#"
 from typing import reveal_type
@@ -124,7 +120,7 @@ class C:
     x: int = field()
     y: int = field(default=0)
 
-reveal_type(C.__init__)  # E: revealed type: (self: C, x: Unknown, y: Unknown = ...) -> None
+reveal_type(C.__init__)  # E: revealed type: (self: C, x: int, y: int = ...) -> None
 "#,
 );
 
@@ -218,10 +214,9 @@ assert_type(B(1).x, int)
 "#,
 );
 
-// Same `converter`-parameter bug as `field()`: an `attr.ib()` field's `__init__` param
-// is `Unknown`, though the attribute type is read correctly.
+// A classic `attr.ib()` field with an explicit annotation and no `converter`: the
+// `__init__` param type is the declared annotation.
 attrs_testcase!(
-    bug = "classic attr.ib() fields get Unknown __init__ params; should be (self: C, x: int)",
     test_attrs_classic_s_no_auto_attribs,
     r#"
 from typing import reveal_type
@@ -231,7 +226,7 @@ import attr
 class C:
     x: int = attr.ib()
 
-reveal_type(C.__init__)  # E: revealed type: (self: C, x: Unknown) -> None
+reveal_type(C.__init__)  # E: revealed type: (self: C, x: int) -> None
 "#,
 );
 

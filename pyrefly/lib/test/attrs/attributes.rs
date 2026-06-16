@@ -66,10 +66,8 @@ assert_type(A().y, int | None)
 "#,
 );
 
-// Explicit `auto_attribs=False` matches the default, and only `attr.ib()`-assigned
-// names become fields. (The `x` param type is `Unknown` due to a separate,
-// pre-existing `attr.ib()` converter-inference bug; the point here is that `x` is a
-// field and the bare `y` is not.)
+// Explicit `auto_attribs=False` matches the default: only `attr.ib()`-assigned names
+// become fields; the bare `y` is not a field.
 attrs_testcase!(
     test_attrs_classic_s_explicit_no_auto_attribs,
     r#"
@@ -81,7 +79,7 @@ class A:
     x: int = attr.ib()
     y: int
 
-reveal_type(A.__init__)  # E: revealed type: (self: A, x: Unknown) -> None
+reveal_type(A.__init__)  # E: revealed type: (self: A, x: int) -> None
 "#,
 );
 
@@ -161,8 +159,7 @@ assert_type(a.y, int | None)
 );
 
 attrs_testcase!(
-    bug = "attr.ib inferred as Unknown in __init__ function",
-    test_attrs_attrib_fail,
+    test_attrs_attrib_init_signature,
     r#"
 from typing import assert_type, reveal_type
 
@@ -173,7 +170,7 @@ class A:
     x: int = attr.ib()
     y: int | None = attr.ib(None)
 
-reveal_type(A.__init__)  # E: revealed type: (self: A, x: Unknown, y: Unknown = ...) -> None
+reveal_type(A.__init__)  # E: revealed type: (self: A, x: int, y: int | None = ...) -> None
 "#,
 );
 

@@ -17,13 +17,14 @@ use crate::attrs_testcase;
 //   - `@define` / `@attrs.define` / `@attr.define`           (modern, mutable)
 //   - `@mutable` / `@attrs.mutable` / `@attr.mutable`        (alias of define)
 //   - `@frozen` / `@attrs.frozen` / `@attr.frozen`           (frozen_default=True)
-//   - `@attr.s(auto_attribs=True)` / `@attr.attrs` / `@attr.attributes`
+//   - `@attr.s` / `@attr.s()` / `@attr.attrs` / `@attr.attributes` (auto_attribs=False:
+//     only `attr.ib()`/`field()` assignments are fields, bare annotations ignored)
+//   - `@attr.s(auto_attribs=True)` / `@attr.dataclass`       (auto_attribs=True)
 //   - per-decorator default keywords: order_default (classic), frozen_default,
 //     no-order (define)
 //
 // NOT handled (bug-marked tests below):
 //   - `field()` / `attr.ib()` specifier params -> `Unknown` (converter-param leak)
-//   - `@attr.s()` with `auto_attribs=False` -> bare annotations wrongly become fields
 
 // `@define`: fields come from annotations (auto_attribs is implicit).
 attrs_testcase!(
@@ -234,11 +235,7 @@ reveal_type(C.__init__)  # E: revealed type: (self: C, x: Unknown) -> None
 "#,
 );
 
-// `auto_attribs=False` (the `@attr.s()` default) is not modeled: bare annotations have
-// no `attr.ib()`, so there should be no fields and init should be `(self: C)`, but
-// pyrefly wrongly treats the annotations as fields.
 attrs_testcase!(
-    bug = "auto_attribs=False not modeled; bare annotations wrongly become fields (init should be (self: C))",
     test_attrs_classic_s_no_auto_attribs_ignores_annotations,
     r#"
 from typing import reveal_type
@@ -249,7 +246,7 @@ class C:
     x: int
     y: int
 
-reveal_type(C.__init__)  # E: revealed type: (self: C, x: int, y: int) -> None
+reveal_type(C.__init__)  # E: revealed type: (self: C) -> None
 "#,
 );
 

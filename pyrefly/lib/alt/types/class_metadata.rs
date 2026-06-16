@@ -617,6 +617,9 @@ pub struct DataclassMetadata {
     pub default_can_be_positional: bool,
     /// Fields targeted by `@field_validator(mode='before'|'plain')`, including inherited.
     pub pydantic_before_validator_fields: SmallSet<Name>,
+    /// attrs only: `Some(false)` (classic `@attr.s`) collects only
+    /// `attr.ib()`/`field()` names as fields; `Some(true)`/`None` is annotation-driven, like `@dataclass`.
+    pub attrs_auto_attribs: Option<bool>,
 }
 
 impl DataclassMetadata {

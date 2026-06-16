@@ -134,7 +134,7 @@ assert_bytes!(BindingClassSynthesizedFields, 4);
 assert_bytes!(BindingLegacyTypeParam, 16);
 assert_words!(BindingYield, 4);
 assert_words!(BindingYieldFrom, 4);
-assert_words!(BindingDecorator, 10);
+assert_words!(BindingDecorator, 13);
 assert_bytes!(BindingDecoratedFunction, 20);
 assert_words!(BindingUndecoratedFunction, 20);
 
@@ -1791,6 +1791,7 @@ pub enum FunctionStubOrImpl {
 #[derive(Clone, Debug)]
 pub struct BindingDecorator {
     pub expr: Expr,
+    pub trailing_name: Option<Name>,
 }
 
 impl DisplayWith<Bindings> for BindingDecorator {

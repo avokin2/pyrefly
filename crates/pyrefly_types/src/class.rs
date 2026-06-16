@@ -86,6 +86,7 @@ pub struct ClassFieldProperties {
     is_initialized_on_class: bool,
     // The field is defined in the class body (not in a method via self.x = ...)
     is_defined_in_class_body: bool,
+    is_attrs_field_specifier: bool,
     range: TextRange,
     // The range of the docstring following this field, if present
     docstring_range: Option<TextRange>,
@@ -101,6 +102,7 @@ impl ClassFieldProperties {
         is_annotated: bool,
         has_default_value: bool,
         is_defined_in_class_body: bool,
+        is_attrs_field_specifier: bool,
         range: TextRange,
         docstring_range: Option<TextRange>,
     ) -> Self {
@@ -108,6 +110,7 @@ impl ClassFieldProperties {
             is_annotated,
             is_initialized_on_class: has_default_value,
             is_defined_in_class_body,
+            is_attrs_field_specifier,
             range,
             docstring_range,
         }
@@ -173,6 +176,12 @@ impl ClassFields {
 
     pub fn is_field_annotated(&self, name: &Name) -> bool {
         self.0.get(name).is_some_and(|prop| prop.is_annotated)
+    }
+
+    pub fn is_attrs_field_specifier(&self, name: &Name) -> bool {
+        self.0
+            .get(name)
+            .is_some_and(|prop| prop.is_attrs_field_specifier)
     }
 
     pub fn is_field_initialized_on_class(&self, name: &Name) -> bool {

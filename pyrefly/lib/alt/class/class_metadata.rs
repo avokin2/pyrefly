@@ -942,6 +942,30 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         dataclass_transform_metadata
     }
 
+    /// The default `auto_attribs` for an attrs decorator that doesn't set it, based
+    /// on the decorator's name: `False` for `attr.s`/`attrs`/`attributes`, `True`
+    /// for `define`/`frozen`/`mutable`. Other names fall back to `!order_default`.
+    ///
+    /// `@attr.dataclass` is undocumented and aliased to `attr.s`, so it's matched by
+    /// name: same as `attr.s` but defaults `auto_attribs` to `True`.
+    fn attrs_default_auto_attribs(&self, decorator_range: TextRange, order_default: bool) -> bool {
+        let Some(idx) = self
+            .bindings()
+            .key_to_idx_hashed_opt(Hashed::new(&KeyDecorator(decorator_range)))
+        else {
+            // Can't recover the decorator name; fall back to the transform default.
+            return !order_default;
+        };
+        let binding = self.bindings().get::<KeyDecorator>(idx);
+        match binding.trailing_name.as_ref().map(Name::as_str) {
+            Some("s" | "attrs" | "attributes") => false,
+            Some("define" | "mutable" | "frozen" | "dataclass") => true,
+            // Unknown decorator: attrs sets `order_default` only on its classic
+            // decorators, so it stands in for "classic" here.
+            _ => !order_default,
+        }
+    }
+
     fn dataclass_from_dataclass_transform(
         &self,
         keywords: &[(Name, Annotation)],
@@ -986,19 +1010,29 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
             dataclass_from_dataclass_transform = Some((kws, defaults.field_specifiers));
         }
-        for (decorator, _) in decorators {
+        for (decorator, decorator_range) in decorators {
             // `@foo` where `foo` is decorated with `@dataclass_transform(...)`
             if let Some(defaults) = decorator.ty.dataclass_transform_metadata() {
-                let kws =
+                let mut kws =
                     DataclassKeywords::from_type_map(&TypeMap::new(), defaults, strict_default);
+                if kws.auto_attribs.is_none() {
+                    kws.auto_attribs = Some(
+                        self.attrs_default_auto_attribs(*decorator_range, defaults.order_default),
+                    );
+                }
                 dataclass_from_dataclass_transform = Some((kws, defaults.field_specifiers.clone()));
             }
             // `@foo(...)` where `foo` is decorated with `@dataclass_transform(...)`
             else if let Type::KwCall(call) = &decorator.ty
                 && let Some(defaults) = &call.func_metadata.flags.dataclass_transform_metadata
             {
-                let kws =
+                let mut kws =
                     DataclassKeywords::from_type_map(&call.keywords, defaults, strict_default);
+                if kws.auto_attribs.is_none() {
+                    kws.auto_attribs = Some(
+                        self.attrs_default_auto_attribs(*decorator_range, defaults.order_default),
+                    );
+                }
                 dataclass_from_dataclass_transform = Some((kws, defaults.field_specifiers.clone()));
             }
         }
@@ -1157,7 +1191,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 // `@dataclass`
                 Some(CalleeKind::Function(FunctionKind::Dataclass)) => {
                     has_dataclass_decorator = true;
-                    let fields = self.get_dataclass_fields(cls, bases_with_metadata);
+                    let fields = self.get_dataclass_fields(cls, bases_with_metadata, false);
                     let pseudo_field_names = self.get_dataclass_pseudo_field_names(
                         cls,
                         bases_with_metadata,
@@ -1178,6 +1212,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         init_defaults: init_defaults.clone(),
                         default_can_be_positional,
                         pydantic_before_validator_fields: SmallSet::new(),
+                        attrs_auto_attribs: None,
                     });
                 }
                 // `@dataclass(...)`
@@ -1185,7 +1220,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     && call.has_function_kind(FunctionKind::Dataclass) =>
                 {
                     has_dataclass_decorator = true;
-                    let fields = self.get_dataclass_fields(cls, bases_with_metadata);
+                    let fields = self.get_dataclass_fields(cls, bases_with_metadata, false);
                     let pseudo_field_names = self.get_dataclass_pseudo_field_names(
                         cls,
                         bases_with_metadata,
@@ -1209,6 +1244,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         init_defaults: init_defaults.clone(),
                         default_can_be_positional,
                         pydantic_before_validator_fields: SmallSet::new(),
+                        attrs_auto_attribs: None,
                     });
                 }
                 _ => {}
@@ -1270,19 +1306,29 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             // TODO: a transform-derived spec silently drops the explicit
             // `@dataclass(...)` kws from the loop above. Needs a merge policy.
             has_fresh_local_slots_decorator = kws.slots;
+            // `auto_attribs` only applies to attrs classes.
+            let attrs_auto_attribs = if is_attrs_class {
+                kws.auto_attribs
+            } else {
+                None
+            };
+            let fields = self.get_dataclass_fields(
+                cls,
+                bases_with_metadata,
+                attrs_auto_attribs == Some(false),
+            );
+            let pseudo_field_names =
+                self.get_dataclass_pseudo_field_names(cls, bases_with_metadata, pydantic_config);
             dataclass_metadata = Some(DataclassMetadata {
-                fields: self.get_dataclass_fields(cls, bases_with_metadata),
-                pseudo_field_names: self.get_dataclass_pseudo_field_names(
-                    cls,
-                    bases_with_metadata,
-                    pydantic_config,
-                ),
+                fields,
+                pseudo_field_names,
                 kws,
                 field_specifiers,
                 alias_keyword,
                 init_defaults,
                 default_can_be_positional,
                 pydantic_before_validator_fields: inherited_before_validator_fields,
+                attrs_auto_attribs,
             });
         }
         (dataclass_metadata, has_fresh_local_slots_decorator)

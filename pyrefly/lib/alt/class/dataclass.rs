@@ -61,10 +61,15 @@ use crate::types::types::Type;
 
 impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     /// Gets dataclass fields for an `@dataclass`-decorated class.
+    ///
+    /// `attrs_initializer_only` selects attrs `auto_attribs=False` collection (only
+    /// `attr.ib()`/`field()` assignments are fields, via a flag computed at binding
+    /// time); otherwise collection is annotation-driven.
     pub fn get_dataclass_fields(
         &self,
         cls: &Class,
         bases_with_metadata: &[(Class, Arc<ClassMetadata>)],
+        attrs_initializer_only: bool,
     ) -> SmallSet<Name> {
         let mut all_fields = SmallSet::new();
         for (_, metadata) in bases_with_metadata.iter().rev() {
@@ -74,7 +79,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
         if let Some(class_fields) = self.get_class_fields(cls) {
             for name in class_fields.class_body_fields() {
-                if class_fields.is_field_annotated(name) {
+                let is_field = if attrs_initializer_only {
+                    class_fields.is_attrs_field_specifier(name)
+                } else {
+                    class_fields.is_field_annotated(name)
+                };
+                if is_field {
                     all_fields.insert(name.clone());
                 }
             }

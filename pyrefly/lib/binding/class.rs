@@ -468,12 +468,24 @@ impl<'a> BindingsBuilder<'a> {
 
             let docstring_range = field_docstrings.get(&range).copied();
 
+            // Recognize attrs field-specifier calls (`x = attr.ib()` / `field()`)
+            // here, while we still have the AST, so the solving stage can read a flag.
+            let is_attrs_field_specifier =
+                if let ClassFieldDefinition::AssignedInBody { value, .. } = &definition
+                    && let ExprOrBinding::Expr(Expr::Call(call)) = value.as_ref()
+                {
+                    self.as_special_export(&call.func) == Some(SpecialExport::AttrsField)
+                } else {
+                    false
+                };
+
             fields.insert_hashed(
                 name.clone(),
                 ClassFieldProperties::new(
                     is_annotated,
                     is_initialized_on_class,
                     is_defined_in_class_body,
+                    is_attrs_field_specifier,
                     range,
                     docstring_range,
                 ),
@@ -1078,7 +1090,8 @@ impl<'a> BindingsBuilder<'a> {
                 ClassFieldProperties::new(
                     member_annotation.is_some() || class_kind == SynthesizedClassKind::NamedTuple,
                     member_value.is_some(),
-                    true, // Synthesized fields are class body fields
+                    true,  // Synthesized fields are class body fields
+                    false, // Synthesized fields are never attrs field specifiers
                     range,
                     None, // Synthesized fields don't have docstrings
                 ),

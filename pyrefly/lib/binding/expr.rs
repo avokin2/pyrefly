@@ -1417,9 +1417,13 @@ impl<'a> BindingsBuilder<'a> {
         let mut decorator_keys = Vec::with_capacity(decorators.len());
         for mut x in decorators {
             self.ensure_expr(&mut x.expression, usage);
+            let trailing_name = Ast::decorator_trailing_name(&x.expression).map(Name::new);
             let k = self.insert_binding(
                 KeyDecorator(x.range),
-                BindingDecorator { expr: x.expression },
+                BindingDecorator {
+                    expr: x.expression,
+                    trailing_name,
+                },
             );
             decorator_keys.push(k);
         }

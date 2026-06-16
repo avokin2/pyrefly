@@ -85,6 +85,41 @@ reveal_type(A.__init__)  # E: revealed type: (self: A, x: Unknown) -> None
 "#,
 );
 
+// `attr.attr` is an alias of `attr.attrib` and must be a recognized field specifier.
+// Checked via construction (not the inferred param type) to stay robust to the separate
+// converter-inference fix that changes these params from `Unknown` to their annotation.
+attrs_testcase!(
+    test_attrs_attr_alias_field_specifier,
+    r#"
+import attr
+
+@attr.s
+class A:
+    x: int = attr.ib()
+    y: int = attr.attr()
+
+A(x=1, y=2)  # `y` (attr.attr) is a field, so it is an init parameter
+"#,
+);
+
+// An inherited `attr.attr()` field becomes an init parameter on the subclass.
+attrs_testcase!(
+    test_attrs_attr_alias_field_specifier_inherited,
+    r#"
+import attr
+
+@attr.s
+class Base:
+    a: int = attr.attr()
+
+@attr.s
+class Sub(Base):
+    b: int = attr.ib()
+
+Sub(a=1, b=2)  # inherited `a` (attr.attr) is an init parameter
+"#,
+);
+
 // `@attr.dataclass` aliases the classic `attrs` stub function (`dataclass = attrs`)
 // but is `partial(attrs, auto_attribs=True)`, so unlike `@attr.s` it IS
 // annotation-driven: bare annotations are fields. We distinguish it from `@attr.s`

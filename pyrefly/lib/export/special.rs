@@ -144,7 +144,7 @@ impl SpecialExport {
             "shaped_array" => Some(Self::ShapedArray),
             "Sentinel" => Some(Self::Sentinel),
             "sentinel" => Some(Self::BuiltinsSentinel),
-            "attrib" | "ib" | "field" => Some(Self::AttrsField),
+            "attr" | "attrib" | "ib" | "field" => Some(Self::AttrsField),
             _ => None,
         }
     }

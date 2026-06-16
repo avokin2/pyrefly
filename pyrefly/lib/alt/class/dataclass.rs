@@ -31,6 +31,7 @@ use crate::alt::class::class_field::DataclassMember;
 use crate::alt::types::class_metadata::ClassMetadata;
 use crate::alt::types::class_metadata::ClassSynthesizedField;
 use crate::alt::types::class_metadata::ClassSynthesizedFields;
+use crate::alt::types::class_metadata::DataclassKind;
 use crate::alt::types::class_metadata::DataclassMetadata;
 use crate::alt::types::pydantic::PydanticModelKind;
 use crate::alt::unwrap::HintRef;
@@ -60,17 +61,22 @@ use crate::types::literal::Lit;
 use crate::types::types::Type;
 
 impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
-    /// Gets dataclass fields for an `@dataclass`-decorated class.
-    ///
-    /// `attrs_initializer_only` selects attrs `auto_attribs=False` collection (only
-    /// `attr.ib()`/`field()` assignments are fields, via a flag computed at binding
-    /// time); otherwise collection is annotation-driven.
+    /// Gets dataclass fields for an `@dataclass`-decorated class. attrs with
+    /// `auto_attribs=False` collects only `attr.ib()`/`field()` assignments;
+    /// every other kind is annotation-driven.
     pub fn get_dataclass_fields(
         &self,
         cls: &Class,
         bases_with_metadata: &[(Class, Arc<ClassMetadata>)],
-        attrs_initializer_only: bool,
+        kind: &DataclassKind,
     ) -> SmallSet<Name> {
+        let attrs_initializer_only = matches!(
+            kind,
+            DataclassKind::Attrs {
+                auto_attribs: Some(false),
+                ..
+            }
+        );
         let mut all_fields = SmallSet::new();
         for (_, metadata) in bases_with_metadata.iter().rev() {
             if let Some(dataclass) = metadata.dataclass_metadata() {

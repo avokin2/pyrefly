@@ -44,6 +44,7 @@ use crate::alt::types::abstract_class::AbstractClassMembers;
 use crate::alt::types::class_metadata::ClassDisjointBase;
 use crate::alt::types::class_metadata::ClassMetadata;
 use crate::alt::types::class_metadata::ClassMro;
+use crate::alt::types::class_metadata::DataclassKind;
 use crate::alt::types::class_metadata::DataclassMetadata;
 use crate::alt::types::class_metadata::DjangoModelMetadata;
 use crate::alt::types::class_metadata::EnumMetadata;
@@ -1191,7 +1192,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 // `@dataclass`
                 Some(CalleeKind::Function(FunctionKind::Dataclass)) => {
                     has_dataclass_decorator = true;
-                    let fields = self.get_dataclass_fields(cls, bases_with_metadata, false);
+                    let kind = DataclassKind::Dataclass {
+                        field_specifiers: vec![
+                            CalleeKind::Function(FunctionKind::DataclassField),
+                            CalleeKind::Class(ClassKind::DataclassField),
+                        ],
+                    };
+                    let fields = self.get_dataclass_fields(cls, bases_with_metadata, &kind);
                     let pseudo_field_names = self.get_dataclass_pseudo_field_names(
                         cls,
                         bases_with_metadata,
@@ -1204,15 +1211,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         fields,
                         pseudo_field_names,
                         kws,
-                        field_specifiers: vec![
-                            CalleeKind::Function(FunctionKind::DataclassField),
-                            CalleeKind::Class(ClassKind::DataclassField),
-                        ],
                         alias_keyword: alias_keyword.clone(),
                         init_defaults: init_defaults.clone(),
                         default_can_be_positional,
                         pydantic_before_validator_fields: SmallSet::new(),
-                        attrs_auto_attribs: None,
+                        kind,
                     });
                 }
                 // `@dataclass(...)`
@@ -1220,7 +1223,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     && call.has_function_kind(FunctionKind::Dataclass) =>
                 {
                     has_dataclass_decorator = true;
-                    let fields = self.get_dataclass_fields(cls, bases_with_metadata, false);
+                    let kind = DataclassKind::Dataclass {
+                        field_specifiers: vec![
+                            CalleeKind::Function(FunctionKind::DataclassField),
+                            CalleeKind::Class(ClassKind::DataclassField),
+                        ],
+                    };
+                    let fields = self.get_dataclass_fields(cls, bases_with_metadata, &kind);
                     let pseudo_field_names = self.get_dataclass_pseudo_field_names(
                         cls,
                         bases_with_metadata,
@@ -1236,15 +1245,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         fields,
                         pseudo_field_names,
                         kws,
-                        field_specifiers: vec![
-                            CalleeKind::Function(FunctionKind::DataclassField),
-                            CalleeKind::Class(ClassKind::DataclassField),
-                        ],
                         alias_keyword: alias_keyword.clone(),
                         init_defaults: init_defaults.clone(),
                         default_can_be_positional,
                         pydantic_before_validator_fields: SmallSet::new(),
-                        attrs_auto_attribs: None,
+                        kind,
                     });
                 }
                 _ => {}
@@ -1306,29 +1311,26 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             // TODO: a transform-derived spec silently drops the explicit
             // `@dataclass(...)` kws from the loop above. Needs a merge policy.
             has_fresh_local_slots_decorator = kws.slots;
-            // `auto_attribs` only applies to attrs classes.
-            let attrs_auto_attribs = if is_attrs_class {
-                kws.auto_attribs
+            let kind = if is_attrs_class {
+                DataclassKind::Attrs {
+                    auto_attribs: kws.auto_attribs,
+                    field_specifiers,
+                }
             } else {
-                None
+                DataclassKind::Dataclass { field_specifiers }
             };
-            let fields = self.get_dataclass_fields(
-                cls,
-                bases_with_metadata,
-                attrs_auto_attribs == Some(false),
-            );
+            let fields = self.get_dataclass_fields(cls, bases_with_metadata, &kind);
             let pseudo_field_names =
                 self.get_dataclass_pseudo_field_names(cls, bases_with_metadata, pydantic_config);
             dataclass_metadata = Some(DataclassMetadata {
                 fields,
                 pseudo_field_names,
                 kws,
-                field_specifiers,
                 alias_keyword,
                 init_defaults,
                 default_can_be_positional,
                 pydantic_before_validator_fields: inherited_before_validator_fields,
-                attrs_auto_attribs,
+                kind,
             });
         }
         (dataclass_metadata, has_fresh_local_slots_decorator)

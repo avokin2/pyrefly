@@ -167,6 +167,15 @@ fn class_qualified_name(
     }
 }
 
+/// The module name with a trailing `.`, or empty for the unknown module; prefixed to symbol FQNs.
+fn module_prefix(module: &Module) -> String {
+    if module.name() != ModuleName::unknown() {
+        format!("{}.", module.name())
+    } else {
+        String::new()
+    }
+}
+
 /// Merge overloads with the same qualified name into one entry,
 /// keeping the best annotation quality per deduplicated slot.
 fn merge_overloads(functions: &mut Vec<Function>) {
@@ -495,11 +504,7 @@ fn parse_variables(
         }
     }
 
-    let module_prefix = if module.name() != ModuleName::unknown() {
-        format!("{}.", module.name())
-    } else {
-        String::new()
-    };
+    let module_prefix = module_prefix(module);
     let deleted = bindings.module_deletes();
     // Collect names already reported as functions or classes so we can skip them.
     let reported_names: SmallSet<&str> = functions
@@ -606,11 +611,7 @@ fn parse_instance_attrs(
     tco_classes: &SmallSet<Idx<KeyClass>>,
 ) -> Vec<Variable> {
     let mut attrs = Vec::new();
-    let module_prefix = if module.name() != ModuleName::unknown() {
-        format!("{}.", module.name())
-    } else {
-        String::new()
-    };
+    let module_prefix = module_prefix(module);
 
     for field_idx in bindings.keys::<KeyClassField>() {
         let field = bindings.get(field_idx);
@@ -696,11 +697,7 @@ fn parse_functions(
     tco_classes: &SmallSet<Idx<KeyClass>>,
 ) -> Vec<Function> {
     let mut functions = Vec::new();
-    let module_prefix = if module.name() != ModuleName::unknown() {
-        format!("{}.", module.name())
-    } else {
-        String::new()
-    };
+    let module_prefix = module_prefix(module);
     let deleted = bindings.module_deletes();
 
     for idx in bindings.keys::<Key>() {
@@ -1159,11 +1156,7 @@ fn parse_classes(
     tco_classes: &SmallSet<Idx<KeyClass>>,
 ) -> Vec<ReportClass> {
     let mut classes = Vec::new();
-    let module_prefix = if module.name() != ModuleName::unknown() {
-        format!("{}.", module.name())
-    } else {
-        String::new()
-    };
+    let module_prefix = module_prefix(module);
     let deleted = bindings.module_deletes();
 
     // group method definitions by class
@@ -1308,11 +1301,7 @@ fn collect_class_members(
     handle: &Handle,
     tco_classes: &SmallSet<Idx<KeyClass>>,
 ) -> SmallSet<String> {
-    let fqname_prefix = if module.name() != ModuleName::unknown() {
-        format!("{}.", module.name())
-    } else {
-        String::new()
-    };
+    let fqname_prefix = module_prefix(module);
 
     let mut members = SmallSet::new();
     for idx in bindings.keys::<KeyClass>() {
@@ -1361,11 +1350,7 @@ fn collect_reexport_fqns(
     exports_data: &Exports,
     dunder_all: &SmallSet<Name>,
 ) -> SmallSet<String> {
-    let module_prefix = if module.name() != ModuleName::unknown() {
-        format!("{}.", module.name())
-    } else {
-        String::new()
-    };
+    let module_prefix = module_prefix(module);
     exports
         .iter()
         .filter(|&(name, loc)| {

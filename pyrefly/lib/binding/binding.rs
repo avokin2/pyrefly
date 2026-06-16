@@ -2738,6 +2738,9 @@ impl Binding {
             Binding::IterableValueComprehension(_, _, _) | Binding::IterableValueLoop(_, _, _) => {
                 Some(SymbolKind::Variable)
             }
+            Binding::ContextValue(_, _, _, _) | Binding::ExceptionHandler(_, _) => {
+                Some(SymbolKind::Variable)
+            }
             // Receiver-constrained multi-target / unpacked rebinds are
             // class-shaped — match the `NameAssign` path above.
             Binding::MultiTargetAssign(_, _, _, Some(_))
@@ -2750,7 +2753,6 @@ impl Binding {
             | Binding::ReturnExplicit(_)
             | Binding::ReturnImplicit(_)
             | Binding::ReturnType(_)
-            | Binding::ContextValue(_, _, _, _)
             | Binding::AnnotatedType(_, _)
             | Binding::None
             | Binding::Any(_)
@@ -2763,7 +2765,6 @@ impl Binding {
             | Binding::PatternMatchMapping(_, _)
             | Binding::PatternMatchClassPositional(_, _, _, _)
             | Binding::PatternMatchClassKeyword(_)
-            | Binding::ExceptionHandler(_, _)
             | Binding::SuperInstance(_)
             | Binding::AssignToAttribute(_)
             | Binding::UsageLink(_)

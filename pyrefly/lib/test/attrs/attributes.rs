@@ -174,14 +174,21 @@ reveal_type(A.__init__)  # E: revealed type: (self: A, x: int, y: int | None = .
 "#,
 );
 
+// Classic `@attr.s` (`auto_attribs=False`): an unannotated `attr.ib()` is a field, so it
+// becomes an `__init__` parameter without requiring a type annotation. The type is `Any`
+// when nothing constrains it, or inferred from `default`.
 attrs_testcase!(
     test_attrs_unannotated_attrib_ok,
     r#"
+from typing import reveal_type
 import attr
 @attr.s()
 class A:
     x = attr.ib()  # !E: type annotation
     y = attr.ib(default=0)  # !E: type annotation
+
+reveal_type(A.__init__)  # E: revealed type: (self: A, x: Any, y: int = ...) -> None
+A()  # E: Missing argument `x`
 "#,
 );
 
@@ -229,6 +236,26 @@ class Sub(Base):
     b = attr.ib(type=str)
 
 reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, a: int, b: str) -> None
+"#,
+);
+
+// An unannotated `attr.ib()` inherited from a classic-attrs base is a parameter of the
+// subclass `__init__`, so the field's metadata is resolved against its defining class.
+attrs_testcase!(
+    test_attrs_unannotated_attrib_inherited,
+    r#"
+import attr
+
+@attr.s
+class Base:
+    a = attr.ib()
+
+@attr.s
+class Sub(Base):
+    b = attr.ib(default=0)
+
+Sub(1)
+Sub()  # E: Missing argument `a`
 "#,
 );
 

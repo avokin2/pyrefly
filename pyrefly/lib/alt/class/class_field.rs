@@ -3878,16 +3878,25 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     ) -> Option<WithDefiningClass<Arc<ClassField>>> {
         self.get_field_from_mro(cls, name, &|cls, name| {
             let field = self.get_non_synthesized_field_from_current_class_only(cls, name)?;
-            if !field.has_explicit_annotation()
-                || matches!(
-                    field.initialization(),
-                    ClassFieldInitialization::Method | ClassFieldInitialization::ClassMethod
-                )
-            {
-                None
-            } else {
-                Some(field)
+            if matches!(
+                field.initialization(),
+                ClassFieldInitialization::Method | ClassFieldInitialization::ClassMethod
+            ) {
+                return None;
             }
+            let recognized = field.has_explicit_annotation()
+                || (matches!(
+                    self.get_metadata_for_class(cls)
+                        .dataclass_metadata()
+                        .map(|dm| &dm.kind),
+                    Some(DataclassKind::Attrs {
+                        auto_attribs: Some(false),
+                        ..
+                    })
+                ) && self
+                    .get_class_fields(cls)
+                    .is_some_and(|f| f.is_attrs_field_specifier(name)));
+            recognized.then_some(field)
         })
     }
 

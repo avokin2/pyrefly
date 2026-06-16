@@ -54,6 +54,7 @@ use crate::alt::callable::CallArg;
 use crate::alt::expr::TypeOrExpr;
 use crate::alt::types::class_bases::ClassBases;
 use crate::alt::types::class_metadata::ClassMetadata;
+use crate::alt::types::class_metadata::DataclassKind;
 use crate::alt::types::class_metadata::DataclassMetadata;
 use crate::alt::types::instance::Instance;
 use crate::alt::types::instance::InstanceKind;
@@ -1509,7 +1510,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 annotation: annot,
                 ..
             } => {
-                let direct_annotation = annot.map(|a| self.get_idx(a).annotation.clone());
+                let mut direct_annotation = annot.map(|a| self.get_idx(a).annotation.clone());
                 if metadata.is_protocol()
                     && direct_annotation.is_none()
                     && !is_dunder(name.as_str())
@@ -1528,6 +1529,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     && let Some(dm) = metadata.dataclass_metadata()
                     && let Expr::Call(call) = e
                 {
+                    // attrs `attr.ib(type=T)` / `field(type=T)` supplies the field's type
+                    // when there is no annotation. An annotation always wins (attrs rejects
+                    // both at runtime), so this only fires for an unannotated field.
+                    if direct_annotation.is_none()
+                        && matches!(&dm.kind, DataclassKind::Attrs { .. })
+                        && let Some(type_expr) = call.arguments.find_keyword("type")
+                    {
+                        let ty = self.untype(
+                            self.expr_infer(&type_expr.value, errors),
+                            type_expr.value.range(),
+                            errors,
+                        );
+                        direct_annotation = Some(Annotation {
+                            qualifiers: Vec::new(),
+                            ty: Some(ty),
+                        });
+                    }
                     let flags = self.compute_dataclass_field_initialization(call, dm);
                     // A bare assignment of a `field()` specifier with no type annotation is a runtime error in CPython
                     if flags.is_some() && direct_annotation.is_none() && !metadata.is_attrs_class()

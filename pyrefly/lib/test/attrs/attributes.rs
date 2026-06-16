@@ -195,3 +195,55 @@ class A:
     x = attr.ib()  # !E: type annotation
 "#,
 );
+
+// `attr.ib(type=T)` supplies the field type when there is no annotation, so the field
+// becomes a typed `__init__` parameter (annotation wins if both are given).
+attrs_testcase!(
+    test_attrs_attrib_type_keyword,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.s
+class C:
+    x = attr.ib(type=int)
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, x: int) -> None
+C("hello")  # E: not assignable to parameter `x`
+"#,
+);
+
+// A `type=`-typed field declared in a base class is typed in the subclass `__init__`.
+attrs_testcase!(
+    test_attrs_attrib_type_keyword_inherited,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.s
+class Base:
+    a = attr.ib(type=int)
+
+@attr.s
+class Sub(Base):
+    b = attr.ib(type=str)
+
+reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, a: int, b: str) -> None
+"#,
+);
+
+// Scoping: `type=` handling is attrs-only. A stdlib `@dataclass` is unaffected
+// (`dataclasses.field` has no `type=`), so `x` does not become a typed field.
+attrs_testcase!(
+    test_attrs_type_keyword_dataclass_unaffected,
+    r#"
+from dataclasses import dataclass, field
+from typing import reveal_type
+
+@dataclass
+class C:
+    x = field(type=int)  # E: has no type annotation # E: No matching overload
+
+reveal_type(C.__init__)  # E: revealed type: (self: C) -> None
+"#,
+);

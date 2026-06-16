@@ -928,6 +928,8 @@ mod tests {
     use pyrefly_types::quantified::AnchorIndex;
     use pyrefly_types::quantified::QuantifiedIdentity;
     use pyrefly_types::special_form::SpecialForm;
+    use pyrefly_types::type_alias::TypeAliasIndex;
+    use pyrefly_types::type_alias::TypeAliasRef;
     use pyrefly_types::type_var::PreInferenceVariance;
     use pyrefly_types::type_var::Restriction;
     use pyrefly_types::types::AnyStyle;
@@ -1419,6 +1421,82 @@ mod tests {
                     panic!("expected RegularDeclaration");
                 };
                 assert_eq!(decl.name.as_deref(), Some("Concatenate"));
+            }
+            other => panic!("expected Class, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_type_alias_ref_resolves_against_own_module_not_typing() {
+        // BUG (fixed in D107948300): a `TypeAlias::Ref` is routed through
+        // `typing_class`, so its declaration is always looked up in `typing`
+        // and the alias's own `module_name`/`module_path` are ignored. The
+        // assertions below capture this broken behavior; D107948300 updates
+        // them to the correct resolution against the alias's defining module.
+        let make_ref = || TypeAliasRef {
+            name: Name::new_static("MyAlias"),
+            args: None,
+            module_name: ModuleName::from_str("mymod"),
+            module_path: ModulePath::filesystem(PathBuf::from("/repo/mymod.py")),
+            index: TypeAliasIndex(0),
+        };
+
+        // Without a resolver, the fallback is a `typing.pyi` stub — the WRONG
+        // file. The alias's own module (`mymod.py`) is never consulted.
+        let ty = PyreflyType::TypeAlias(Box::new(TypeAliasData::Ref(make_ref())));
+        match convert_type(&ty) {
+            TspType::Class(c) => {
+                let Declaration::Regular(decl) = c.declaration else {
+                    panic!("expected RegularDeclaration");
+                };
+                assert_eq!(decl.name.as_deref(), Some("MyAlias"));
+                assert!(
+                    decl.node.uri.contains("typing"),
+                    "BUG: falls back to typing, got {}",
+                    decl.node.uri
+                );
+                assert!(
+                    !decl.node.uri.contains("mymod.py"),
+                    "BUG: alias's own module is ignored, got {}",
+                    decl.node.uri
+                );
+            }
+            other => panic!("expected Class, got {other:?}"),
+        }
+
+        // Even with a resolver, the lookup is performed against `typing` rather
+        // than the alias's defining module, so the resolver is queried with the
+        // wrong module name and the result still points at `typing`.
+        let range = lsp_types::Range {
+            start: lsp_types::Position {
+                line: 7,
+                character: 5,
+            },
+            end: lsp_types::Position {
+                line: 7,
+                character: 12,
+            },
+        };
+        let resolver = |module: ModuleName, name: &Name| {
+            // BUG: queried against `typing`, not the alias's `mymod`.
+            assert_eq!(module, ModuleName::typing());
+            assert_eq!(name.as_str(), "MyAlias");
+            Some((
+                ModulePath::filesystem(PathBuf::from("/repo/typing.pyi")),
+                range,
+            ))
+        };
+        let ty = PyreflyType::TypeAlias(Box::new(TypeAliasData::Ref(make_ref())));
+        match convert_type_with_resolvers(&ty, None, None, Some(&resolver)) {
+            TspType::Class(c) => {
+                let Declaration::Regular(decl) = c.declaration else {
+                    panic!("expected RegularDeclaration");
+                };
+                assert!(
+                    !decl.node.uri.contains("mymod.py"),
+                    "BUG: resolved against typing, not the alias's module, got {}",
+                    decl.node.uri
+                );
             }
             other => panic!("expected Class, got {other:?}"),
         }

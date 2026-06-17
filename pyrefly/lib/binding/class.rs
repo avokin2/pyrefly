@@ -83,6 +83,7 @@ use crate::binding::scope::FlowStyle;
 use crate::binding::scope::Scope;
 use crate::config::error_kind::ErrorKind;
 use crate::export::special::SpecialExport;
+use crate::types::class::AttrsFieldSpecifier;
 use crate::types::class::ClassDefIndex;
 use crate::types::class::ClassFieldProperties;
 use crate::types::class::ClassFields;
@@ -469,14 +470,18 @@ impl<'a> BindingsBuilder<'a> {
             let docstring_range = field_docstrings.get(&range).copied();
 
             // Recognize attrs field-specifier calls (`x = attr.ib()` / `field()`)
-            // here, while we still have the AST, so the solving stage can read a flag.
-            let is_attrs_field_specifier =
+            // here, while we still have the AST, so the solving stage can read the kind.
+            let attrs_field_specifier =
                 if let ClassFieldDefinition::AssignedInBody { value, .. } = &definition
                     && let ExprOrBinding::Expr(Expr::Call(call)) = value.as_ref()
                 {
-                    self.as_special_export(&call.func) == Some(SpecialExport::AttrsField)
+                    match self.as_special_export(&call.func) {
+                        Some(SpecialExport::AttrsLegacyAttrib) => Some(AttrsFieldSpecifier::Attrib),
+                        Some(SpecialExport::AttrsNextGenField) => Some(AttrsFieldSpecifier::Field),
+                        _ => None,
+                    }
                 } else {
-                    false
+                    None
                 };
 
             fields.insert_hashed(
@@ -485,7 +490,7 @@ impl<'a> BindingsBuilder<'a> {
                     is_annotated,
                     is_initialized_on_class,
                     is_defined_in_class_body,
-                    is_attrs_field_specifier,
+                    attrs_field_specifier,
                     range,
                     docstring_range,
                 ),
@@ -1090,8 +1095,8 @@ impl<'a> BindingsBuilder<'a> {
                 ClassFieldProperties::new(
                     member_annotation.is_some() || class_kind == SynthesizedClassKind::NamedTuple,
                     member_value.is_some(),
-                    true,  // Synthesized fields are class body fields
-                    false, // Synthesized fields are never attrs field specifiers
+                    true, // Synthesized fields are class body fields
+                    None, // Synthesized fields are never attrs field specifiers
                     range,
                     None, // Synthesized fields don't have docstrings
                 ),

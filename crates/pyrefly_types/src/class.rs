@@ -77,6 +77,14 @@ impl Visit<Type> for Class {
     fn recurse<'a>(&'a self, _: &mut dyn FnMut(&'a Type)) {}
 }
 
+/// Which attrs field specifier a class-body assignment uses. `attr.ib`/`attrib` honor a
+/// `type=` argument, whereas the next-gen `field` does not (type checkers ignore its `type=`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttrsFieldSpecifier {
+    Attrib,
+    Field,
+}
+
 /// Simple properties of class fields that can be attached to the class definition. Note that this
 /// does not include the type of a field, which needs to be computed lazily to avoid a recursive loop.
 #[derive(Debug, Clone)]
@@ -86,7 +94,7 @@ pub struct ClassFieldProperties {
     is_initialized_on_class: bool,
     // The field is defined in the class body (not in a method via self.x = ...)
     is_defined_in_class_body: bool,
-    is_attrs_field_specifier: bool,
+    attrs_field_specifier: Option<AttrsFieldSpecifier>,
     range: TextRange,
     // The range of the docstring following this field, if present
     docstring_range: Option<TextRange>,
@@ -102,7 +110,7 @@ impl ClassFieldProperties {
         is_annotated: bool,
         has_default_value: bool,
         is_defined_in_class_body: bool,
-        is_attrs_field_specifier: bool,
+        attrs_field_specifier: Option<AttrsFieldSpecifier>,
         range: TextRange,
         docstring_range: Option<TextRange>,
     ) -> Self {
@@ -110,7 +118,7 @@ impl ClassFieldProperties {
             is_annotated,
             is_initialized_on_class: has_default_value,
             is_defined_in_class_body,
-            is_attrs_field_specifier,
+            attrs_field_specifier,
             range,
             docstring_range,
         }
@@ -181,7 +189,14 @@ impl ClassFields {
     pub fn is_attrs_field_specifier(&self, name: &Name) -> bool {
         self.0
             .get(name)
-            .is_some_and(|prop| prop.is_attrs_field_specifier)
+            .is_some_and(|prop| prop.attrs_field_specifier.is_some())
+    }
+
+    /// Whether the field's attrs specifier honors a `type=` argument (`attr.ib`, not `field`).
+    pub fn attrs_specifier_honors_type(&self, name: &Name) -> bool {
+        self.0
+            .get(name)
+            .is_some_and(|prop| prop.attrs_field_specifier == Some(AttrsFieldSpecifier::Attrib))
     }
 
     pub fn is_field_initialized_on_class(&self, name: &Name) -> bool {

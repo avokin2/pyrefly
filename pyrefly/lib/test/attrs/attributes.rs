@@ -220,6 +220,23 @@ C("hello")  # E: not assignable to parameter `x`
 "#,
 );
 
+// Next-gen `field()` is the opposite of `attr.ib`: attrs documents that type checkers ignore
+// its `type=` metadata, so the field stays untyped (`Any`) rather than `int`.
+attrs_testcase!(
+    test_attrs_field_type_keyword_ignored,
+    r#"
+from typing import reveal_type
+import attr, attrs
+
+@attr.s
+class C:
+    x = attrs.field(type=int)
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, x: Any) -> None
+C("anything")  # `x` is untyped, so any argument is accepted
+"#,
+);
+
 // A `type=`-typed field declared in a base class is typed in the subclass `__init__`.
 attrs_testcase!(
     test_attrs_attrib_type_keyword_inherited,
@@ -294,6 +311,22 @@ import attr
 @attr.s
 class C:
     x: int = attr.ib(type=str)  # E: both a type annotation and a `type` argument # E: `str` is not assignable to `int`
+"#,
+);
+
+// A `type=` keyword on a non-specifier call is not a field declaration, so no conflict error
+// fires even with an annotation (attrs only inspects `attr.ib`/`field` results).
+attrs_testcase!(
+    test_attrs_type_keyword_on_non_specifier_call,
+    r#"
+import attr
+
+def helper(type: int) -> int:
+    return 0
+
+@attr.s(auto_attribs=True)
+class C:
+    x: int = helper(type=5)
 "#,
 );
 

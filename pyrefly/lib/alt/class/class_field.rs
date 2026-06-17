@@ -1529,10 +1529,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     && let Some(dm) = metadata.dataclass_metadata()
                     && let Expr::Call(call) = e
                 {
-                    // attrs `attr.ib(type=T)` / `field(type=T)` supplies the field's type when
-                    // unannotated; attrs raises `ValueError` at runtime if both are present.
+                    // `type=` only has meaning on a real attrs specifier (`attr.ib`/`field`). attrs
+                    // raises `ValueError` if such a field also has an annotation. Otherwise
+                    // `attr.ib(type=T)` supplies the field's type; `field(type=T)` is metadata only
+                    // (type checkers ignore it).
                     if matches!(&dm.kind, DataclassKind::Attrs { .. })
                         && let Some(type_expr) = call.arguments.find_keyword("type")
+                        && let Some(fields) = self.get_class_fields(class)
+                        && fields.is_attrs_field_specifier(name)
                     {
                         if direct_annotation.is_some() {
                             self.error(
@@ -1543,7 +1547,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                                     "`{name}` cannot have both a type annotation and a `type` argument"
                                 ),
                             );
-                        } else {
+                        } else if fields.attrs_specifier_honors_type(name) {
                             let ty = self.untype(
                                 self.expr_infer(&type_expr.value, errors),
                                 type_expr.value.range(),

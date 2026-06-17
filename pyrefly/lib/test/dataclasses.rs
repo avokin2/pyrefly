@@ -2558,3 +2558,19 @@ def user_defined_field() -> None:
         x = field(default=1)  # !E: type annotation
 "#,
 );
+
+// Unlike attrs, a stdlib dataclass does NOT strip leading underscores from a private
+// field's `__init__` parameter.
+testcase!(
+    test_dataclass_private_field_keeps_underscore,
+    r#"
+from dataclasses import dataclass
+from typing import reveal_type
+
+@dataclass
+class C:
+    _x: int
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, _x: int) -> None
+"#,
+);

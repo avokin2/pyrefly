@@ -16,6 +16,16 @@ features or simplify the model, you prove nothing — the hard parts are exactly
 where the value needs to be demonstrated. So port the model faithfully and in
 full (see step 2).
 
+**Improving the stubs is the point, not a side quest.** In the general porting
+skill, changing stubs is optional and a missing shape can just be documented as a
+gap. Here it is the opposite: a corpus example exists to *exercise and harden the
+stubs*. When an op falls back to bare `Tensor`, treat it as a stub deficiency to
+fix, not a gap to record — refine the stub signature (or add a shape DSL rule) so
+the shape is recovered, then make that the general truth about the op, not a
+special case for this model. A port that leaves easily-fixable bare `Tensor`s
+behind is not done. Only genuinely data-dependent shapes (e.g. data-dependent
+token counts) should remain bare, with a comment saying why.
+
 ## 1. Run the port
 
 Do the actual porting by reading and following the `add-shape-types-to-torch-model`
@@ -56,9 +66,12 @@ buck test fbcode//pyrefly/tensor-shapes/examples/torch:torch_examples_test
 
 ## If you hit a wrong or missing shape
 
-A *missing* shape (op falls back to bare `Tensor`) is acceptable in a port —
-document it with a receipt as the porting skill describes. But if Pyrefly computes a
-*wrong* shape, or a broadly useful rule is clearly missing and you want to fix it
-rather than document it, that is a shape-DSL change: see the
-`modify-shaped-array-dsl` skill. Don't reach for it for ordinary bare-`Tensor`
-gaps.
+A *missing* shape (op falls back to bare `Tensor`) is usually a loose or absent
+stub signature — fix it in the stubs so the shape is recovered (see "Improving
+the stubs is the point" above), rather than documenting it as a gap.
+
+A *wrong* shape (Pyrefly computes a concrete shape that's incorrect) or a missing
+shape that can't be expressed by a stub signature alone is a shape-DSL change: see
+the `modify-shaped-array-dsl` skill. That skill insists on unit-testing the DSL
+logic, not just relying on this example to exercise it. Don't reach for the DSL
+for shapes a stub signature could express.

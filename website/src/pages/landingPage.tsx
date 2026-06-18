@@ -15,6 +15,7 @@ import PyreflyVideo from '../components/landing-page/PyreflyVideo';
 import LandingPageSection from '../components/landing-page/landingPageSection';
 import LandingPageHeader from '../components/landing-page/landingPageHeader';
 import IDECarousel from '../components/landing-page/IDECarousel';
+import Banner from '../components/Banner';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
 export default function LandingPage(): React.ReactElement {
@@ -26,6 +27,14 @@ export default function LandingPage(): React.ReactElement {
             title="Pyrefly: A Fast Python Type Checker and Language Server"
             description={siteConfig.description}
         >
+            <Banner
+                text="🎉 Pyrefly v1.1 is now available!"
+                dismissible={true}
+                cta={{
+                    text: 'Read the blog',
+                    href: '/blog/v1.1',
+                }}
+            />
             <LandingPageSection
                 id="header-section"
                 isFirstSection={true}

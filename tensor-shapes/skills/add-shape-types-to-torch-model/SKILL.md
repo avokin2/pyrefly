@@ -39,7 +39,11 @@ two times you interrupt them:
 1. **Confirm how you'll check, and where the stubs are.** State it operationally —
    e.g. "I'll type-check with `<command>` against the shape stubs at `<path>`,
    correct?" — and let the user confirm or correct. Don't make them reason about
-   internal concepts; just confirm a command and a location.
+   internal concepts; just confirm a command and a location. Default the command
+   to `pyrefly check` (assume `pyrefly` is on `PATH`, however it was installed) and
+   discover where the stubs live from `pyrefly dump-config`, which prints the
+   resolved search path. If a skill invoked this one, it may supply both instead
+   (for example, an in-repo build-and-check command).
 2. **Ask whether they're open to changing the stubs.** Adding or refining a stub
    signature can recover shapes an op would otherwise lose.
    - **No** (or unsure): don't touch the stubs. Port the model as well as the
@@ -77,19 +81,19 @@ before you have empirically probed this model's shapes.
 ## Gate 1: Audit ops
 
 List every `nn.Module` subclass and `torch`/`F.` function called in the
-model. Check each against the shape-aware torch stubs (`.pyi` files in
-`tensor-shapes/torch-stubs/`) and any shape DSL declarations in those stubs.
-The stubs attach DSL shape functions with `@uses_shape_dsl(ir_fn)`, and the
-IR functions live in `tensor-shapes/torch-stubs/_shapes.pyi` and are imported
-from stub files as `torch._shapes` because `torch-stubs` provides the `torch`
-package for type checking. This is a **diagnostic** pass — you are recording
+model. Check each against the shape-aware torch stubs (the `.pyi` files under the
+stub root you confirmed up front — `pyrefly dump-config` reports it) and any shape
+DSL declarations in those stubs. The stubs attach DSL shape functions with
+`@uses_shape_dsl(ir_fn)`, and the IR functions live in `_shapes.pyi` next to the
+stubs, imported from stub files as `torch._shapes` because the stub package
+provides the `torch` package for type checking. This is a **diagnostic** pass — you are recording
 which ops are tracked and which aren't, not fixing anything. A gap here never
 blocks the port. This step should take minutes — you are scanning the stub file
 for the op and, only when a decorator points there, the corresponding IR
 function.
 
 **Do NOT delegate this audit to code search agents or use web search for this
-step.** The `tensor-shapes/torch-stubs/` package and its `_shapes.pyi` DSL
+step.** The torch-stubs package and its `_shapes.pyi` DSL
 file are exhaustive for torch shape support. For each op in your list, check
 whether it appears in the relevant stub file and whether it has a precise
 generic signature, `Self`/`Tensor[*S]` return, or `@uses_shape_dsl(...)`
@@ -114,7 +118,7 @@ handler tracks it), or `GAP` (no shape support found).
 
 Filling the "Shape DSL decorator / IR fn" column requires checking whether
 the stub declaration has a `@uses_shape_dsl(...)` decorator. If it does,
-confirm the named IR function exists in `tensor-shapes/torch-stubs/_shapes.pyi`.
+confirm the named IR function exists in `_shapes.pyi` next to the stubs.
 Write "no decorator" only after confirming the stub declaration has no
 decorator — do not leave this column blank or write "check DSL".
 
@@ -611,9 +615,12 @@ paraphrase — the raw output is the artifact.
 
 `verify_port.sh` is a heuristic quality gate; it does not type check the port.
 You must also run Pyrefly itself against your port file, with tensor shapes
-enabled and the shape-aware stubs on the search path. The exact command depends
-on your environment and how Pyrefly is installed — if a skill invoked this one,
-it supplies that command.
+enabled (`--tensor-shapes true`) and the shape stubs on the search path. By
+default this is `pyrefly check` — the stubs may already be on the path if they're
+installed in your environment, otherwise add the stub root reported by
+`pyrefly dump-config` to the search path. If a skill invoked this one, it may
+supply a different command (for example, an in-repo build-and-check invocation);
+use that instead.
 
 Paste the Pyrefly output. The result must be `0 errors`; `reveal_type` info is
 acceptable only while probing and must not remain in the finished port.
@@ -736,8 +743,9 @@ crashing. It also provides `TypeVar` with arithmetic support (`N + 1`, `N // 2`
 return `self` instead of `TypeError`) and `Dim` for binding runtime ints to
 type-level symbols.
 
-For tensor shape tests and examples, `shape_extensions` lives next to the
-shape-aware torch stubs under `tensor-shapes/`. In Buck, the runtime package is
+`shape_extensions` is installed alongside the shape-aware torch stubs (wherever
+those live in your environment — `pyrefly dump-config` reports the location). In an
+fbsource Buck checkout specifically, the runtime package is
 `fbcode//pyrefly/tensor-shapes:shape_extensions`, the importable stub package is
 `fbcode//pyrefly/tensor-shapes:torch-stubs`, and the filegroup to pass as a
 Pyrefly `--search-path` is

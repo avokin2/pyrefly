@@ -20,9 +20,14 @@ use expressions (`D // NHead`, not a separate `HeadDim` param).
 
 ## The three shape-tracking mechanisms
 
+Paths below are shown relative to the **stub root** — the directory Pyrefly
+resolves the `torch` stubs from. It is `tensor-shapes/torch-stubs/` in an fbsource
+checkout; in other environments (a clone, or stubs installed into a virtualenv)
+it lives elsewhere. `pyrefly dump-config` reports the resolved location.
+
 ### 1. Shape-aware stubs
 
-**Location:** `tensor-shapes/torch-stubs/` and subdirectories (`nn/`,
+**Location:** the stub root and its subdirectories (`nn/`,
 `distributions/`, `optim/`, `quantization/`).
 
 `.pyi` files with type signatures for PyTorch classes and functions. Common

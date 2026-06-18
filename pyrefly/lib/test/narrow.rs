@@ -734,6 +734,83 @@ def f(x: str | int):
 );
 
 testcase!(
+    test_isinstance_any_union_consumed,
+    r#"
+from typing import Any, assert_type
+
+def test_any_union_consumed(x: int | Any) -> None:
+    if isinstance(x, str):
+        assert_type(x, str)
+
+def test_any_union_multiple_targets_consumed(x: int | Any) -> None:
+    if isinstance(x, (int, str)):
+        assert_type(x, int | str)
+    "#,
+);
+
+testcase!(
+    test_isinstance_any_union_tuple_target_consumed,
+    r#"
+from typing import Any, assert_type
+
+def test_any_union_tuple_target_consumed(x: tuple[int, str] | Any) -> None:
+    if isinstance(x, tuple):
+        assert_type(x, tuple[int, str] | tuple[Any, ...])
+    "#,
+);
+
+testcase!(
+    test_isinstance_alias_hiding_any_consumed,
+    r#"
+from typing import Any, assert_type
+
+type Alias = int | Any
+
+def test_alias_hiding_any_consumed(x: Alias) -> None:
+    if isinstance(x, str):
+        assert_type(x, str)
+    "#,
+);
+
+testcase!(
+    bug = "Dynamic classinfo erases definite left-side facts",
+    test_isinstance_dynamic_classinfo_keeps_definite_members,
+    r#"
+from typing import Any, reveal_type
+
+class A: ...
+class B: ...
+
+def test_dynamic_classinfo_keeps_definite_members(x: A, cls: Any) -> None:
+    if isinstance(x, cls):
+        if isinstance(x, B):
+            reveal_type(x)  # E: revealed type: B
+
+def test_type_any_classinfo_keeps_definite_members(x: A, cls: type[Any]) -> None:
+    if isinstance(x, cls):
+        if isinstance(x, B):
+            reveal_type(x)  # E: revealed type: B
+    "#,
+);
+
+testcase!(
+    test_isinstance_any_union_entry_points,
+    r#"
+from typing import Any, assert_type
+
+def test_type_eq_and_class_pattern_any_union_consumed(x: int | Any) -> None:
+    if type(x) is str:
+        assert_type(x, str)
+    if type(x) == str:
+        assert_type(x, str)
+
+    match x:
+        case str():
+            assert_type(x, str)
+    "#,
+);
+
+testcase!(
     test_dunder_bool_truthy_narrow,
     r#"
 from typing import assert_type, Literal

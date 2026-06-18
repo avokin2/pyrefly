@@ -1297,6 +1297,18 @@ class C:
     "#,
 );
 
+// `default` and `default_factory` are mutually exclusive at runtime; typeshed's
+// `dataclasses.field` overloads already reject passing both, so no extra check is needed.
+testcase!(
+    test_dataclass_field_default_and_default_factory_conflict,
+    r#"
+from dataclasses import dataclass, field
+@dataclass
+class C:
+    x: int = field(default=1, default_factory=int)  # E: not assignable to parameter `default_factory`
+    "#,
+);
+
 testcase!(
     test_default,
     r#"

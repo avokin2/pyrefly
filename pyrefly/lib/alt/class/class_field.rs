@@ -1560,15 +1560,30 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         }
                     }
                     let flags = self.compute_dataclass_field_initialization(call, dm);
-                    // A bare assignment of a `field()` specifier with no type annotation is a runtime error in CPython
-                    if flags.is_some() && direct_annotation.is_none() && !metadata.is_attrs_class()
-                    {
-                        self.error(
-                            errors,
-                            range,
-                            ErrorKind::BadClassDefinition,
-                            format!("`{name}` is a dataclass field but has no type annotation"),
-                        );
+                    if flags.is_some() {
+                        // A bare assignment of a `field()` specifier with no type annotation is a runtime error in CPython
+                        if direct_annotation.is_none() && !metadata.is_attrs_class() {
+                            self.error(
+                                errors,
+                                range,
+                                ErrorKind::BadClassDefinition,
+                                format!("`{name}` is a dataclass field but has no type annotation"),
+                            );
+                        }
+                        // `attr.ib` accepts `default` positionally, so a positional arg
+                        // counts as a default here too.
+                        if matches!(&dm.kind, DataclassKind::Attrs { .. })
+                            && (call.arguments.find_keyword("default").is_some()
+                                || !call.arguments.args.is_empty())
+                            && call.arguments.find_keyword("factory").is_some()
+                        {
+                            self.error(
+                                errors,
+                                range,
+                                ErrorKind::BadClassDefinition,
+                                format!("`{name}` cannot specify both `default` and `factory`"),
+                            );
+                        }
                     }
                     ClassFieldInitialization::ClassBody(flags.map(Box::new))
                 } else {

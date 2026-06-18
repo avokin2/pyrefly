@@ -539,10 +539,10 @@ Everything above produced a DRAFT. This phase reviews it.
 
 ## Run verify_port.sh
 
-Run:
+Run `verify_port.sh` (in this skill dir) on your port file:
 
 ```bash
-.claude/skills/port-model/verify_port.sh tensor-shapes/examples/torch/<model>.py
+.claude/skills/port-model/verify_port.sh <path/to/your/port.py>
 ```
 
 **Paste the FULL output** in your response. Do not summarize or
@@ -551,19 +551,10 @@ paraphrase — the raw output is the artifact.
 ## Run the actual Pyrefly check
 
 `verify_port.sh` is a heuristic quality gate; it does not type check the port.
-You must also run Pyrefly with tensor shapes enabled and the shape-aware stubs
-on the search path:
-
-```bash
-buck build fbcode//pyrefly/tensor-shapes:torch-stubs-search-path
-buck run fbcode//pyrefly:pyrefly -- check --config /dev/null --python-version 3.13 --tensor-shapes true --search-path "$(buck targets --show-output fbcode//pyrefly/tensor-shapes:torch-stubs-search-path | awk '{print $2}')" tensor-shapes/examples/torch/<model>.py
-```
-
-If you are updating the shared example corpus, also run the Buck test target:
-
-```bash
-buck test fbcode//pyrefly/tensor-shapes/examples/torch:torch_examples_test
-```
+You must also run Pyrefly itself against your port file, with tensor shapes
+enabled and the shape-aware stubs on the search path. The exact command depends
+on your environment and how Pyrefly is installed — if a skill invoked this one,
+it supplies that command.
 
 Paste the Pyrefly output. The result must be `0 errors`; `reveal_type` info is
 acceptable only while probing and must not remain in the finished port.

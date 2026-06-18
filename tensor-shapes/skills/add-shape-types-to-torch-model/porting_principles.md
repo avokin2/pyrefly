@@ -1,12 +1,5 @@
 # Porting Principles
 
-## Why we port
-
-Ports demonstrate what happens when you write a real PyTorch model with tensor
-shape types. They prove real-world utility. If we exclude features or simplify
-models, we're proving nothing — the hard parts are exactly where value needs
-to be demonstrated.
-
 ## Priority order
 
 1. **Faithfulness** — include everything from the original.

@@ -10,6 +10,12 @@ learn the patterns, so produce its fuller deliverable — paste every artifact
 (audit table, per-local `reveal_type` dumps, typed-interface receipts, exhaustive
 `assert_type` coverage, completion report) in full, not just the annotated model.
 
+**Why these ports matter.** They demonstrate what happens when you write a real
+PyTorch model with tensor shape types, proving real-world utility. If you exclude
+features or simplify the model, you prove nothing — the hard parts are exactly
+where the value needs to be demonstrated. So port the model faithfully and in
+full (see step 2).
+
 ## 1. Run the port
 
 Do the actual porting by reading and following the `add-shape-types-to-torch-model`

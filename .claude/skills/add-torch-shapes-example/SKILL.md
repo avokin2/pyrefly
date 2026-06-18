@@ -12,8 +12,9 @@ deliverable here, not optional.
 
 ## 1. Run the port
 
-Do the actual porting by reading and following the `port-model` skill's
-`SKILL.md` (in `.claude/skills/port-model/`) end to end — its gated workflow
+Do the actual porting by reading and following the `add-shape-types-to-torch-model`
+skill's `SKILL.md` (in `tensor-shapes/skills/add-shape-types-to-torch-model/`) end to
+end — its gated workflow
 (pre-flight gates → per-module loop → verification) is the algorithm. Produce
 **all** of its output artifacts; for the corpus they are required.
 
@@ -25,7 +26,7 @@ completeness.
 
 ## 3. Verify (the fbsource commands)
 
-`port-model`'s verification phase tells you to run `verify_port.sh` and then "the
+The porting skill's verification phase tells you to run `verify_port.sh` and then "the
 actual Pyrefly check." In fbsource that check is a buck invocation against the
 shape-aware stubs:
 
@@ -45,7 +46,7 @@ buck test fbcode//pyrefly/tensor-shapes/examples/torch:torch_examples_test
 ## If you hit a wrong or missing shape
 
 A *missing* shape (op falls back to bare `Tensor`) is acceptable in a port —
-document it with a receipt as `port-model` describes. But if Pyrefly computes a
+document it with a receipt as the porting skill describes. But if Pyrefly computes a
 *wrong* shape, or a broadly useful rule is clearly missing and you want to fix it
 rather than document it, that is a shape-DSL change: see the
 `modify-shaped-array-dsl` skill. Don't reach for it for ordinary bare-`Tensor`

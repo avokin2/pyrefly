@@ -1,5 +1,5 @@
 ---
-name: port-model
+name: add-shape-types-to-torch-model
 description: >
   Port a PyTorch model to use pyrefly's tensor shape type system (Tensor[B, C, H, W],
   Dim[T]). Use this skill whenever the user wants to add shape annotations
@@ -542,7 +542,7 @@ Everything above produced a DRAFT. This phase reviews it.
 Run `verify_port.sh` (in this skill dir) on your port file:
 
 ```bash
-.claude/skills/port-model/verify_port.sh <path/to/your/port.py>
+tensor-shapes/skills/add-shape-types-to-torch-model/verify_port.sh <path/to/your/port.py>
 ```
 
 **Paste the FULL output** in your response. Do not summarize or

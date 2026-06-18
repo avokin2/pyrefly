@@ -12,11 +12,47 @@ description: >
 
 You are porting a PyTorch model to use pyrefly's tensor shape type system.
 
-**This skill requires detailed step-by-step output.** Each step produces
-a mandatory output artifact (a table, a checklist, a count). These
-artifacts are the deliverables — do not compress, summarize, or skip them.
-The next step's input depends on the previous step's output. If you don't
-have the artifact, you cannot proceed.
+**The methodology below is mandatory; how much you write down depends on the
+job.** Each step has an artifact — an audit table, a per-local `reveal_type`
+dump, a typed-interface receipt, an `assert_type` count. Working through them in
+order is not optional: the next step's input is the previous step's output, and
+skipping a step means substituting reasoning for testing, which is the primary
+failure mode.
+
+What varies is the *deliverable*:
+
+- **Annotating someone's own model** (the common case): do every step as internal
+  reasoning, but what you hand back is the annotated model plus a short report of
+  what couldn't be tracked. You don't need to paste every table — the "paste this"
+  instructions below are for the contribution case.
+- **Contributing a reference example** (e.g. into a maintained example corpus):
+  the tables, receipts, and counts ARE part of the deliverable — paste them in
+  full, because others read these ports to learn the patterns. A skill that
+  invokes this one for corpus work will say so; absent that, assume the lighter
+  deliverable.
+
+# Before you start: two questions
+
+Resolve these with the user before Gate 0. In the common case these are the only
+two times you interrupt them:
+
+1. **Confirm how you'll check, and where the stubs are.** State it operationally —
+   e.g. "I'll type-check with `<command>` against the shape stubs at `<path>`,
+   correct?" — and let the user confirm or correct. Don't make them reason about
+   internal concepts; just confirm a command and a location.
+2. **Ask whether they're open to changing the stubs.** Adding or refining a stub
+   signature can recover shapes an op would otherwise lose.
+   - **No** (or unsure): don't touch the stubs. Port the model as well as the
+     existing stubs allow, collect what couldn't be tracked, and report it at the
+     end (see Completion report), suggesting an upstream issue for the gaps worth
+     closing. This path is fully supported — a less-complete port is the expected
+     outcome here, not a failure.
+   - **Yes**: you have standing permission to make straightforward stub-signature
+     improvements as you go. Don't re-ask per op. Still port first and confirm the
+     gap with `reveal_type` before editing a stub.
+
+Don't ask about deeper changes (teaching Pyrefly new shape *logic*) up front —
+that comes up only reactively, and rarely (see "When an op's shape is wrong").
 
 # Pre-flight
 
@@ -46,9 +82,10 @@ model. Check each against the shape-aware torch stubs (`.pyi` files in
 The stubs attach DSL shape functions with `@uses_shape_dsl(ir_fn)`, and the
 IR functions live in `tensor-shapes/torch-stubs/_shapes.pyi` and are imported
 from stub files as `torch._shapes` because `torch-stubs` provides the `torch`
-package for type checking. Add any missing stubs or DSL functions BEFORE
-starting the port. This step should take minutes — you are scanning the stub
-file for the op and, only when a decorator points there, the corresponding IR
+package for type checking. This is a **diagnostic** pass — you are recording
+which ops are tracked and which aren't, not fixing anything. A gap here never
+blocks the port. This step should take minutes — you are scanning the stub file
+for the op and, only when a decorator points there, the corresponding IR
 function.
 
 **Do NOT delegate this audit to code search agents or use web search for this
@@ -67,10 +104,13 @@ shell search. You need to confirm presence and spot missing attributes
 ## Gate 1: Ops audit
 | Op | Stub location | Shape DSL decorator / IR fn (or "no decorator") | Status |
 |----|---------------|------------------------------|--------|
-| nn.Conv2d | tensor-shapes/torch-stubs/nn/__init__.pyi — generic [InC,OutC,K,S,P,D] | no decorator (stub generic) | ✓ tracked |
-| F.adaptive_avg_pool2d | tensor-shapes/torch-stubs/nn/functional.pyi — bare declared return | `@uses_shape_dsl(adaptive_pool_ir)`, defined in `_shapes.pyi` | ✓ tracked (DSL) |
+| nn.Conv2d | tensor-shapes/torch-stubs/nn/__init__.pyi — generic [InC,OutC,K,S,P,D] | no decorator (stub generic) | tracked-stub |
+| F.adaptive_avg_pool2d | tensor-shapes/torch-stubs/nn/functional.pyi — bare declared return | `@uses_shape_dsl(adaptive_pool_ir)`, defined in `_shapes.pyi` | tracked-DSL |
 | ...
 ```
+
+Status is one of `tracked-stub`, `tracked-DSL`, `tracked-handler` (a special
+handler tracks it), or `GAP` (no shape support found).
 
 Filling the "Shape DSL decorator / IR fn" column requires checking whether
 the stub declaration has a `@uses_shape_dsl(...)` decorator. If it does,
@@ -78,7 +118,9 @@ confirm the named IR function exists in `tensor-shapes/torch-stubs/_shapes.pyi`.
 Write "no decorator" only after confirming the stub declaration has no
 decorator — do not leave this column blank or write "check DSL".
 
-If any op is missing or returns bare, fix stubs/DSL BEFORE proceeding.
+A `GAP` is information, not a blocker — note it and move on. You decide what to do
+about gaps later: most degrade gracefully to a bare `Tensor`, and only if the user
+opted into stub changes is a `GAP` worth a stub fix.
 
 ## Gate 2: Inventory the original
 
@@ -95,10 +137,10 @@ this exact format:
 
 **Every class, function, and method in the original file must appear, and
 every item must be ported.** Do not skip or exclude anything. If a class
-depends on a library without shape-aware stubs, add the missing stubs or DSL
-in Gate 1 rather than omitting the class. If adding full stubs is
-impractical (e.g., the library is large and only one op is needed), add
-a minimal stub for the specific ops used.
+depends on a library without shape-aware stubs, port it anyway — its tensors
+fall back to bare `Tensor`, which is acceptable; record the gap for the report.
+Only if the user opted into stub changes, and a minimal stub for the specific
+ops used would recover real shapes, is adding one worthwhile.
 
 For each class, list constructor parameters and whether each is Dim or
 int — this feeds Step 1 of the module loop.
@@ -386,10 +428,12 @@ before falling back to typed interface:
 □ **Inlined expressions?** `f(g(x))` sometimes loses shapes that
   `y = g(x); f(y)` preserves. Break into separate assignments.
 
-□ **Missing stub or DSL declaration?** Check `tensor-shapes/torch-stubs/`
-  and any `@uses_shape_dsl(...)` IR function in
-  `tensor-shapes/torch-stubs/_shapes.pyi`. Fix if missing — stubs are your
-  code.
+□ **Op genuinely missing from the stubs?** Confirm it's absent (check the stubs
+  and any `@uses_shape_dsl(...)` IR function they reference). A missing shape is
+  not a blocker — it degrades to a bare `Tensor` that you document below. If the
+  user opted into stub changes and a refined signature would recover the shape,
+  that's a fair fix. If instead Pyrefly computes a *wrong* shape, see "When an
+  op's shape is wrong".
 
 □ **About to claim an op is untracked?** Check the shape-aware stubs, their
   `@uses_shape_dsl(...)` decorators and IR functions, and special handlers
@@ -428,7 +472,10 @@ which category applies:
 - **A1 algebraic gap** (`N * (X // N) ≠ X`): no fix, use `type: ignore`.
 - **Conditional equality** (e.g., `Inp == Oup` at runtime but separate
   type params): no fix, use `type: ignore`.
-- **Stub or DSL gap**: fix the stub or DSL instead.
+- **Stub gap** (op missing, or its signature too loose to track): if the user
+  opted into stub changes, refining the stub signature is the fix; otherwise
+  document the bare result and move on. A *wrong* computed shape is a different
+  case — see "When an op's shape is wrong".
 - **`return-value` mismatch from untracked sub-section**: don't
   `type: ignore`. The fix is upstream — find the bridge dim
   connecting the untracked section (e.g., `nn.Sequential(*list)`
@@ -436,6 +483,18 @@ which category applies:
   Linear), promote it to a class type param per Step 1's bridge-dim
   rule, then use annotation fallback to recover the shaped return.
 - **Branch join**: try restructuring first.
+
+**When an op's shape is wrong.** Everything above handles a *missing* shape (the
+op falls back to bare `Tensor`) — that always degrades gracefully and never
+blocks. The rare hard case is a *wrong* shape: Pyrefly computes a concrete shape
+that is incorrect (e.g. integer floor-division where the real op rounds up). You
+cannot annotate around this — the checker actively disagrees with reality.
+When it happens, tell the user; fixing it means teaching Pyrefly new shape logic,
+not editing a stub signature. If a shape-DSL skill (e.g. `modify-shaped-array-dsl`)
+is available, hand off to it; otherwise file an upstream issue describing the op
+and the correct rule, and document the spot with `type: ignore` for now. Don't
+reach for this on ordinary bare-`Tensor` gaps — only when a computed shape is
+provably wrong.
 
 **Bare `Tensor` where you know the shape?** Use `assert_type` to verify
 inference, not annotation fallback. Annotation fallback silently accepts
@@ -654,7 +713,19 @@ Verification phase:
 - Style guide comparison rows: ___
   Improvements attempted: ___. Improvements that worked: ___.
 - verify_port.sh re-run (if changes made): 0 actionable: yes/no
+
+Gaps & proposed improvements (for the user):
+- Ops that stayed untracked, and why: ___ (or "none")
+- Stub-signature improvements that would recover shapes (if stubs weren't
+  changed): ___ (or "none")
+- Wrong computed shapes found (needing a shape-DSL change): ___ (or "none")
+- Suggest filing an upstream issue for: ___ (or "none")
 ```
+
+The "Gaps & proposed improvements" block is the user-facing payload of the
+lighter deliverable — when you didn't paste the full tables, this is where the
+shortcomings of the port surface. Fill it from the `GAP`s you recorded in Gate 1
+and the Step 4 receipts.
 
 # Import convention
 

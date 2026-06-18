@@ -4,19 +4,24 @@ description: Use when adding a new PyTorch model to Pyrefly's shape-tracking exa
 ---
 
 You are importing a PyTorch model into Pyrefly's example corpus at
-`tensor-shapes/examples/torch/`. These ports are tested reference material that
-others learn from, so they are held to the **full porting discipline** — every
-mandatory artifact (audit table, per-local `reveal_type` dumps, typed-interface
-receipts, exhaustive `assert_type` coverage, completion report) is part of the
-deliverable here, not optional.
+`tensor-shapes/examples/torch/`. This is the **contribution case** the porting
+skill describes: these ports are tested reference material that others read to
+learn the patterns, so produce its fuller deliverable — paste every artifact
+(audit table, per-local `reveal_type` dumps, typed-interface receipts, exhaustive
+`assert_type` coverage, completion report) in full, not just the annotated model.
 
 ## 1. Run the port
 
 Do the actual porting by reading and following the `add-shape-types-to-torch-model`
 skill's `SKILL.md` (in `tensor-shapes/skills/add-shape-types-to-torch-model/`) end to
-end — its gated workflow
-(pre-flight gates → per-module loop → verification) is the algorithm. Produce
-**all** of its output artifacts; for the corpus they are required.
+end — its gated workflow (pre-flight gates → per-module loop → verification) is the
+algorithm.
+
+That skill opens with two questions for the user; for corpus work you already have
+the answers, so don't stop to ask: the check command is the buck invocation in
+step 3 below, and stub changes are in scope (corpus ports should track shapes as
+fully as possible, so refine stub signatures when that recovers real shapes).
+Produce **all** of its output artifacts; for the corpus they are required.
 
 ## 2. Place the file
 

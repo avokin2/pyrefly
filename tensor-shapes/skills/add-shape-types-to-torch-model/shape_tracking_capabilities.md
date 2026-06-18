@@ -38,10 +38,12 @@ class or function. If the return type is bare `Tensor`, shapes aren't tracked �
 unless the declaration has `@uses_shape_dsl(...)`. If it uses `Self`, `[*S]`,
 generics, or a `@uses_shape_dsl(...)` decorator, it's tracked.
 
-**How to fix:** Change the stub's return type. Use `Self` for identity ops,
-`Tensor[*S]` for shape-preserving ops, generic params for transforms, or
-`@uses_shape_dsl(...)` for shape functions that need argument-dependent
-computation. Stubs are YOUR code — fix them rather than using `type: ignore`.
+**How to recover a missing shape (only if the user opted into stub changes):**
+Change the stub's return type. Use `Self` for identity ops, `Tensor[*S]` for
+shape-preserving ops, generic params for transforms, or `@uses_shape_dsl(...)`
+for shape functions that need argument-dependent computation. If stubs are
+off-limits, leave the op untracked — it degrades to a bare `Tensor`, which you
+record as a gap rather than fixing.
 
 ### 2. DSL functions
 

@@ -773,7 +773,6 @@ def test_alias_hiding_any_consumed(x: Alias) -> None:
 );
 
 testcase!(
-    bug = "Dynamic classinfo erases definite left-side facts",
     test_isinstance_dynamic_classinfo_keeps_definite_members,
     r#"
 from typing import Any, reveal_type
@@ -784,12 +783,12 @@ class B: ...
 def test_dynamic_classinfo_keeps_definite_members(x: A, cls: Any) -> None:
     if isinstance(x, cls):
         if isinstance(x, B):
-            reveal_type(x)  # E: revealed type: B
+            reveal_type(x)  # E: revealed type: A & B
 
 def test_type_any_classinfo_keeps_definite_members(x: A, cls: type[Any]) -> None:
     if isinstance(x, cls):
         if isinstance(x, B):
-            reveal_type(x)  # E: revealed type: B
+            reveal_type(x)  # E: revealed type: A & B
     "#,
 );
 

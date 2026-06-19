@@ -1559,7 +1559,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                             });
                         }
                     }
-                    let flags = self.compute_dataclass_field_initialization(call, dm);
+                    let mut flags = self.compute_dataclass_field_initialization(call, dm);
                     if flags.is_some() {
                         // A bare assignment of a `field()` specifier with no type annotation is a runtime error in CPython
                         if direct_annotation.is_none() && !metadata.is_attrs_class() {
@@ -1584,6 +1584,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                                 format!("`{name}` cannot specify both `default` and `factory`"),
                             );
                         }
+                    }
+                    // Drop a NOTHING default so the field stays required.
+                    if let Some(f) = &mut flags
+                        && self
+                            .get_class_fields(class)
+                            .is_some_and(|cf| cf.default_is_attrs_nothing(name))
+                    {
+                        f.default = None;
                     }
                     ClassFieldInitialization::ClassBody(flags.map(Box::new))
                 } else {

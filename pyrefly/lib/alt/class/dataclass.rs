@@ -60,6 +60,17 @@ use crate::types::keywords::TypeMap;
 use crate::types::literal::Lit;
 use crate::types::types::Type;
 
+/// Suppresses the assignment check against a field's declared type. Required-ness instead uses
+/// binding-phase identity; this type-based path covers generic assignments with no binding context.
+pub(crate) fn is_attrs_nothing(ty: &Type) -> bool {
+    let class = match ty {
+        Type::Literal(lit) if let Lit::Enum(e) = &lit.value => &e.class,
+        Type::ClassType(c) => c,
+        _ => return false,
+    };
+    class.has_qname("attr", "_Nothing") || class.has_qname("attrs", "_Nothing")
+}
+
 impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     /// Gets dataclass fields for an `@dataclass`-decorated class. attrs with
     /// `auto_attribs=False` collects only `attr.ib()`/`field()` assignments;

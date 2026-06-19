@@ -84,6 +84,7 @@ use crate::binding::scope::Scope;
 use crate::config::error_kind::ErrorKind;
 use crate::export::special::SpecialExport;
 use crate::types::class::AttrsFieldSpecifier;
+use crate::types::class::AttrsFieldSpecifierKind;
 use crate::types::class::ClassDefIndex;
 use crate::types::class::ClassFieldProperties;
 use crate::types::class::ClassFields;
@@ -469,17 +470,36 @@ impl<'a> BindingsBuilder<'a> {
 
             let docstring_range = field_docstrings.get(&range).copied();
 
-            // Recognize attrs field-specifier calls (`x = attr.ib()` / `field()`)
-            // here, while we still have the AST, so the solving stage can read the kind.
+            // Detect at binding (AST available) so solving reads by symbol identity, not type.
             let attrs_field_specifier =
                 if let ClassFieldDefinition::AssignedInBody { value, .. } = &definition
                     && let ExprOrBinding::Expr(Expr::Call(call)) = value.as_ref()
-                {
-                    match self.as_special_export(&call.func) {
-                        Some(SpecialExport::AttrsLegacyAttrib) => Some(AttrsFieldSpecifier::Attrib),
-                        Some(SpecialExport::AttrsNextGenField) => Some(AttrsFieldSpecifier::Field),
+                    && let Some(kind) = match self.as_special_export(&call.func) {
+                        Some(SpecialExport::AttrsLegacyAttrib) => {
+                            Some(AttrsFieldSpecifierKind::Attrib)
+                        }
+                        Some(SpecialExport::AttrsNextGenField) => {
+                            Some(AttrsFieldSpecifierKind::Field)
+                        }
                         _ => None,
                     }
+                {
+                    // Only `attr.ib` accepts a positional default; `field`'s is keyword-only.
+                    let positional_default = (kind == AttrsFieldSpecifierKind::Attrib)
+                        .then(|| call.arguments.args.first())
+                        .flatten();
+                    let default_is_nothing = call
+                        .arguments
+                        .find_keyword("default")
+                        .map(|kw| &kw.value)
+                        .or(positional_default)
+                        .is_some_and(|e| {
+                            self.as_special_export(e) == Some(SpecialExport::AttrsNothing)
+                        });
+                    Some(AttrsFieldSpecifier {
+                        kind,
+                        default_is_nothing,
+                    })
                 } else {
                     None
                 };

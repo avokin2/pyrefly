@@ -77,12 +77,18 @@ impl Visit<Type> for Class {
     fn recurse<'a>(&'a self, _: &mut dyn FnMut(&'a Type)) {}
 }
 
-/// Which attrs field specifier a class-body assignment uses. `attr.ib`/`attrib` honor a
-/// `type=` argument, whereas the next-gen `field` does not (type checkers ignore its `type=`).
+/// `attr.ib`/`attrib` honor a `type=` argument and accept a positional default; `field` neither.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AttrsFieldSpecifier {
+pub enum AttrsFieldSpecifierKind {
     Attrib,
     Field,
+}
+
+/// Bundling `default_is_nothing` with the specifier keeps it unrepresentable without one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttrsFieldSpecifier {
+    pub kind: AttrsFieldSpecifierKind,
+    pub default_is_nothing: bool,
 }
 
 /// Simple properties of class fields that can be attached to the class definition. Note that this
@@ -192,11 +198,19 @@ impl ClassFields {
             .is_some_and(|prop| prop.attrs_field_specifier.is_some())
     }
 
+    pub fn default_is_attrs_nothing(&self, name: &Name) -> bool {
+        self.0.get(name).is_some_and(|prop| {
+            prop.attrs_field_specifier
+                .is_some_and(|s| s.default_is_nothing)
+        })
+    }
+
     /// Whether the field's attrs specifier honors a `type=` argument (`attr.ib`, not `field`).
     pub fn attrs_specifier_honors_type(&self, name: &Name) -> bool {
-        self.0
-            .get(name)
-            .is_some_and(|prop| prop.attrs_field_specifier == Some(AttrsFieldSpecifier::Attrib))
+        self.0.get(name).is_some_and(|prop| {
+            prop.attrs_field_specifier
+                .is_some_and(|s| s.kind == AttrsFieldSpecifierKind::Attrib)
+        })
     }
 
     pub fn is_field_initialized_on_class(&self, name: &Name) -> bool {

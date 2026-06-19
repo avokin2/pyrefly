@@ -113,6 +113,12 @@ fn extend_facet_chain(resolved_chain: Option<&FacetChain>, facet: FacetKind) -> 
 /// is very high.
 const NARROW_ENUM_LIMIT: usize = 100;
 
+#[derive(Clone, Copy)]
+enum IntersectFallback {
+    Never,
+    Right,
+}
+
 impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     // Get the union of all members of an enum, minus the specified member
     fn subtract_enum_member(&self, instance: Instance, name: &Name) -> Type {
@@ -174,7 +180,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 && !self.get_enum_members(class).is_empty())
     }
 
-    fn intersect_impl(&self, left: &Type, right: &Type, fallback: &dyn Fn() -> Type) -> Type {
+    fn intersect_impl(&self, left: &Type, right: &Type, fallback: IntersectFallback) -> Type {
         let is_literal =
             |t: &Type| matches!(t, Type::Literal(_) | Type::LiteralString(_) | Type::None);
         if self.is_subset_eq(right, left) {
@@ -208,12 +214,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         } else if self.is_subset_eq(left, right) {
             left.clone()
         } else if let (Type::Type(left), Type::Type(right)) = (left, right) {
-            let inner = self.intersect_with_fallback(left, right, &|| match fallback() {
-                Type::Type(fallback) => *fallback,
-                fallback if fallback.is_never() => fallback,
-                // Mixed union fallbacks like `type[A] | int` cannot be unwrapped for this leaf.
-                _ => (**right).clone(),
-            });
+            let inner = self.intersect_with_fallback(left, right, fallback);
             if inner.is_never() {
                 inner
             } else {
@@ -236,10 +237,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             // intercepted by the is_subset_eq checks above. type(None) cannot be subclassed.
             self.heap.mk_never()
         } else {
-            let fallback = fallback();
-            if fallback.is_never() {
-                fallback
-            } else if let Type::ClassType(left_cls) = left
+            let fallback = match fallback {
+                IntersectFallback::Never => return self.heap.mk_never(),
+                IntersectFallback::Right if right.is_never() => return right.clone(),
+                IntersectFallback::Right => right,
+            };
+            if let Type::ClassType(left_cls) = left
                 && let Type::ClassType(right_cls) = right
                 && (self.is_final(left_cls.class_object())
                     || self.is_final(right_cls.class_object()))
@@ -254,7 +257,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 if self.has_superclass(&left_base, &right_base)
                     || self.has_superclass(&right_base, &left_base)
                 {
-                    intersect(vec![left.clone(), right.clone()], fallback, self.heap)
+                    intersect(
+                        vec![left.clone(), right.clone()],
+                        fallback.clone(),
+                        self.heap,
+                    )
                 } else {
                     // A common subclass of these two classes cannot exist.
                     self.heap.mk_never()
@@ -271,7 +278,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         &self,
         left: &Type,
         right: &Type,
-        fallback: &dyn Fn() -> Type,
+        fallback: IntersectFallback,
     ) -> Type {
         self.distribute_over_union(left, |l| {
             self.distribute_over_union(right, |r| self.intersect_impl(l, r, fallback))
@@ -279,7 +286,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     }
 
     fn intersect(&self, left: &Type, right: &Type) -> Type {
-        self.intersect_with_fallback(left, right, &|| self.heap.mk_never())
+        self.intersect_with_fallback(left, right, IntersectFallback::Never)
     }
 
     /// Calculate the intersection of a number of types
@@ -588,19 +595,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     // ground between strictness and gradualness. Subject to future behavioral adjustments.
                     intersect(vec![l.clone(), right], l.clone(), self.heap)
                 } else {
-                    self.intersect_with_fallback(l, &right, &|| {
-                        // TODO: falling back to Never when the lhs is a union is a hack to get
-                        // reasonable behavior in cases like this:
-                        //     def f(x: int | list[int]):
-                        //         if isinstance(x, Iterable):
-                        //             reveal_type(x)
-                        // We want to narrow x to just `list[int]`, rather than `(int & Iterable[Unknown]) | list[int]`
-                        if left.is_union() {
-                            self.heap.mk_never()
-                        } else {
-                            right.clone()
-                        }
-                    })
+                    // TODO: falling back to Never when the lhs is a union is a hack to get
+                    // reasonable behavior in cases like this:
+                    //     def f(x: int | list[int]):
+                    //         if isinstance(x, Iterable):
+                    //             reveal_type(x)
+                    // We want to narrow x to just `list[int]`, rather than `(int & Iterable[Unknown]) | list[int]`
+                    let fallback = if left.is_union() {
+                        IntersectFallback::Never
+                    } else {
+                        IntersectFallback::Right
+                    };
+                    self.intersect_with_fallback(l, &right, fallback)
                 }
             })
             .unwrap_or_else(|| l.clone())
@@ -635,24 +641,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         if right.is_any() {
             intersect(vec![left.clone(), right.clone()], left.clone(), self.heap)
         } else {
-            self.intersect_with_fallback(left, right, &|| {
-                // TODO: falling back to Never when the lhs is a union is a hack to get
-                // reasonable behavior in cases like this:
-                //     def f(x: int | Callable[[], int]):
-                //         if callable(x):
-                //             reveal_type(x)
-                // Both mypy and pyright say that the type of `x` on the last line is
-                // `() -> int`, whereas if we didn't fall back to Never, pyrefly would
-                // say `(int & (...) -> object) | () -> int`. A naive implementation of
-                // calling an intersection type would then lead to the type of `x()`
-                // being `object | int`. This is a surprising and unhelpful type, so we
-                // use Never as the fallback for now.
-                if left.is_union() {
-                    self.heap.mk_never()
-                } else {
-                    right.clone()
-                }
-            })
+            // TODO: falling back to Never when the lhs is a union is a hack to get
+            // reasonable behavior in cases like this:
+            //     def f(x: int | Callable[[], int]):
+            //         if callable(x):
+            //             reveal_type(x)
+            // Both mypy and pyright say that the type of `x` on the last line is
+            // `() -> int`, whereas if we didn't fall back to Never, pyrefly would
+            // say `(int & (...) -> object) | () -> int`. A naive implementation of
+            // calling an intersection type would then lead to the type of `x()`
+            // being `object | int`. This is a surprising and unhelpful type, so we
+            // use Never as the fallback for now.
+            let fallback = if left.is_union() {
+                IntersectFallback::Never
+            } else {
+                IntersectFallback::Right
+            };
+            self.intersect_with_fallback(left, right, fallback)
         }
     }
 
@@ -710,7 +715,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     result = if let Type::Quantified(q) = &result {
                         let concrete = q.upper_bound(self.stdlib, self.heap);
                         let subtraction = self.subtract(&concrete, &right);
-                        self.intersect_with_fallback(&result, &subtraction, &|| subtraction.clone())
+                        self.intersect_with_fallback(
+                            &result,
+                            &subtraction,
+                            IntersectFallback::Right,
+                        )
                     } else {
                         self.subtract(&result, &right)
                     };
@@ -821,7 +830,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             if let Some(left_untyped) = self.untype_opt(left.clone(), range, errors) {
                 self.with_fresh_class_info_target(&left_untyped, &right, |right| {
                     self.issubclass_result(
-                        self.intersect_with_fallback(&left_untyped, &right, &|| right.clone()),
+                        self.intersect_with_fallback(
+                            &left_untyped,
+                            &right,
+                            IntersectFallback::Right,
+                        ),
                         left,
                     )
                 })

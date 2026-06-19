@@ -293,6 +293,19 @@ assert_type(C(1).x, int)
 "#,
 );
 
+// `@attr.dataclass` defaults to `auto_attribs=True` by name (no auto-detect fallback), so an
+// unannotated specifier needs a type annotation.
+attrs_testcase!(
+    test_attr_dataclass_unannotated_needs_annotation,
+    r#"
+import attr
+
+@attr.dataclass
+class C:
+    x = attr.ib()  # E: needs a type annotation
+"#,
+);
+
 // `init=False` suppresses `__init__` synthesis.
 attrs_testcase!(
     test_attrs_define_init_false,

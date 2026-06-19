@@ -1561,14 +1561,27 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     }
                     let mut flags = self.compute_dataclass_field_initialization(call, dm);
                     if flags.is_some() {
-                        // A bare assignment of a `field()` specifier with no type annotation is a runtime error in CPython
-                        if direct_annotation.is_none() && !metadata.is_attrs_class() {
-                            self.error(
-                                errors,
-                                range,
-                                ErrorKind::BadClassDefinition,
-                                format!("`{name}` is a dataclass field but has no type annotation"),
-                            );
+                        // A field specifier with no type annotation is a definition-time error,
+                        // except under classic attrs (`auto_attribs=False`), where an unannotated
+                        // `attr.ib()` is a valid field. Unresolved `auto_attribs` (`None`) is
+                        // treated as classic to avoid false positives.
+                        if direct_annotation.is_none() {
+                            let missing_annotation = match &dm.kind {
+                                DataclassKind::Dataclass { .. } => Some(format!(
+                                    "`{name}` is a dataclass field but has no type annotation"
+                                )),
+                                DataclassKind::Attrs { auto_attribs, .. }
+                                    if *auto_attribs == Some(true) =>
+                                {
+                                    Some(format!(
+                                        "`{name}` needs a type annotation because the class uses `auto_attribs=True`"
+                                    ))
+                                }
+                                DataclassKind::Attrs { .. } => None,
+                            };
+                            if let Some(message) = missing_annotation {
+                                self.error(errors, range, ErrorKind::BadClassDefinition, message);
+                            }
                         }
                         // `attr.ib` accepts `default` positionally, so a positional arg
                         // counts as a default here too.

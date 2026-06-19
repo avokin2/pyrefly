@@ -376,14 +376,47 @@ A()  # E: Missing argument `x`
 "#,
 );
 
+// Under `auto_attribs=True`, attrs collects fields from annotations, so an unannotated
+// `attr.ib()` is not a valid field and attrs raises `UnannotatedAttributeError` at runtime.
 attrs_testcase!(
-    bug = "auto_attribs=True requires annotations, but we suppress the field-annotation error for all attrs classes",
     test_attrs_unannotated_attrib_auto_attribs,
     r#"
 import attr
 @attr.s(auto_attribs=True)
 class A:
-    x = attr.ib()  # !E: type annotation
+    x = attr.ib()  # E: needs a type annotation
+"#,
+);
+
+// The error is localized to the unannotated field: an annotated sibling is unaffected and is
+// the only `__init__` parameter (the unannotated field is dropped, matching attrs).
+attrs_testcase!(
+    test_attrs_unannotated_attrib_auto_attribs_mixed,
+    r#"
+from typing import reveal_type
+import attr
+@attr.s(auto_attribs=True)
+class A:
+    x: int
+    y = attr.ib()  # E: needs a type annotation
+
+reveal_type(A.__init__)  # E: revealed type: (self: A, x: int) -> None
+"#,
+);
+
+// The error is reported once, at the base class where the unannotated field is declared, and
+// not duplicated on a subclass that inherits it.
+attrs_testcase!(
+    test_attrs_unannotated_attrib_auto_attribs_inherited,
+    r#"
+import attr
+@attr.s(auto_attribs=True)
+class Base:
+    x = attr.ib()  # E: needs a type annotation
+
+@attr.s(auto_attribs=True)
+class Sub(Base):
+    y: int
 "#,
 );
 

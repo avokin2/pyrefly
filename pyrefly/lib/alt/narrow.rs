@@ -631,6 +631,52 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         self.unions(res)
     }
 
+    fn narrow_typeis_target_from_definite(&self, left: &Type, right: &Type) -> Type {
+        if right.is_any() {
+            intersect(vec![left.clone(), right.clone()], left.clone(), self.heap)
+        } else {
+            self.intersect_with_fallback(left, right, &|| {
+                // TODO: falling back to Never when the lhs is a union is a hack to get
+                // reasonable behavior in cases like this:
+                //     def f(x: int | Callable[[], int]):
+                //         if callable(x):
+                //             reveal_type(x)
+                // Both mypy and pyright say that the type of `x` on the last line is
+                // `() -> int`, whereas if we didn't fall back to Never, pyrefly would
+                // say `(int & (...) -> object) | () -> int`. A naive implementation of
+                // calling an intersection type would then lead to the type of `x()`
+                // being `object | int`. This is a surprising and unhelpful type, so we
+                // use Never as the fallback for now.
+                if left.is_union() {
+                    self.heap.mk_never()
+                } else {
+                    right.clone()
+                }
+            })
+        }
+    }
+
+    fn narrow_typeis(
+        &self,
+        left: &Type,
+        right: &Type,
+        range: TextRange,
+        errors: &ErrorCollector,
+    ) -> Type {
+        let (definite, has_dynamic_alternative) =
+            self.strip_any_for_narrowing(left, &mut SmallSet::new(), range, errors);
+        self.distribute_over_union(right, |right| {
+            let mut res = Vec::new();
+            if let Some(definite) = &definite {
+                res.push(self.narrow_typeis_target_from_definite(definite, right));
+            }
+            if definite.is_none() || has_dynamic_alternative {
+                res.push(right.clone());
+            }
+            self.unions(res)
+        })
+    }
+
     fn narrow_is_not_instance(
         &self,
         left: &Type,
@@ -1531,26 +1577,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         None,
                     );
                     if let Type::TypeIs(t) = ret {
-                        return self.distribute_over_union(&t, |right| {
-                            self.intersect_with_fallback(ty, right, &|| {
-                                // TODO: falling back to Never when the lhs is a union is a hack to get
-                                // reasonable behavior in cases like this:
-                                //     def f(x: int | Callable[[], int]):
-                                //         if callable(x):
-                                //             reveal_type(x)
-                                // Both mypy and pyright say that the type of `x` on the last line is
-                                // `() -> int`, whereas if we didn't fall back to Never, pyrefly would
-                                // say `(int & (...) -> object) | () -> int`. A naive implementation of
-                                // calling an intersection type would then lead to the type of `x()`
-                                // being `object | int`. This is a surprising and unhelpful type, so we
-                                // use Never as the fallback for now.
-                                if ty.is_union() {
-                                    self.heap.mk_never()
-                                } else {
-                                    (*t).clone()
-                                }
-                            })
-                        });
+                        return self.narrow_typeis(ty, &t, range, errors);
                     }
                 }
                 ty.clone()

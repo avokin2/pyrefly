@@ -1509,6 +1509,23 @@ def f(tp: type[Point] | type[Other]) -> None:
 );
 
 testcase!(
+    test_typeis_any_keeps_definite_members,
+    r#"
+from typing import Any, TypeIs, reveal_type
+
+class A: ...
+class B: ...
+
+def is_any(x: object) -> TypeIs[Any]: ...
+
+def f(x: A) -> None:
+    if is_any(x):
+        if isinstance(x, B):
+            reveal_type(x)  # E: revealed type: A & B
+    "#,
+);
+
+testcase!(
     test_narrow_and,
     r#"
 from typing import assert_type

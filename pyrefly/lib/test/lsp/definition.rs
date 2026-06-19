@@ -3258,6 +3258,94 @@ x = thrift_mod.AggregatedAlertSpec
     assert_eq!(defs[0].range, TextRange::empty(TextSize::new(0)));
 }
 
+/// When accessing a nested attribute on a non-Python module
+/// (e.g. thrift_mod.MyEnum.VARIANT), go-to-definition on the member should
+/// navigate to the module source file via text search.
+#[test]
+fn non_python_module_nested_attribute_test() {
+    let thrift_content = "enum Targeting {\n  CUSTOM_AUDIENCES = 0,\n  INTERESTS = 1,\n}\n\nstruct Foo {\n  1: string INTERESTS;\n}\n";
+    let main_code = r#"
+import aggregation_rule.thrift as thrift_mod
+x = thrift_mod.Targeting.CUSTOM_AUDIENCES
+#                        ^
+y = thrift_mod.Targeting.INTERESTS
+#                        ^
+"#;
+    let positions = extract_cursors_for_test(main_code);
+    let mut test_env = TestEnv::new().with_extra_file_extensions(vec!["thrift".to_owned()]);
+    test_env.add_with_path(
+        "aggregation_rule.thrift",
+        "aggregation_rule.thrift",
+        thrift_content,
+    );
+    test_env.add("main", main_code);
+    let (state, handle) = test_env.to_state();
+    let main_handle = handle("main");
+
+    // "thrift_mod.Targeting.CUSTOM_AUDIENCES"
+    //                       ^
+    let defs = state
+        .transaction()
+        .goto_definition(&main_handle, positions[0])
+        .expect("go-to-definition should return a result for nested non-Python attribute");
+    let report = defs
+        .iter()
+        .map(|d| format!("module={}, range={:?}", d.module.path(), d.range))
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert!(
+        !defs.is_empty(),
+        "go-to-definition should return a non-empty result"
+    );
+    assert!(
+        defs[0]
+            .module
+            .path()
+            .to_string()
+            .contains("aggregation_rule.thrift"),
+        "should navigate to the .thrift file, got: {report}",
+    );
+    // "CUSTOM_AUDIENCES" appears at byte offset 19..35 in the thrift content
+    assert_eq!(
+        defs[0].range,
+        TextRange::new(TextSize::new(19), TextSize::new(35)),
+        "should point to CUSTOM_AUDIENCES in the .thrift file. Got: {report}",
+    );
+
+    // "thrift_mod.Targeting.INTERESTS"
+    //                       ^
+    // "INTERESTS" appears twice in the thrift content (as an enum value and
+    // a struct field name). find_symbol_range_in_text returns the first
+    // whole-word occurrence.
+    let defs = state
+        .transaction()
+        .goto_definition(&main_handle, positions[1])
+        .expect("go-to-definition should return a result for nested non-Python attribute");
+    let report = defs
+        .iter()
+        .map(|d| format!("module={}, range={:?}", d.module.path(), d.range))
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert!(
+        !defs.is_empty(),
+        "go-to-definition should return a non-empty result"
+    );
+    assert!(
+        defs[0]
+            .module
+            .path()
+            .to_string()
+            .contains("aggregation_rule.thrift"),
+        "should navigate to the .thrift file, got: {report}",
+    );
+    // First occurrence of "INTERESTS" is the enum value at byte offset 43..52
+    assert_eq!(
+        defs[0].range,
+        TextRange::new(TextSize::new(43), TextSize::new(52)),
+        "should point to first INTERESTS in the .thrift file. Got: {report}",
+    );
+}
+
 /// Go-to-definition on a __files__ directory import should fall back to
 /// the parent module when the virtual __files__ module doesn't exist on disk.
 #[test]

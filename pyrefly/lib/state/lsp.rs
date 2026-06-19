@@ -2185,16 +2185,49 @@ impl<'a> Transaction<'a> {
         // parsed as Python): navigate to the module file itself. Only applies
         // when extra file extensions are configured.
         let config_has_extra_extensions = self.config_has_extra_extensions(handle);
-        if config_has_extra_extensions && let Type::Module(ref module) = base_type {
-            let module_name = ModuleName::from_parts(module.parts());
-            if let Ok(Some(item)) = self.find_symbol_in_non_python_module(
-                handle,
-                module_name,
-                name.as_str(),
-                preference,
-            ) && !item.is_python_module()
+        if config_has_extra_extensions {
+            if let Type::Module(ref module) = base_type {
+                let module_name = ModuleName::from_parts(module.parts());
+                if let Ok(Some(item)) = self.find_symbol_in_non_python_module(
+                    handle,
+                    module_name,
+                    name.as_str(),
+                    preference,
+                ) && !item.is_python_module()
+                {
+                    return Ok(vec1![item]);
+                }
+            }
+            // Nested attribute fallback: handles `module.Container.member`
+            // where `module` is a non-Python file (e.g. .thrift). The base
+            // expression `module.Container` resolves to Any/Unknown because
+            // the type system can't resolve attributes on non-Python modules.
+            // We look at the AST to find the base's own base expression,
+            // check if it's a Module type, and if so search for the member
+            // as a whole-word match in the module source file.
+            if base_type.is_any()
+                && let Some(mod_module) = self.get_ast(handle)
             {
-                return Ok(vec1![item]);
+                let covering_nodes = Ast::locate_node(&mod_module, base_range.start());
+                for node in &covering_nodes {
+                    if let AnyNodeRef::ExprAttribute(attr) = node
+                        && attr.range() == base_range
+                        && let Some(Type::Module(ref module)) =
+                            answers.get_type_trace(attr.value.range())
+                    {
+                        let module_name = ModuleName::from_parts(module.parts());
+                        if let Ok(Some(item)) = self.find_symbol_in_non_python_module(
+                            handle,
+                            module_name,
+                            name.as_str(),
+                            preference,
+                        ) && !item.is_python_module()
+                        {
+                            return Ok(vec1![item]);
+                        }
+                        break;
+                    }
+                }
             }
         }
         Err(EmptyResponseReason::DefinitionNotFound {

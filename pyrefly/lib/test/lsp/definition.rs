@@ -3133,11 +3133,12 @@ Definition Result:
 }
 
 /// When importing a name from a non-Python module (e.g. a .thrift file),
-/// go-to-definition on the imported name should fall back to navigating
-/// to the module file itself.
+/// go-to-definition on the imported name should navigate to the actual
+/// symbol definition in the source file, not just the top of the file.
 #[test]
-fn non_python_module_import_fallback_test() {
-    let thrift_content = "";
+fn non_python_module_import_goto_symbol_test() {
+    let thrift_content =
+        "// This is a comment!\nstruct AggregatedAlertSpec {\n  1: string name\n}\n";
     let main_code = r#"
 from aggregation_rule.thrift import AggregatedAlertSpec
 #                                   ^
@@ -3155,7 +3156,6 @@ x = AggregatedAlertSpec
     let (state, handle) = test_env.to_state();
     let main_handle = handle("main");
 
-    // Test positions:
     // "from aggregation_rule.thrift import AggregatedAlertSpec"
     //                                      ^
     let import_name_pos = positions[0];
@@ -3180,7 +3180,14 @@ x = AggregatedAlertSpec
             .contains("aggregation_rule.thrift"),
         "should navigate to the .thrift file, got: {report}",
     );
-    assert_eq!(defs[0].range, TextRange::empty(TextSize::new(0)));
+    // The definition range should point to "AggregatedAlertSpec" (19 chars)
+    // in the thrift file at byte offset 7..26 (after "struct "), not just the
+    // start of the file.
+    assert_eq!(
+        defs[0].range,
+        TextRange::new(TextSize::new(29), TextSize::new(48)),
+        "should point to the symbol name, not the start of file. Got: {report}",
+    );
 
     // Test positions:
     // "from aggregation_rule.thrift import AggregatedAlertSpec"

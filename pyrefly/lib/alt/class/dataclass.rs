@@ -8,7 +8,6 @@
 use std::sync::Arc;
 
 use pyrefly_python::dunder;
-use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::short_identifier::ShortIdentifier;
 use pyrefly_types::typed_dict::AnonymousTypedDictInner;
 use pyrefly_types::typed_dict::TypedDict;
@@ -50,7 +49,6 @@ use crate::error::context::TypeCheckKind;
 use crate::types::callable::Callable;
 use crate::types::callable::FuncMetadata;
 use crate::types::callable::Function;
-use crate::types::callable::FunctionKind;
 use crate::types::callable::Param;
 use crate::types::callable::ParamList;
 use crate::types::callable::Params;
@@ -62,7 +60,6 @@ use crate::types::keywords::ConverterMap;
 use crate::types::keywords::DataclassFieldKeywords;
 use crate::types::keywords::TypeMap;
 use crate::types::literal::Lit;
-use crate::types::types::CalleeKind;
 use crate::types::types::Type;
 
 /// Suppresses the assignment check against a field's declared type. Required-ness instead uses
@@ -74,17 +71,6 @@ pub(crate) fn is_attrs_nothing(ty: &Type) -> bool {
         _ => return false,
     };
     class.has_qname("attr", "_Nothing") || class.has_qname("attrs", "_Nothing")
-}
-
-/// Whether `func_ty` is an attrs field specifier; `ib`/`attr` are aliases of the `attrib` def.
-pub(crate) fn is_attrs_field_specifier_callee(func_ty: &Type) -> bool {
-    matches!(
-        func_ty.callee_kind(),
-        Some(CalleeKind::Function(FunctionKind::Def(id)))
-            if (id.module.name() == ModuleName::attr()
-                || id.module.name() == ModuleName::attrs())
-                && matches!(id.name.as_str(), "attrib" | "field")
-    )
 }
 
 impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {

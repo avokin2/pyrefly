@@ -51,7 +51,6 @@ use crate::alt::answers_solver::AnswersSolver;
 use crate::alt::answers_solver::TypeCheckOptions;
 use crate::alt::callable::CallArg;
 use crate::alt::class::class_field::ClassField;
-use crate::alt::class::dataclass::is_attrs_field_specifier_callee;
 use crate::alt::class::dataclass::is_attrs_nothing;
 use crate::alt::class::typed_dict::TypedDictErrorKind;
 use crate::alt::class::variance_inference::VarianceMap;
@@ -2486,7 +2485,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 ..
             } => {
                 let (annot, ty) =
-                    self.name_assign_infer(name, annot_key.as_ref(), None, expr, errors);
+                    self.name_assign_infer(name, annot_key.as_ref(), None, expr, false, errors);
                 if let Some(annot) = &annot
                     && let Some((AnnotationStyle::Forwarded, _)) = annot_key
                 {
@@ -3314,6 +3313,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         annot_key: Option<&(AnnotationStyle, Idx<KeyAnnotation>)>,
         receiver_idx: Option<Idx<Key>>,
         expr: &Expr,
+        is_attrs_specifier: bool,
         errors: &ErrorCollector,
     ) -> (Option<Arc<AnnotationWithTarget>>, Type) {
         // Receiver-constrained class assignment: a same-scope rebind of a
@@ -3338,8 +3338,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             };
             return (None, visible_ty);
         }
-        let is_attrs_specifier = matches!(expr, Expr::Call(call)
-            if is_attrs_field_specifier_callee(&self.expr_infer(&call.func, &self.error_swallower())));
         match annot_key {
             // First infer the type as a normal value
             Some((style, k)) => {
@@ -3427,10 +3425,17 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         expr: &Expr,
         legacy_tparams: &Option<Box<[Idx<KeyLegacyTypeParam>]>>,
         is_in_function_scope: bool,
+        is_attrs_field_specifier: bool,
         errors: &ErrorCollector,
     ) -> Type {
-        let (annot, ty) =
-            self.name_assign_infer(name, annot_key.as_ref(), receiver_idx, expr, errors);
+        let (annot, ty) = self.name_assign_infer(
+            name,
+            annot_key.as_ref(),
+            receiver_idx,
+            expr,
+            is_attrs_field_specifier,
+            errors,
+        );
         if let Some(annot) = &annot
             && let Some((AnnotationStyle::Forwarded, _)) = annot_key
         {
@@ -5220,6 +5225,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 &x.expr,
                 &x.legacy_tparams,
                 x.is_in_function_scope,
+                x.is_attrs_field_specifier,
                 errors,
             ),
             Binding::TypeVar(x) => {

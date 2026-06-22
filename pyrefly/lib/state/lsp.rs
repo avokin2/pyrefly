@@ -1592,10 +1592,41 @@ impl<'a> Transaction<'a> {
                 original_name_range,
             ) => {
                 let Some((def_handle, export)) =
-                    self.resolve_named_import(handle, module_name, name, preference)
+                    self.resolve_named_import(handle, module_name, name.clone(), preference)
                 else {
                     // The import target is unresolvable through any
                     // chase path (export, submodule, `__getattr__`).
+                    // For non-Python modules (e.g. .thrift files imported
+                    // via extra_file_extensions), try to locate the symbol
+                    // by text search in the source file.
+                    if self.config_has_extra_extensions(handle)
+                        && let Some(module_handle) =
+                            self.import_handle_with_preference(handle, module_name, preference)
+                        && let Some(module_info) = self.get_module_info(&module_handle)
+                        && !module_info
+                            .path()
+                            .as_path()
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .is_some_and(|ext| PYTHON_EXTENSIONS.contains(&ext))
+                    {
+                        // The first found occurrence of the symbol, or the top of the
+                        // file if it couldn't be resolved.
+                        let definition_range =
+                            find_symbol_range_in_text(module_info.contents(), name.as_str())
+                                .unwrap_or_default();
+                        return Some((
+                            module_handle,
+                            Export {
+                                location: definition_range,
+                                symbol_kind: Some(SymbolKind::Variable),
+                                docstring_range: None,
+                                deprecation: None,
+                                is_final: false,
+                                special_export: None,
+                            },
+                        ));
+                    }
                     // Fall back to the import statement itself so the
                     // user lands somewhere meaningful instead of
                     // getting no result at all.

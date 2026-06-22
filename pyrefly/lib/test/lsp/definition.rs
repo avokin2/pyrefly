@@ -3193,6 +3193,8 @@ x = AggregatedAlertSpec
     // "from aggregation_rule.thrift import AggregatedAlertSpec"
     // "x = AggregatedAlertSpec
     //      ^
+    // For non-Python modules, go-to-definition on a name usage should jump
+    // through the import to the symbol in the source file.
     let use_name_pos = positions[1];
     let defs = state
         .transaction()
@@ -3208,8 +3210,17 @@ x = AggregatedAlertSpec
         "go-to-definition should return a non-empty result"
     );
     assert!(
-        defs[0].module.path().to_string().contains("main.py"),
-        "should navigate to the main.py import, got: {report}",
+        defs[0]
+            .module
+            .path()
+            .to_string()
+            .contains("aggregation_rule.thrift"),
+        "should navigate to the .thrift file, got: {report}",
+    );
+    assert_eq!(
+        defs[0].range,
+        TextRange::new(TextSize::new(29), TextSize::new(48)),
+        "should point to the symbol name, not the start of file. Got: {report}",
     );
 }
 

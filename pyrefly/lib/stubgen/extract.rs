@@ -386,7 +386,7 @@ fn make_param(
     ctx: &mut ExtractionContext,
 ) -> StubParam {
     let annotation = if let Some(ann_expr) = source_annotation {
-        Some(source_text(ctx.module_info, ann_expr.range()).to_owned())
+        Some(expr_source_text(ctx.module_info, ann_expr.range()))
     } else if let Some(param) = resolved {
         format_param_type(param, ctx)
     } else {
@@ -446,13 +446,13 @@ fn format_default(expr: &Expr, module_info: &Module) -> String {
             }
         }
         Expr::NumberLiteral(_) | Expr::StringLiteral(_) | Expr::BytesLiteral(_) => {
-            source_text(module_info, expr.range()).to_owned()
+            expr_source_text(module_info, expr.range())
         }
         Expr::UnaryOp(u) => {
             if matches!(u.op, ruff_python_ast::UnaryOp::USub)
                 && matches!(u.operand.as_ref(), Expr::NumberLiteral(_))
             {
-                source_text(module_info, expr.range()).to_owned()
+                expr_source_text(module_info, expr.range())
             } else {
                 "...".to_owned()
             }
@@ -471,7 +471,7 @@ fn extract_return_type(
 ) -> Option<String> {
     if let Some(returns) = &func_def.returns {
         let expr: &Expr = returns;
-        return Some(source_text(ctx.module_info, expr.range()).to_owned());
+        return Some(expr_source_text(ctx.module_info, expr.range()));
     }
 
     if decorated.is_some() {
@@ -800,7 +800,7 @@ fn extract_ann_assign(
         return None;
     }
 
-    let annotation = source_text(ctx.module_info, ann_assign.annotation.range()).to_owned();
+    let annotation = expr_source_text(ctx.module_info, ann_assign.annotation.range());
 
     let value = ann_assign
         .value
@@ -865,7 +865,7 @@ fn simple_value_text(expr: &Expr, module_info: &Module) -> Option<String> {
             "False".to_owned()
         }),
         Expr::NumberLiteral(_) | Expr::StringLiteral(_) | Expr::BytesLiteral(_) => {
-            Some(source_text(module_info, expr.range()).to_owned())
+            Some(expr_source_text(module_info, expr.range()))
         }
         Expr::EllipsisLiteral(_) => Some("...".to_owned()),
         _ => None,
@@ -1011,4 +1011,17 @@ fn is_type_constructor_or_alias(assign: &ruff_python_ast::StmtAssign) -> bool {
 
 fn source_text(module_info: &Module, range: TextRange) -> &str {
     module_info.code_at(range)
+}
+
+/// Source text for an expression that may span multiple physical lines. The
+/// parentheses that make a multi-line expression valid are not part of its AST
+/// range, so re-wrap multi-line snippets to keep them valid when emitted on a
+/// single logical line in the stub.
+fn expr_source_text(module_info: &Module, range: TextRange) -> String {
+    let text = source_text(module_info, range);
+    if text.contains('\n') {
+        format!("({text})")
+    } else {
+        text.to_owned()
+    }
 }

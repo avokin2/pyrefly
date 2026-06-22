@@ -341,6 +341,52 @@ class A:
         );
     }
 
+    /// Parenthesized multi-line annotations, return types, and values stay valid
+    /// when collapsed onto one logical line. See <https://github.com/facebook/pyrefly/issues/3887>.
+    #[test]
+    fn test_stubgen_multiline_parenthesized() {
+        let actual = run_stubgen(
+            r#"
+from typing import Callable
+
+class Agent:
+    instructions: (
+        str
+        | Callable[[int], str]
+        | None
+    ) = None
+
+    def f(
+        self,
+        x: (
+            int
+            | str
+        ),
+    ) -> (
+        int
+        | None
+    ): ...
+"#,
+        );
+        pretty_assertions::assert_str_eq!(
+            r#"
+from typing import Callable
+
+
+class Agent:
+    instructions: (str
+        | Callable[[int], str]
+        | None) = None
+
+    def f(self, x: (int
+            | str)) -> (int
+        | None): ...
+"#
+            .trim(),
+            actual.trim(),
+        );
+    }
+
     #[test]
     fn test_stubgen_dataclass() {
         assert_stubgen_snapshot("dataclass");

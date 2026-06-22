@@ -19,6 +19,7 @@ use pyrefly_util::prelude::SliceExt;
 use pyrefly_util::visit::Visit;
 use regex::Regex;
 use ruff_python_ast::Decorator;
+use ruff_python_ast::ExceptHandler;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprDict;
 use ruff_python_ast::ExprList;
@@ -33,6 +34,7 @@ use ruff_python_ast::name::Name;
 use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
 use starlark_map::small_map::SmallMap;
+use starlark_map::small_set::SmallSet;
 
 use crate::binding::base_class::BaseClass;
 use crate::binding::base_class::BaseClassGeneric;
@@ -250,6 +252,9 @@ impl<'a> BindingsBuilder<'a> {
         let body = mem::take(&mut x.body);
         let field_docstrings = self.extract_field_docstrings(&body);
         let pydantic_before_validator_fields = self.extract_field_validator_fields(&body);
+        // Fields with a `@<field>.default` decorated method, consumed at solve to mark them optional.
+        let mut attrs_default_decorator_fields = SmallSet::new();
+        collect_attrs_default_decorators(&body, &mut attrs_default_decorator_fields);
         let capture_init = self.extract_capture_init(&body);
         let shaped_array_metadata = self.extract_shaped_array_metadata(&x.decorator_list);
         let decorators =
@@ -499,6 +504,7 @@ impl<'a> BindingsBuilder<'a> {
                     Some(AttrsFieldSpecifier {
                         kind,
                         default_is_nothing,
+                        default_via_decorator: attrs_default_decorator_fields.contains(name.key()),
                     })
                 } else {
                     None
@@ -1715,6 +1721,54 @@ impl<'a> BindingsBuilder<'a> {
                 error_kind,
                 format!("Expected string literal \"{name}\""),
             );
+        }
+    }
+}
+
+/// Collect fields targeted by a `@<field>.default` decorated method. Recurses through class-body
+/// control flow but not into nested `def`/`class` scopes, where `<name>.default` is unrelated.
+fn collect_attrs_default_decorators(body: &[Stmt], out: &mut SmallSet<Name>) {
+    for stmt in body {
+        match stmt {
+            Stmt::FunctionDef(func_def) => {
+                for decorator in &func_def.decorator_list {
+                    if let Expr::Attribute(attr) = &decorator.expression
+                        && attr.attr.id.as_str() == "default"
+                        && let Some(name) = attr.value.as_name_expr()
+                    {
+                        out.insert(name.id.clone());
+                    }
+                }
+            }
+            Stmt::If(x) => {
+                collect_attrs_default_decorators(&x.body, out);
+                for clause in &x.elif_else_clauses {
+                    collect_attrs_default_decorators(&clause.body, out);
+                }
+            }
+            Stmt::For(x) => {
+                collect_attrs_default_decorators(&x.body, out);
+                collect_attrs_default_decorators(&x.orelse, out);
+            }
+            Stmt::While(x) => {
+                collect_attrs_default_decorators(&x.body, out);
+                collect_attrs_default_decorators(&x.orelse, out);
+            }
+            Stmt::With(x) => collect_attrs_default_decorators(&x.body, out),
+            Stmt::Try(x) => {
+                collect_attrs_default_decorators(&x.body, out);
+                for ExceptHandler::ExceptHandler(h) in &x.handlers {
+                    collect_attrs_default_decorators(&h.body, out);
+                }
+                collect_attrs_default_decorators(&x.orelse, out);
+                collect_attrs_default_decorators(&x.finalbody, out);
+            }
+            Stmt::Match(x) => {
+                for case in &x.cases {
+                    collect_attrs_default_decorators(&case.body, out);
+                }
+            }
+            _ => {}
         }
     }
 }

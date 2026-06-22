@@ -1606,6 +1606,15 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     {
                         f.default = None;
                     }
+                    // A `@<field>.default` method supplies the default, making the field optional.
+                    if let Some(f) = &mut flags
+                        && f.default.is_none()
+                        && self
+                            .get_class_fields(class)
+                            .is_some_and(|cf| cf.default_is_attrs_decorator(name))
+                    {
+                        f.default = Some(self.heap.mk_any_implicit());
+                    }
                     ClassFieldInitialization::ClassBody(flags.map(Box::new))
                 } else {
                     ClassFieldInitialization::ClassBody(None)

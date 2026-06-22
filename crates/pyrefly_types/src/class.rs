@@ -84,11 +84,12 @@ pub enum AttrsFieldSpecifierKind {
     Field,
 }
 
-/// Bundling `default_is_nothing` with the specifier keeps it unrepresentable without one.
+/// Bundling these flags with the specifier keeps them unrepresentable without one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AttrsFieldSpecifier {
     pub kind: AttrsFieldSpecifierKind,
     pub default_is_nothing: bool,
+    pub default_via_decorator: bool,
 }
 
 /// Simple properties of class fields that can be attached to the class definition. Note that this
@@ -202,6 +203,13 @@ impl ClassFields {
         self.0.get(name).is_some_and(|prop| {
             prop.attrs_field_specifier
                 .is_some_and(|s| s.default_is_nothing)
+        })
+    }
+
+    pub fn default_is_attrs_decorator(&self, name: &Name) -> bool {
+        self.0.get(name).is_some_and(|prop| {
+            prop.attrs_field_specifier
+                .is_some_and(|s| s.default_via_decorator)
         })
     }
 

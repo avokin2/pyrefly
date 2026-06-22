@@ -937,3 +937,121 @@ class C:
         return "oops"
 "#,
 );
+
+// The `@x.default` method is called as `meth(self)`; requiring another argument is an error.
+attrs_testcase!(
+    field_default_decorator_wrong_signature,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()
+
+    @x.default
+    def _x(self, extra):  # E: The `@x.default` method must be callable with no argument other than `self`, but it has required parameters that attrs does not pass
+        return 0
+"#,
+);
+
+// The `@x.validator` method is called as `validator(self, attribute, value)`; fewer params is an error.
+attrs_testcase!(
+    field_validator_decorator_wrong_signature,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()
+
+    @x.validator
+    def _check(self):  # E: The `@x.validator` method must accept `(self, attribute, value)`, but it accepts too few positional parameters
+        pass
+"#,
+);
+
+// `*args` absorbs attrs' call shape for both decorators, so neither signature is flagged.
+attrs_testcase!(
+    field_decorator_signature_varargs_ok,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()
+
+    @x.default
+    def _x(self, *args):
+        return 0
+
+    @x.validator
+    def _check(self, *args):
+        pass
+
+C(1)  # OK
+"#,
+);
+
+// `*args` does not satisfy a required parameter: `extra` is still unfilled by attrs' `meth(self)`.
+attrs_testcase!(
+    field_default_decorator_required_arg_with_varargs,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()
+
+    @x.default
+    def _x(self, extra, *args):  # E: The `@x.default` method must be callable with no argument other than `self`, but it has required parameters that attrs does not pass
+        return 0
+"#,
+);
+
+// A required keyword-only parameter can never be filled by attrs' positional call.
+attrs_testcase!(
+    field_validator_decorator_required_kwonly,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()
+
+    @x.validator
+    def _check(self, attribute, value, *, k):  # E: The `@x.validator` method must accept `(self, attribute, value)`, but it has a required keyword-only parameter that attrs cannot pass
+        pass
+"#,
+);
+
+// The default method, too, cannot be passed a required keyword-only parameter.
+attrs_testcase!(
+    field_default_decorator_required_kwonly,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()
+
+    @x.default
+    def _x(self, *, k):  # E: The `@x.default` method must be callable with no argument other than `self`, but it has a required keyword-only parameter that attrs cannot pass
+        return 0
+"#,
+);
+
+// attrs passes exactly `(self, attribute, value)`; an extra required positional is unfillable.
+attrs_testcase!(
+    field_validator_decorator_too_many_required,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()
+
+    @x.validator
+    def _check(self, attribute, value, extra):  # E: The `@x.validator` method must accept `(self, attribute, value)`, but it has required parameters that attrs does not pass
+        pass
+"#,
+);

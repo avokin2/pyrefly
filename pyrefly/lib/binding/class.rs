@@ -28,6 +28,7 @@ use ruff_python_ast::ExprSubscript;
 use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Identifier;
 use ruff_python_ast::Keyword;
+use ruff_python_ast::Parameters;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
 use ruff_python_ast::name::Name;
@@ -252,15 +253,8 @@ impl<'a> BindingsBuilder<'a> {
         let body = mem::take(&mut x.body);
         let field_docstrings = self.extract_field_docstrings(&body);
         let pydantic_before_validator_fields = self.extract_field_validator_fields(&body);
-        // Maps a field to its `@<field>.default` method's name range (for solve-time optional and
-        // return-type checks); `duplicates` holds fields with more than one such method (an error).
-        let mut attrs_default_decorator_fields = SmallMap::new();
-        let mut attrs_duplicate_default_decorator_fields = SmallSet::new();
-        collect_attrs_default_decorators(
-            &body,
-            &mut attrs_default_decorator_fields,
-            &mut attrs_duplicate_default_decorator_fields,
-        );
+        let mut attrs_decorators = AttrsDecoratorMethods::default();
+        collect_attrs_decorator_methods(&body, &mut attrs_decorators);
         let capture_init = self.extract_capture_init(&body);
         let shaped_array_metadata = self.extract_shaped_array_metadata(&x.decorator_list);
         let decorators =
@@ -503,27 +497,64 @@ impl<'a> BindingsBuilder<'a> {
                     .is_some_and(|e| {
                         self.as_special_export(e) == Some(SpecialExport::AttrsNothing)
                     });
-                // attrs raises `DefaultAlreadySetError` for more than one `@<field>.default`.
                 let field_name = name.key();
-                if attrs_duplicate_default_decorator_fields.contains(field_name) {
+                // attrs raises `DefaultAlreadySetError` for more than one `@<field>.default`.
+                if attrs_decorators.duplicate_defaults.contains(field_name) {
                     self.error(
-                            range,
-                            ErrorKind::BadClassDefinition,
-                            format!(
-                                "`{field_name}` cannot have more than one `@{field_name}.default` method"
-                            ),
-                        );
+                        range,
+                        ErrorKind::BadClassDefinition,
+                        format!(
+                            "`{field_name}` cannot have more than one `@{field_name}.default` method"
+                        ),
+                    );
+                }
+                for BadAttrsMethod {
+                    range: method_range,
+                    reason,
+                    ..
+                } in attrs_decorators
+                    .bad_default_signatures
+                    .iter()
+                    .filter(|m| &m.name == field_name)
+                {
+                    self.error(
+                        *method_range,
+                        ErrorKind::BadClassDefinition,
+                        format!(
+                            "The `@{field_name}.default` method must be callable with no argument other than `self`, but {}",
+                            reason.describe()
+                        ),
+                    );
+                }
+                for BadAttrsMethod {
+                    range: method_range,
+                    reason,
+                    ..
+                } in attrs_decorators
+                    .bad_validator_signatures
+                    .iter()
+                    .filter(|m| &m.name == field_name)
+                {
+                    self.error(
+                        *method_range,
+                        ErrorKind::BadClassDefinition,
+                        format!(
+                            "The `@{field_name}.validator` method must accept `(self, attribute, value)`, but {}",
+                            reason.describe()
+                        ),
+                    );
                 }
                 Some(AttrsFieldSpecifier {
                     kind,
                     default_is_nothing,
                     // A duplicate is already an error; record no range so the return-type check skips it.
-                    default_decorator_method_range: if attrs_duplicate_default_decorator_fields
+                    default_decorator_method_range: if attrs_decorators
+                        .duplicate_defaults
                         .contains(field_name)
                     {
                         None
                     } else {
-                        attrs_default_decorator_fields.get(field_name).copied()
+                        attrs_decorators.defaults.get(field_name).copied()
                     },
                 })
             } else {
@@ -1745,53 +1776,158 @@ impl<'a> BindingsBuilder<'a> {
     }
 }
 
-/// Map each field to the name range of its `@<field>.default` decorated method. Recurses through
-/// class-body control flow but not into nested `def`/`class` scopes, where `<name>.default` is
-/// unrelated.
-fn collect_attrs_default_decorators(
-    body: &[Stmt],
-    out: &mut SmallMap<Name, TextRange>,
-    duplicates: &mut SmallSet<Name>,
-) {
+/// `@<field>.default` / `@<field>.validator` methods found in a class body.
+#[derive(Default)]
+struct AttrsDecoratorMethods {
+    defaults: SmallMap<Name, TextRange>,
+    duplicate_defaults: SmallSet<Name>,
+    bad_default_signatures: Vec<BadAttrsMethod>,
+    bad_validator_signatures: Vec<BadAttrsMethod>,
+}
+
+/// Why attrs cannot call a `@<field>.default` / `@<field>.validator` method, given that it
+/// invokes them positionally with a fixed number of arguments.
+enum AttrsMethodSignatureError {
+    TooFewParameters,
+    TooManyRequiredParameters,
+    RequiredKeywordOnly,
+}
+
+impl AttrsMethodSignatureError {
+    fn describe(&self) -> &'static str {
+        match self {
+            Self::TooFewParameters => "it accepts too few positional parameters",
+            Self::TooManyRequiredParameters => {
+                "it has required parameters that attrs does not pass"
+            }
+            Self::RequiredKeywordOnly => {
+                "it has a required keyword-only parameter that attrs cannot pass"
+            }
+        }
+    }
+}
+
+struct BadAttrsMethod {
+    name: Name,
+    range: TextRange,
+    reason: AttrsMethodSignatureError,
+}
+
+struct MethodArity {
+    required_positional: usize,
+    total_positional: usize,
+    has_varargs: bool,
+    /// attrs calls decorator methods positionally, so a required keyword-only parameter can never
+    /// be filled.
+    has_required_kwonly: bool,
+}
+
+fn method_arity(parameters: &Parameters) -> MethodArity {
+    let mut required_positional = 0;
+    let mut total_positional = 0;
+    for p in parameters.posonlyargs.iter().chain(&parameters.args) {
+        total_positional += 1;
+        if p.default.is_none() {
+            required_positional += 1;
+        }
+    }
+    MethodArity {
+        required_positional,
+        total_positional,
+        has_varargs: parameters.vararg.is_some(),
+        has_required_kwonly: parameters.kwonlyargs.iter().any(|p| p.default.is_none()),
+    }
+}
+
+/// Collect `@<field>.default` / `@<field>.validator` methods. Recurses through class-body control
+/// flow but not into nested `def`/`class` scopes, where `<name>.default` is unrelated.
+fn collect_attrs_decorator_methods(body: &[Stmt], out: &mut AttrsDecoratorMethods) {
     for stmt in body {
         match stmt {
             Stmt::FunctionDef(func_def) => {
                 for decorator in &func_def.decorator_list {
-                    if let Expr::Attribute(attr) = &decorator.expression
-                        && attr.attr.id.as_str() == "default"
-                        && let Some(name) = attr.value.as_name_expr()
-                        && out.insert(name.id.clone(), func_def.name.range).is_some()
-                    {
-                        duplicates.insert(name.id.clone());
+                    let Expr::Attribute(attr) = &decorator.expression else {
+                        continue;
+                    };
+                    let Some(name) = attr.value.as_name_expr() else {
+                        continue;
+                    };
+                    let arity = method_arity(&func_def.parameters);
+                    match attr.attr.id.as_str() {
+                        "default" => {
+                            if out
+                                .defaults
+                                .insert(name.id.clone(), func_def.name.range)
+                                .is_some()
+                            {
+                                out.duplicate_defaults.insert(name.id.clone());
+                            }
+                            // attrs calls the method as `meth(self)`: anything beyond `self` is
+                            // unfilled (`*args` does not satisfy a required parameter).
+                            let reason = if arity.required_positional > 1 {
+                                Some(AttrsMethodSignatureError::TooManyRequiredParameters)
+                            } else if arity.has_required_kwonly {
+                                Some(AttrsMethodSignatureError::RequiredKeywordOnly)
+                            } else {
+                                None
+                            };
+                            if let Some(reason) = reason {
+                                out.bad_default_signatures.push(BadAttrsMethod {
+                                    name: name.id.clone(),
+                                    range: func_def.name.range,
+                                    reason,
+                                });
+                            }
+                        }
+                        // attrs calls the validator as `validator(self, attribute, value)`.
+                        "validator" => {
+                            let reason = if arity.total_positional < 3 && !arity.has_varargs {
+                                Some(AttrsMethodSignatureError::TooFewParameters)
+                            } else if arity.required_positional > 3 {
+                                Some(AttrsMethodSignatureError::TooManyRequiredParameters)
+                            } else if arity.has_required_kwonly {
+                                Some(AttrsMethodSignatureError::RequiredKeywordOnly)
+                            } else {
+                                None
+                            };
+                            if let Some(reason) = reason {
+                                out.bad_validator_signatures.push(BadAttrsMethod {
+                                    name: name.id.clone(),
+                                    range: func_def.name.range,
+                                    reason,
+                                });
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
             Stmt::If(x) => {
-                collect_attrs_default_decorators(&x.body, out, duplicates);
+                collect_attrs_decorator_methods(&x.body, out);
                 for clause in &x.elif_else_clauses {
-                    collect_attrs_default_decorators(&clause.body, out, duplicates);
+                    collect_attrs_decorator_methods(&clause.body, out);
                 }
             }
             Stmt::For(x) => {
-                collect_attrs_default_decorators(&x.body, out, duplicates);
-                collect_attrs_default_decorators(&x.orelse, out, duplicates);
+                collect_attrs_decorator_methods(&x.body, out);
+                collect_attrs_decorator_methods(&x.orelse, out);
             }
             Stmt::While(x) => {
-                collect_attrs_default_decorators(&x.body, out, duplicates);
-                collect_attrs_default_decorators(&x.orelse, out, duplicates);
+                collect_attrs_decorator_methods(&x.body, out);
+                collect_attrs_decorator_methods(&x.orelse, out);
             }
-            Stmt::With(x) => collect_attrs_default_decorators(&x.body, out, duplicates),
+            Stmt::With(x) => collect_attrs_decorator_methods(&x.body, out),
             Stmt::Try(x) => {
-                collect_attrs_default_decorators(&x.body, out, duplicates);
+                collect_attrs_decorator_methods(&x.body, out);
                 for ExceptHandler::ExceptHandler(h) in &x.handlers {
-                    collect_attrs_default_decorators(&h.body, out, duplicates);
+                    collect_attrs_decorator_methods(&h.body, out);
                 }
-                collect_attrs_default_decorators(&x.orelse, out, duplicates);
-                collect_attrs_default_decorators(&x.finalbody, out, duplicates);
+                collect_attrs_decorator_methods(&x.orelse, out);
+                collect_attrs_decorator_methods(&x.finalbody, out);
             }
             Stmt::Match(x) => {
                 for case in &x.cases {
-                    collect_attrs_default_decorators(&case.body, out, duplicates);
+                    collect_attrs_decorator_methods(&case.body, out);
                 }
             }
             _ => {}

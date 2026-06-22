@@ -252,9 +252,9 @@ impl<'a> BindingsBuilder<'a> {
         let body = mem::take(&mut x.body);
         let field_docstrings = self.extract_field_docstrings(&body);
         let pydantic_before_validator_fields = self.extract_field_validator_fields(&body);
-        // Fields with a `@<field>.default` decorated method, consumed at solve to mark them
-        // optional; `duplicates` holds fields with more than one such method (an attrs error).
-        let mut attrs_default_decorator_fields = SmallSet::new();
+        // Maps a field to its `@<field>.default` method's name range (for solve-time optional and
+        // return-type checks); `duplicates` holds fields with more than one such method (an error).
+        let mut attrs_default_decorator_fields = SmallMap::new();
         let mut attrs_duplicate_default_decorator_fields = SmallSet::new();
         collect_attrs_default_decorators(
             &body,
@@ -517,7 +517,14 @@ impl<'a> BindingsBuilder<'a> {
                 Some(AttrsFieldSpecifier {
                     kind,
                     default_is_nothing,
-                    default_via_decorator: attrs_default_decorator_fields.contains(name.key()),
+                    // A duplicate is already an error; record no range so the return-type check skips it.
+                    default_decorator_method_range: if attrs_duplicate_default_decorator_fields
+                        .contains(field_name)
+                    {
+                        None
+                    } else {
+                        attrs_default_decorator_fields.get(field_name).copied()
+                    },
                 })
             } else {
                 None
@@ -1738,11 +1745,12 @@ impl<'a> BindingsBuilder<'a> {
     }
 }
 
-/// Collect fields targeted by a `@<field>.default` decorated method. Recurses through class-body
-/// control flow but not into nested `def`/`class` scopes, where `<name>.default` is unrelated.
+/// Map each field to the name range of its `@<field>.default` decorated method. Recurses through
+/// class-body control flow but not into nested `def`/`class` scopes, where `<name>.default` is
+/// unrelated.
 fn collect_attrs_default_decorators(
     body: &[Stmt],
-    out: &mut SmallSet<Name>,
+    out: &mut SmallMap<Name, TextRange>,
     duplicates: &mut SmallSet<Name>,
 ) {
     for stmt in body {
@@ -1752,7 +1760,7 @@ fn collect_attrs_default_decorators(
                     if let Expr::Attribute(attr) = &decorator.expression
                         && attr.attr.id.as_str() == "default"
                         && let Some(name) = attr.value.as_name_expr()
-                        && !out.insert(name.id.clone())
+                        && out.insert(name.id.clone(), func_def.name.range).is_some()
                     {
                         duplicates.insert(name.id.clone());
                     }

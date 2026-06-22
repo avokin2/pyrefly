@@ -84,12 +84,12 @@ pub enum AttrsFieldSpecifierKind {
     Field,
 }
 
-/// Bundling these flags with the specifier keeps them unrepresentable without one.
+/// Bundling these with the specifier keeps them unrepresentable without one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AttrsFieldSpecifier {
     pub kind: AttrsFieldSpecifierKind,
     pub default_is_nothing: bool,
-    pub default_via_decorator: bool,
+    pub default_decorator_method_range: Option<TextRange>,
 }
 
 /// Simple properties of class fields that can be attached to the class definition. Note that this
@@ -207,10 +207,15 @@ impl ClassFields {
     }
 
     pub fn default_is_attrs_decorator(&self, name: &Name) -> bool {
-        self.0.get(name).is_some_and(|prop| {
-            prop.attrs_field_specifier
-                .is_some_and(|s| s.default_via_decorator)
-        })
+        self.attrs_default_decorator_method_range(name).is_some()
+    }
+
+    /// The name range of this field's `@<field>.default` method, if any.
+    pub fn attrs_default_decorator_method_range(&self, name: &Name) -> Option<TextRange> {
+        self.0
+            .get(name)
+            .and_then(|prop| prop.attrs_field_specifier)
+            .and_then(|s| s.default_decorator_method_range)
     }
 
     /// Whether the field's attrs specifier honors a `type=` argument (`attr.ib`, not `field`).

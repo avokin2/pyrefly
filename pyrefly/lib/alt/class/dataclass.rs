@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use pyrefly_python::dunder;
 use pyrefly_python::module_name::ModuleName;
+use pyrefly_python::short_identifier::ShortIdentifier;
 use pyrefly_types::typed_dict::AnonymousTypedDictInner;
 use pyrefly_types::typed_dict::TypedDict;
 use pyrefly_types::typed_dict::TypedDictField;
@@ -36,6 +37,7 @@ use crate::alt::types::class_metadata::DataclassKind;
 use crate::alt::types::class_metadata::DataclassMetadata;
 use crate::alt::types::pydantic::PydanticModelKind;
 use crate::alt::unwrap::HintRef;
+use crate::binding::binding::Key;
 use crate::binding::pydantic::GE;
 use crate::binding::pydantic::GT;
 use crate::binding::pydantic::LE;
@@ -137,6 +139,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
         self.check_dataclass_non_data_descriptors(cls, dataclass, errors);
         self.check_dataclass_data_descriptor_defaults(cls, dataclass, errors);
+        self.check_attrs_default_decorator_return_types(cls, dataclass, errors);
         if dataclass.kws.init {
             let init_method = if let Some((root_model_type, has_strict)) =
                 self.get_pydantic_root_model_type_via_mro(cls, &metadata)
@@ -386,6 +389,49 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                             .emit();
                     }
                 }
+            }
+        }
+    }
+
+    fn check_attrs_default_decorator_return_types(
+        &self,
+        cls: &Class,
+        dataclass: &DataclassMetadata,
+        errors: &ErrorCollector,
+    ) {
+        let Some(fields) = self.get_class_fields(cls) else {
+            return;
+        };
+        for name in dataclass.fields.iter() {
+            let Some(method_range) = fields.attrs_default_decorator_method_range(name) else {
+                continue;
+            };
+            let DataclassMember::Field(field, field_flags) = self.get_dataclass_member(cls, name)
+            else {
+                continue;
+            };
+            if field_flags.converter_param.is_some() {
+                continue;
+            }
+            // The decorated method's member type is `Any`, so read its return type directly.
+            let return_ty = self
+                .get(&Key::ReturnType(ShortIdentifier::from_text_range(
+                    method_range,
+                )))
+                .arc_clone_ty();
+            let field_ty = field.value.ty();
+            if !self.is_subset_eq(&return_ty, &field_ty) {
+                let range = fields
+                    .field_decl_range(name)
+                    .expect("a field with a default-decorator spec is tracked in the field map");
+                self.error(
+                    errors,
+                    range,
+                    ErrorKind::BadClassDefinition,
+                    format!(
+                        "Return type `{return_ty}` of the `@{name}.default` method is not assignable to field `{name}` of type `{field_ty}`"
+                    ),
+                );
             }
         }
     }

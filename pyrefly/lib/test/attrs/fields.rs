@@ -845,3 +845,95 @@ class C:
         return 1
 "#,
 );
+
+// A duplicate `@x.default` with a mismatched return type reports only the duplicate error.
+attrs_testcase!(
+    field_default_decorator_duplicate_skips_return_type_check,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()  # E: `x` cannot have more than one `@x.default` method
+
+    @x.default
+    def _a(self) -> str:
+        return "a"
+
+    @x.default
+    def _b(self) -> str:
+        return "b"
+"#,
+);
+
+// The `@x.default` method's return type must be assignable to the field's declared type.
+attrs_testcase!(
+    field_default_decorator_return_type_mismatch,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()  # E: Return type `str` of the `@x.default` method is not assignable to field `x` of type `int`
+
+    @x.default
+    def _x(self) -> str:
+        return "oops"
+"#,
+);
+
+attrs_testcase!(
+    field_default_decorator_return_type_match,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()
+
+    @x.default
+    def _x(self):
+        return 0
+
+C()  # OK
+"#,
+);
+
+// With a converter the default flows through the converter's input type, so the return type is
+// not checked against the field type.
+attrs_testcase!(
+    field_default_decorator_with_converter_not_checked,
+    r#"
+from attrs import define, field
+
+def to_int(s: str) -> int:
+    return int(s)
+
+@define
+class C:
+    x: int = field(converter=to_int)
+
+    @x.default
+    def _x(self):
+        return "0"
+
+C()  # OK
+"#,
+);
+
+// The return-type check resolves through string/forward-ref annotations (PEP 563).
+attrs_testcase!(
+    field_default_decorator_return_type_mismatch_forward_ref,
+    r#"
+from __future__ import annotations
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()  # E: Return type `str` of the `@x.default` method is not assignable to field `x` of type `int`
+
+    @x.default
+    def _x(self) -> str:
+        return "oops"
+"#,
+);

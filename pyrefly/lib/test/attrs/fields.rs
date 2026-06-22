@@ -602,6 +602,31 @@ Sub()   # OK
 "#,
 );
 
+// A `@x.default` method decorates the `field()` object named in the current class body (see the
+// decorator form under attrs "Defaults": https://www.attrs.org/en/stable/init.html#defaults), so a
+// subclass re-declares `x` rather than decorating the inherited field; that re-declaration replaces
+// (not combines with) the parent's default, so it is not a conflict.
+attrs_testcase!(
+    field_default_decorator_override_parent_default,
+    r#"
+from attrs import define, field
+
+@define
+class Base:
+    x: int = field(default=1)
+
+@define
+class Sub(Base):
+    x: int = field()
+
+    @x.default
+    def _x(self):
+        return 0
+
+Sub()  # OK
+"#,
+);
+
 // `init=False` excludes the field from `__init__` regardless of the `@x.default`.
 attrs_testcase!(
     field_default_decorator_init_false,
@@ -730,5 +755,93 @@ class Sub(Base):
     @x.default  # E: Object of class `int` has no attribute `default`
     def _x(self):
         return 0
+"#,
+);
+
+// `default=` and a `@x.default` method are mutually exclusive (attrs raises `DefaultAlreadySetError`).
+attrs_testcase!(
+    field_default_decorator_conflicts_with_explicit_default,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field(default=1)  # E: cannot specify both an explicit default and a
+
+    @x.default
+    def _x(self):
+        return 0
+"#,
+);
+
+// `factory=` is also a default, so it likewise conflicts with a `@x.default` method.
+attrs_testcase!(
+    field_default_decorator_conflicts_with_factory,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: list[int] = field(factory=list)  # E: cannot specify both an explicit default and a
+
+    @x.default
+    def _x(self):
+        return []
+"#,
+);
+
+// `default=attr.NOTHING` means "no default", so a `@x.default` is the sole default, not a conflict.
+attrs_testcase!(
+    field_default_decorator_with_nothing_default,
+    r#"
+import attr
+from attrs import define, field
+
+@define
+class C:
+    x: int = field(default=attr.NOTHING)
+
+    @x.default
+    def _x(self):
+        return 0
+
+C()   # OK
+C(1)  # OK
+"#,
+);
+
+// `attr.ib`'s positional default also conflicts with a `@x.default` method.
+attrs_testcase!(
+    field_default_decorator_conflicts_with_positional_attr_ib,
+    r#"
+import attr
+
+@attr.s
+class C:
+    x = attr.ib(5)  # E: cannot specify both an explicit default and a
+
+    @x.default
+    def _x(self):
+        return 0
+"#,
+);
+
+// attrs raises `DefaultAlreadySetError` for a second `@x.default` on the same field.
+attrs_testcase!(
+    field_default_decorator_duplicate,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()  # E: `x` cannot have more than one `@x.default` method
+
+    @x.default
+    def _a(self):
+        return 0
+
+    @x.default
+    def _b(self):
+        return 1
 "#,
 );

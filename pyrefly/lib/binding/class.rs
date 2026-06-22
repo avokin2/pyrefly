@@ -252,9 +252,15 @@ impl<'a> BindingsBuilder<'a> {
         let body = mem::take(&mut x.body);
         let field_docstrings = self.extract_field_docstrings(&body);
         let pydantic_before_validator_fields = self.extract_field_validator_fields(&body);
-        // Fields with a `@<field>.default` decorated method, consumed at solve to mark them optional.
+        // Fields with a `@<field>.default` decorated method, consumed at solve to mark them
+        // optional; `duplicates` holds fields with more than one such method (an attrs error).
         let mut attrs_default_decorator_fields = SmallSet::new();
-        collect_attrs_default_decorators(&body, &mut attrs_default_decorator_fields);
+        let mut attrs_duplicate_default_decorator_fields = SmallSet::new();
+        collect_attrs_default_decorators(
+            &body,
+            &mut attrs_default_decorator_fields,
+            &mut attrs_duplicate_default_decorator_fields,
+        );
         let capture_init = self.extract_capture_init(&body);
         let shaped_array_metadata = self.extract_shaped_array_metadata(&x.decorator_list);
         let decorators =
@@ -476,39 +482,46 @@ impl<'a> BindingsBuilder<'a> {
             let docstring_range = field_docstrings.get(&range).copied();
 
             // Detect at binding (AST available) so solving reads by symbol identity, not type.
-            let attrs_field_specifier =
-                if let ClassFieldDefinition::AssignedInBody { value, .. } = &definition
-                    && let ExprOrBinding::Expr(Expr::Call(call)) = value.as_ref()
-                    && let Some(kind) = match self.as_special_export(&call.func) {
-                        Some(SpecialExport::AttrsLegacyAttrib) => {
-                            Some(AttrsFieldSpecifierKind::Attrib)
-                        }
-                        Some(SpecialExport::AttrsNextGenField) => {
-                            Some(AttrsFieldSpecifierKind::Field)
-                        }
-                        _ => None,
-                    }
-                {
-                    // Only `attr.ib` accepts a positional default; `field`'s is keyword-only.
-                    let positional_default = (kind == AttrsFieldSpecifierKind::Attrib)
-                        .then(|| call.arguments.args.first())
-                        .flatten();
-                    let default_is_nothing = call
-                        .arguments
-                        .find_keyword("default")
-                        .map(|kw| &kw.value)
-                        .or(positional_default)
-                        .is_some_and(|e| {
-                            self.as_special_export(e) == Some(SpecialExport::AttrsNothing)
-                        });
-                    Some(AttrsFieldSpecifier {
-                        kind,
-                        default_is_nothing,
-                        default_via_decorator: attrs_default_decorator_fields.contains(name.key()),
-                    })
-                } else {
-                    None
-                };
+            let attrs_field_specifier = if let ClassFieldDefinition::AssignedInBody {
+                value, ..
+            } = &definition
+                && let ExprOrBinding::Expr(Expr::Call(call)) = value.as_ref()
+                && let Some(kind) = match self.as_special_export(&call.func) {
+                    Some(SpecialExport::AttrsLegacyAttrib) => Some(AttrsFieldSpecifierKind::Attrib),
+                    Some(SpecialExport::AttrsNextGenField) => Some(AttrsFieldSpecifierKind::Field),
+                    _ => None,
+                } {
+                // Only `attr.ib` accepts a positional default; `field`'s is keyword-only.
+                let positional_default = (kind == AttrsFieldSpecifierKind::Attrib)
+                    .then(|| call.arguments.args.first())
+                    .flatten();
+                let default_is_nothing = call
+                    .arguments
+                    .find_keyword("default")
+                    .map(|kw| &kw.value)
+                    .or(positional_default)
+                    .is_some_and(|e| {
+                        self.as_special_export(e) == Some(SpecialExport::AttrsNothing)
+                    });
+                // attrs raises `DefaultAlreadySetError` for more than one `@<field>.default`.
+                let field_name = name.key();
+                if attrs_duplicate_default_decorator_fields.contains(field_name) {
+                    self.error(
+                            range,
+                            ErrorKind::BadClassDefinition,
+                            format!(
+                                "`{field_name}` cannot have more than one `@{field_name}.default` method"
+                            ),
+                        );
+                }
+                Some(AttrsFieldSpecifier {
+                    kind,
+                    default_is_nothing,
+                    default_via_decorator: attrs_default_decorator_fields.contains(name.key()),
+                })
+            } else {
+                None
+            };
 
             fields.insert_hashed(
                 name.clone(),
@@ -1727,7 +1740,11 @@ impl<'a> BindingsBuilder<'a> {
 
 /// Collect fields targeted by a `@<field>.default` decorated method. Recurses through class-body
 /// control flow but not into nested `def`/`class` scopes, where `<name>.default` is unrelated.
-fn collect_attrs_default_decorators(body: &[Stmt], out: &mut SmallSet<Name>) {
+fn collect_attrs_default_decorators(
+    body: &[Stmt],
+    out: &mut SmallSet<Name>,
+    duplicates: &mut SmallSet<Name>,
+) {
     for stmt in body {
         match stmt {
             Stmt::FunctionDef(func_def) => {
@@ -1735,37 +1752,38 @@ fn collect_attrs_default_decorators(body: &[Stmt], out: &mut SmallSet<Name>) {
                     if let Expr::Attribute(attr) = &decorator.expression
                         && attr.attr.id.as_str() == "default"
                         && let Some(name) = attr.value.as_name_expr()
+                        && !out.insert(name.id.clone())
                     {
-                        out.insert(name.id.clone());
+                        duplicates.insert(name.id.clone());
                     }
                 }
             }
             Stmt::If(x) => {
-                collect_attrs_default_decorators(&x.body, out);
+                collect_attrs_default_decorators(&x.body, out, duplicates);
                 for clause in &x.elif_else_clauses {
-                    collect_attrs_default_decorators(&clause.body, out);
+                    collect_attrs_default_decorators(&clause.body, out, duplicates);
                 }
             }
             Stmt::For(x) => {
-                collect_attrs_default_decorators(&x.body, out);
-                collect_attrs_default_decorators(&x.orelse, out);
+                collect_attrs_default_decorators(&x.body, out, duplicates);
+                collect_attrs_default_decorators(&x.orelse, out, duplicates);
             }
             Stmt::While(x) => {
-                collect_attrs_default_decorators(&x.body, out);
-                collect_attrs_default_decorators(&x.orelse, out);
+                collect_attrs_default_decorators(&x.body, out, duplicates);
+                collect_attrs_default_decorators(&x.orelse, out, duplicates);
             }
-            Stmt::With(x) => collect_attrs_default_decorators(&x.body, out),
+            Stmt::With(x) => collect_attrs_default_decorators(&x.body, out, duplicates),
             Stmt::Try(x) => {
-                collect_attrs_default_decorators(&x.body, out);
+                collect_attrs_default_decorators(&x.body, out, duplicates);
                 for ExceptHandler::ExceptHandler(h) in &x.handlers {
-                    collect_attrs_default_decorators(&h.body, out);
+                    collect_attrs_default_decorators(&h.body, out, duplicates);
                 }
-                collect_attrs_default_decorators(&x.orelse, out);
-                collect_attrs_default_decorators(&x.finalbody, out);
+                collect_attrs_default_decorators(&x.orelse, out, duplicates);
+                collect_attrs_default_decorators(&x.finalbody, out, duplicates);
             }
             Stmt::Match(x) => {
                 for case in &x.cases {
-                    collect_attrs_default_decorators(&case.body, out);
+                    collect_attrs_default_decorators(&case.body, out, duplicates);
                 }
             }
             _ => {}

@@ -18,7 +18,6 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use itertools::Itertools;
 use lsp_types::CompletionItem;
 use pyrefly_build::handle::Handle;
-use pyrefly_python::PYTHON_EXTENSIONS;
 use pyrefly_python::ast::Ast;
 use pyrefly_python::docstring::Docstring;
 use pyrefly_python::dunder;
@@ -94,6 +93,7 @@ use crate::types::type_var::Restriction;
 use crate::types::types::Type;
 
 mod dict_completions;
+mod extra_extensions;
 mod pytest;
 mod quick_fixes;
 
@@ -120,31 +120,6 @@ fn callee_kind_from_call(call: &ExprCall) -> CalleeKind {
 
 fn default_true() -> bool {
     true
-}
-
-/// Search file content for a symbol name and return the `TextRange` of its
-/// first occurrence as a whole word. Used by go-to-definition to locate
-/// symbols in non-Python source files (e.g. thrift struct/enum names).
-fn find_symbol_range_in_text(content: &str, symbol: &str) -> Option<TextRange> {
-    fn is_word_char(b: u8) -> bool {
-        b.is_ascii_alphanumeric() || b == b'_'
-    }
-    let bytes = content.as_bytes();
-    let mut start = 0;
-    while let Some(pos) = content[start..].find(symbol) {
-        let abs_pos = start + pos;
-        let before_ok = abs_pos == 0 || !is_word_char(bytes[abs_pos - 1]);
-        let after_pos = abs_pos + symbol.len();
-        let after_ok = after_pos >= bytes.len() || !is_word_char(bytes[after_pos]);
-        if before_ok && after_ok {
-            return Some(TextRange::new(
-                TextSize::new(abs_pos as u32),
-                TextSize::new(after_pos as u32),
-            ));
-        }
-        start = abs_pos + 1;
-    }
-    None
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -343,7 +318,11 @@ where
 
 /// For relative imports (dots > 0), resolve the module name using
 /// the current file's module name as context.
-fn resolve_relative_module_name(handle: &Handle, module_name: ModuleName, dots: u32) -> ModuleName {
+pub(crate) fn resolve_relative_module_name(
+    handle: &Handle,
+    module_name: ModuleName,
+    dots: u32,
+) -> ModuleName {
     if dots > 0 {
         let is_init = handle.path().is_init();
         let suffix = if module_name.as_str().is_empty() {
@@ -640,17 +619,6 @@ pub struct FindDefinitionItemWithDocstring {
     pub module: Module,
     pub docstring_range: Option<TextRange>,
     pub display_name: Option<String>,
-}
-
-impl FindDefinitionItemWithDocstring {
-    fn is_python_module(&self) -> bool {
-        self.module
-            .path()
-            .as_path()
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|ext| PYTHON_EXTENSIONS.contains(&ext))
-    }
 }
 
 #[derive(Debug)]
@@ -1594,38 +1562,14 @@ impl<'a> Transaction<'a> {
                 let Some((def_handle, export)) =
                     self.resolve_named_import(handle, module_name, name.clone(), preference)
                 else {
-                    // The import target is unresolvable through any
-                    // chase path (export, submodule, `__getattr__`).
-                    // For non-Python modules (e.g. .thrift files imported
-                    // via extra_file_extensions), try to locate the symbol
-                    // by text search in the source file.
-                    if self.config_has_extra_extensions(handle)
-                        && let Some(module_handle) =
-                            self.import_handle_with_preference(handle, module_name, preference)
-                        && let Some(module_info) = self.get_module_info(&module_handle)
-                        && !module_info
-                            .path()
-                            .as_path()
-                            .extension()
-                            .and_then(|e| e.to_str())
-                            .is_some_and(|ext| PYTHON_EXTENSIONS.contains(&ext))
-                    {
-                        // The first found occurrence of the symbol, or the top of the
-                        // file if it couldn't be resolved.
-                        let definition_range =
-                            find_symbol_range_in_text(module_info.contents(), name.as_str())
-                                .unwrap_or_default();
-                        return Some((
-                            module_handle,
-                            Export {
-                                location: definition_range,
-                                symbol_kind: Some(SymbolKind::Variable),
-                                docstring_range: None,
-                                deprecation: None,
-                                is_final: false,
-                                special_export: None,
-                            },
-                        ));
+                    let non_module_result = self.resolve_intermediate_non_python_module_definition(
+                        handle,
+                        module_name,
+                        name.as_str(),
+                        preference,
+                    );
+                    if non_module_result.is_some() {
+                        return non_module_result;
                     }
                     // Fall back to the import statement itself so the
                     // user lands somewhere meaningful instead of
@@ -2212,54 +2156,15 @@ impl<'a> Transaction<'a> {
         ) {
             return Ok(defs);
         }
-        // Fallback for non-Python modules (e.g. .thrift files that can't be
-        // parsed as Python): navigate to the module file itself. Only applies
-        // when extra file extensions are configured.
-        let config_has_extra_extensions = self.config_has_extra_extensions(handle);
-        if config_has_extra_extensions {
-            if let Type::Module(ref module) = base_type {
-                let module_name = ModuleName::from_parts(module.parts());
-                if let Ok(Some(item)) = self.find_symbol_in_non_python_module(
-                    handle,
-                    module_name,
-                    name.as_str(),
-                    preference,
-                ) && !item.is_python_module()
-                {
-                    return Ok(vec1![item]);
-                }
-            }
-            // Nested attribute fallback: handles `module.Container.member`
-            // where `module` is a non-Python file (e.g. .thrift). The base
-            // expression `module.Container` resolves to Any/Unknown because
-            // the type system can't resolve attributes on non-Python modules.
-            // We look at the AST to find the base's own base expression,
-            // check if it's a Module type, and if so search for the member
-            // as a whole-word match in the module source file.
-            if base_type.is_any()
-                && let Some(mod_module) = self.get_ast(handle)
-            {
-                let covering_nodes = Ast::locate_node(&mod_module, base_range.start());
-                for node in &covering_nodes {
-                    if let AnyNodeRef::ExprAttribute(attr) = node
-                        && attr.range() == base_range
-                        && let Some(Type::Module(ref module)) =
-                            answers.get_type_trace(attr.value.range())
-                    {
-                        let module_name = ModuleName::from_parts(module.parts());
-                        if let Ok(Some(item)) = self.find_symbol_in_non_python_module(
-                            handle,
-                            module_name,
-                            name.as_str(),
-                            preference,
-                        ) && !item.is_python_module()
-                        {
-                            return Ok(vec1![item]);
-                        }
-                        break;
-                    }
-                }
-            }
+        if let Some(non_python_result) = self.find_definition_for_attribute_in_non_python_module(
+            handle,
+            name.as_str(),
+            preference,
+            &answers,
+            base_type,
+            base_range,
+        ) {
+            return Ok(non_python_result);
         }
         Err(EmptyResponseReason::DefinitionNotFound {
             name: name.to_string(),
@@ -2292,42 +2197,6 @@ impl<'a> Transaction<'a> {
             module: module_info,
             docstring_range: self.get_module_docstring_range(&handle),
             display_name: Some(module_name.to_string()),
-        }))
-    }
-
-    /// Search a non-Python source file for a symbol definition and return a
-    /// `FindDefinitionItemWithDocstring` pointing at the symbol's location.
-    /// Falls back to the module start if the symbol is not found.
-    ///
-    /// This handles go-to-definition for imports from non-Python files (e.g.
-    /// `.thrift`) by locating the symbol name in the source text, so the user
-    /// lands on the actual definition rather than just the top of the file.
-    fn find_symbol_in_non_python_module(
-        &self,
-        handle: &Handle,
-        module_name: ModuleName,
-        symbol_name: &str,
-        preference: FindPreference,
-    ) -> Result<Option<FindDefinitionItemWithDocstring>, EmptyResponseReason> {
-        let Some(module_handle) =
-            self.import_handle_with_preference(handle, module_name, preference)
-        else {
-            return Err(EmptyResponseReason::ModuleNotFound);
-        };
-        let _ = self.get_exports(&module_handle);
-        let module_info = self
-            .get_module_info(&module_handle)
-            .ok_or(EmptyResponseReason::ModuleInfoNotFound)?;
-
-        let definition_range =
-            find_symbol_range_in_text(module_info.contents(), symbol_name).unwrap_or_default();
-
-        Ok(Some(FindDefinitionItemWithDocstring {
-            metadata: DefinitionMetadata::Module,
-            definition_range,
-            module: module_info,
-            docstring_range: None,
-            display_name: Some(symbol_name.to_owned()),
         }))
     }
 
@@ -2443,14 +2312,6 @@ impl<'a> Transaction<'a> {
             .collect()
     }
 
-    fn config_has_extra_extensions(&self, handle: &Handle) -> bool {
-        !self
-            .config_finder()
-            .python_file(handle.module_kind(), handle.path())
-            .extra_file_extensions
-            .is_empty()
-    }
-
     /// Find the definition, metadata and optionally the docstring for the given position.
     pub fn find_definition(
         &self,
@@ -2555,19 +2416,12 @@ impl<'a> Transaction<'a> {
                 {
                     return Ok(vec1![item]);
                 }
-                // Fallback: for __files__/__recursefiles__ directory imports, the
-                // virtual module doesn't exist on disk. Navigate to the parent module.
-                let module_str = resolved_module_name.as_str();
-                if let Some(parent) = module_str
-                    .strip_suffix(".__files__")
-                    .or_else(|| module_str.strip_suffix(".__recursefiles__"))
-                    && let Some(item) = self.find_definition_for_imported_module(
-                        handle,
-                        ModuleName::from_str(parent),
-                        preference,
-                    )?
-                {
-                    return Ok(vec1![item]);
+                if let Some(item) = self.find_definition_directory_import(
+                    handle,
+                    resolved_module_name.as_str(),
+                    preference,
+                )? {
+                    return Ok(item);
                 }
                 Err(EmptyResponseReason::DefinitionNotFound {
                     name: identifier.id.to_string(),
@@ -2584,46 +2438,14 @@ impl<'a> Transaction<'a> {
                     },
             }) => {
                 match self.find_definition_for_name_def(handle, &name_after_import, preference)? {
-                    Some(item) => {
-                        // When extra file extensions are configured and jumping through
-                        // everything, if the definition resolved back to the import
-                        // statement itself, the import couldn't be followed (e.g. the
-                        // source module is a non-Python file like .thrift). Fall through
-                        // to navigate to the source module file instead.
-                        let config_has_extra_extensions = self.config_has_extra_extensions(handle);
-                        // Do we want to get as close to the definition as possible?
-                        // If not, we don't want to keep searching for the module
-                        // on a non-Python file
-                        let jump_through_everything = matches!(
-                            preference.import_behavior,
-                            ImportBehavior::JumpThroughEverything,
-                        );
-                        // Is the thing we found the import statement?
-                        let found_item_is_import = item.definition_range == name_after_import.range;
-
-                        let is_eligible_for_fallback = config_has_extra_extensions
-                            && jump_through_everything
-                            && found_item_is_import;
-                        if !is_eligible_for_fallback {
-                            return Ok(vec1![item]);
-                        }
-                        let resolved_module_name =
-                            resolve_relative_module_name(handle, module_name, dots);
-                        if let Ok(Some(module_item)) = self.find_symbol_in_non_python_module(
-                            handle,
-                            resolved_module_name,
-                            name_after_import.id.as_str(),
-                            preference,
-                        ) {
-                            if module_item.is_python_module() {
-                                Ok(vec1![item])
-                            } else {
-                                Ok(vec1![module_item])
-                            }
-                        } else {
-                            Ok(vec1![item])
-                        }
-                    }
+                    Some(item) => self.remap_find_definition_non_python_import_file(
+                        item,
+                        handle,
+                        preference,
+                        module_name,
+                        dots,
+                        name_after_import,
+                    ),
                     None => Err(EmptyResponseReason::DefinitionNotFound {
                         name: identifier.id.to_string(),
                         context: DefinitionContext::ImportedName,

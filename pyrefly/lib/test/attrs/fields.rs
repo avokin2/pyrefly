@@ -7,8 +7,9 @@
 
 use crate::attrs_testcase;
 
+// The in-body specifier is `Any`, so `@a.default` resolves. The field stays required here;
+// decorator-supplied optionality is layered on separately.
 attrs_testcase!(
-    bug = "Correctly recognize field and default decorator",
     field_default_decorator,
     r#"
 from attrs import define, field
@@ -17,7 +18,7 @@ from attrs import define, field
 class C:
     a: dict = field()
 
-    @a.default # E: Object of class `dict` has no attribute `default`
+    @a.default
     def _default_a(self):
         return {}
 
@@ -26,7 +27,6 @@ c = C() # E: Missing argument `a` in function `C.__init__`
 );
 
 attrs_testcase!(
-    bug = "Recognize validator decorator",
     field_validator_decorator,
     r#"
 from attrs import define, field
@@ -35,10 +35,13 @@ from attrs import define, field
 class C:
     x: int = field()
 
-    @x.validator # E: Object of class `int` has no attribute `validator`
+    @x.validator
     def _check_x(self, attribute, value):
         if value < 0:
             raise ValueError("x must be non-negative")
+
+C()   # E: Missing argument `x`
+C(1)  # OK
 "#,
 );
 
@@ -362,5 +365,78 @@ class Sub(Base):
     y: str = field(default="a")
 
 reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, x: int, y: str = ...) -> None
+"#,
+);
+
+attrs_testcase!(
+    field_validator_decorator_with_explicit_default,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field(default=2)
+    items: list[int] = field(factory=list)
+
+    @x.validator
+    def _check_x(self, attribute, value):
+        pass
+
+    @items.validator
+    def _check_items(self, attribute, value):
+        pass
+
+C()  # OK
+"#,
+);
+
+// The `Any` retype applies only to attrs specifiers: a `@x.default` on a plain class still errors.
+attrs_testcase!(
+    non_attrs_default_decorator_still_errors,
+    r#"
+class C:
+    x: int = 0
+
+    @x.default  # E: Object of class `int` has no attribute `default`
+    def _x(self):
+        return 0
+"#,
+);
+
+attrs_testcase!(
+    field_validator_decorator_multiple,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field()
+
+    @x.validator
+    def _a(self, attribute, value):
+        pass
+
+    @x.validator
+    def _b(self, attribute, value):
+        pass
+
+C(1)  # OK: validators are additive
+"#,
+);
+
+// The `Any` retype is attrs-specific: a stdlib `@dataclass` field keeps its declared type, so
+// `@x.default` errors there too.
+attrs_testcase!(
+    dataclass_field_default_decorator_still_errors,
+    r#"
+from dataclasses import dataclass, field
+
+@dataclass
+class C:
+    x: int = field()
+
+    @x.default  # E: Object of class `int` has no attribute `default`
+    def _x(self):
+        return 0
 "#,
 );

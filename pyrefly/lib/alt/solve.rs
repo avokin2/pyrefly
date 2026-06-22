@@ -51,6 +51,7 @@ use crate::alt::answers_solver::AnswersSolver;
 use crate::alt::answers_solver::TypeCheckOptions;
 use crate::alt::callable::CallArg;
 use crate::alt::class::class_field::ClassField;
+use crate::alt::class::dataclass::is_attrs_field_specifier_callee;
 use crate::alt::class::dataclass::is_attrs_nothing;
 use crate::alt::class::typed_dict::TypedDictErrorKind;
 use crate::alt::class::variance_inference::VarianceMap;
@@ -3337,6 +3338,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             };
             return (None, visible_ty);
         }
+        let is_attrs_specifier = matches!(expr, Expr::Call(call)
+            if is_attrs_field_specifier_callee(&self.expr_infer(&call.func, &self.error_swallower())));
         match annot_key {
             // First infer the type as a normal value
             Some((style, k)) => {
@@ -3371,9 +3374,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     self.expr_check(expr, hint, errors)
                 };
                 let ty = if style == &AnnotationStyle::Direct {
-                    // For direct assignments, user-provided annotation takes
-                    // precedence over inferred expr type.
-                    annot_ty.unwrap_or(expr_ty)
+                    if is_attrs_specifier {
+                        self.heap.mk_any_implicit()
+                    } else {
+                        // For direct assignments, user-provided annotation takes
+                        // precedence over inferred expr type.
+                        annot_ty.unwrap_or(expr_ty)
+                    }
                 } else if style == &AnnotationStyle::ForwardedInitial
                     && expr_ty.is_any()
                     && let Some(annot) = annot_ty
@@ -3395,7 +3402,17 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 // `x = ...` in a stub file means that the type of `x` is unknown
                 (None, self.heap.mk_any_implicit())
             }
-            None => (None, self.expr_check(expr, None, errors)),
+            None => {
+                // Bare `x = attr.ib(type=T)`/`field(...)` (legacy, unannotated): same
+                // `_CountingAttr` reasoning as the annotated case.
+                let expr_ty = self.expr_check(expr, None, errors);
+                let ty = if is_attrs_specifier {
+                    self.heap.mk_any_implicit()
+                } else {
+                    expr_ty
+                };
+                (None, ty)
+            }
         }
     }
 

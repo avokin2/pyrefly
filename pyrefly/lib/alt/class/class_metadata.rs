@@ -957,10 +957,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             }
         }
         // A metaclass-based dataclass_transform (e.g. SQLAlchemy's `DCTransformDeclarative`)
-        // re-applies its dataclass keywords to every subclass, so a `kw_only=True` set in a base's
-        // class-keyword list configures the whole subtree (fixes facebook/pyrefly#3881). A plain
-        // `@dataclass_transform` base or decorator does not propagate this way, so only fold for
-        // the metaclass form.
+        // re-applies its dataclass keywords to every subclass
         let metaclass_is_transform = metaclass.is_some_and(|c| {
             self.get_metadata_for_class(c.class_object())
                 .dataclass_transform_metadata()
@@ -968,10 +965,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         });
         if metaclass_is_transform && let Some(metadata) = &mut dataclass_transform_metadata {
             for (name, annot) in keywords {
-                if name.as_str() == "kw_only"
-                    && let Some(kw_only) = annot.get_type().as_bool()
-                {
-                    metadata.kw_only_default = kw_only;
+                let Some(value) = annot.get_type().as_bool() else {
+                    continue;
+                };
+                match name.as_str() {
+                    "kw_only" => metadata.kw_only_default = value,
+                    "eq" => metadata.eq_default = value,
+                    "order" => metadata.order_default = value,
+                    _ => {}
                 }
             }
         }

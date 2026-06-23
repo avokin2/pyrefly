@@ -266,6 +266,50 @@ class SomeClass(Base):
 );
 
 testcase!(
+    test_order_inherited_by_subclass,
+    r#"
+from typing import dataclass_transform
+
+@dataclass_transform()
+class ModelMeta(type): ...
+class ModelBase(metaclass=ModelMeta): ...
+
+# `order=True` on a base propagates to subclasses, so comparison operators are synthesized.
+class Base(ModelBase, order=True): ...
+
+class C(Base):
+    x: int
+
+C(x=1) < C(x=2)
+    "#,
+);
+
+testcase!(
+    test_eq_inherited_by_subclass,
+    r#"
+from typing import dataclass_transform, Hashable
+
+# Start from a hashable base (eq_default=False) so the propagated `eq=True` is observable:
+# it synthesizes `__eq__` and sets `__hash__ = None`, making instances unhashable.
+@dataclass_transform(eq_default=False)
+class ModelMeta(type): ...
+class ModelBase(metaclass=ModelMeta): ...
+
+class EqBase(ModelBase, eq=True): ...
+class Eq(EqBase):
+    x: int
+
+# Control: a subclass that doesn't inherit `eq=True` stays hashable.
+class Plain(ModelBase):
+    y: int
+
+def f(x: Hashable): pass
+f(Plain(y=1))
+f(Eq(x=1))  # E: Argument `Eq` is not assignable to parameter `x` with type `Hashable`
+    "#,
+);
+
+testcase!(
     test_call_transform,
     r#"
 from typing import dataclass_transform

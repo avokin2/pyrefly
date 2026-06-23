@@ -610,6 +610,9 @@ pub enum DataclassKind {
     },
     Attrs {
         auto_attribs: Option<bool>,
+        /// Resolved attrs `hash=`/`unsafe_hash=` value (`unsafe_hash` wins): `Some(true)` forces
+        /// `__hash__`, `Some(false)` leaves it inherited, `None` uses the `eq`/`frozen` default.
+        hash: Option<bool>,
         field_specifiers: Vec<CalleeKind>,
     },
 }

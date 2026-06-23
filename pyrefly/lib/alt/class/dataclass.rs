@@ -252,15 +252,42 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             fields.insert(dunder::SETATTR, self.get_frozen_setattr(cls));
             fields.insert(dunder::DELATTR, self.get_frozen_delattr(cls));
         }
-        // See rules for `__hash__` creation under "unsafe_hash":
-        // https://docs.python.org/3/library/dataclasses.html#module-contents
-        if dataclass.kws.unsafe_hash || (dataclass.kws.eq && dataclass.kws.frozen) {
-            fields.insert(dunder::HASH, self.get_dataclass_hash(cls));
-        } else if dataclass.kws.eq {
-            fields.insert(
-                dunder::HASH,
-                ClassSynthesizedField::new(self.heap.mk_none()),
-            );
+        // `__hash__` synthesis: stdlib dataclass follows CPython's rules; attrs follows its
+        // `hash=`/`unsafe_hash=` arguments. https://docs.python.org/3/library/dataclasses.html#module-contents
+        enum HashAction {
+            Synthesize,
+            SetNone,
+            Inherit,
+        }
+        let hash_action = match &dataclass.kind {
+            DataclassKind::Attrs { hash, .. } => match hash {
+                Some(true) => HashAction::Synthesize,
+                Some(false) => HashAction::Inherit,
+                None if !dataclass.kws.eq => HashAction::Inherit,
+                None if dataclass.kws.frozen => HashAction::Synthesize,
+                None => HashAction::SetNone,
+            },
+            DataclassKind::Dataclass { .. } => {
+                if dataclass.kws.unsafe_hash || (dataclass.kws.eq && dataclass.kws.frozen) {
+                    HashAction::Synthesize
+                } else if dataclass.kws.eq {
+                    HashAction::SetNone
+                } else {
+                    HashAction::Inherit
+                }
+            }
+        };
+        match hash_action {
+            HashAction::Synthesize => {
+                fields.insert(dunder::HASH, self.get_dataclass_hash(cls));
+            }
+            HashAction::SetNone => {
+                fields.insert(
+                    dunder::HASH,
+                    ClassSynthesizedField::new(self.heap.mk_none()),
+                );
+            }
+            HashAction::Inherit => {}
         }
         fields.insert(
             dunder::REPLACE,

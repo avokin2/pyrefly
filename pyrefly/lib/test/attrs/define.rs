@@ -409,6 +409,97 @@ hash(C(1))  # OK
 "#,
 );
 
+// `hash=True` is attrs' deprecated alias for `unsafe_hash=True`. Without it `@define`
+// (eq=True, frozen=False) would set `__hash__ = None`, making the class unhashable.
+attrs_testcase!(
+    test_attrs_define_hash_alias,
+    r#"
+from typing import Hashable
+from attrs import define
+
+def f(x: Hashable) -> None: ...
+
+@define(hash=True)
+class C:
+    x: int
+
+f(C(1))  # OK
+"#,
+);
+
+// The alias also applies to the classic `@attr.s` decorator.
+attrs_testcase!(
+    test_attrs_classic_hash_alias,
+    r#"
+from typing import Hashable
+import attr
+
+def f(x: Hashable) -> None: ...
+
+@attr.s(hash=True)
+class C:
+    x = attr.ib()
+
+f(C(1))  # OK
+"#,
+);
+
+// `hash=False` overrides the `eq`-driven default: `__hash__` is left inherited (hashable)
+// rather than set to `None`.
+attrs_testcase!(
+    test_attrs_define_hash_false_inherits,
+    r#"
+from typing import Hashable
+from attrs import define
+
+def f(x: Hashable) -> None: ...
+
+@define(hash=False)
+class C:
+    x: int
+
+f(C(1))  # OK
+"#,
+);
+
+// `unsafe_hash=` wins over the deprecated `hash=`: with an unhashable base, `unsafe_hash=True`
+// still synthesizes `__hash__`, so the class is hashable.
+attrs_testcase!(
+    test_attrs_unsafe_hash_overrides_hash,
+    r#"
+from typing import Hashable
+from attrs import define
+
+def f(x: Hashable) -> None: ...
+
+class Base:
+    __hash__ = None
+
+@define(unsafe_hash=True, hash=False)
+class C(Base):
+    x: int
+
+f(C(1))  # OK
+"#,
+);
+
+// Field-level `hash=` is accepted; class hashability follows the class-level decision.
+attrs_testcase!(
+    test_attrs_field_hash_accepted,
+    r#"
+from typing import Hashable
+from attrs import define, field
+
+def f(x: Hashable) -> None: ...
+
+@define(hash=True)
+class C:
+    x: int = field(hash=False)
+
+f(C(1))  # OK
+"#,
+);
+
 // Frozen propagates to subclasses: a plain subclass of a `@frozen` class inherits the
 // synthesized frozen `__setattr__`, so attribute assignment is still rejected.
 attrs_testcase!(

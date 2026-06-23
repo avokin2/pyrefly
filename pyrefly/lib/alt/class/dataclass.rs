@@ -658,10 +658,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     }
 
     /// Validate that frozen and non-frozen dataclasses are not mixed in an inheritance chain.
-    /// For standard `@dataclass`, we reject both directions (frozen-from-non-frozen and
-    /// non-frozen-from-frozen). For `@dataclass_transform` classes, only non-frozen inheriting
-    /// from frozen is an error, since the transform allows each class to independently opt
-    /// into frozen.
+    /// `@dataclass` and attrs reject both directions (frozen-from-non-frozen and
+    /// non-frozen-from-frozen). Other `@dataclass_transform` classes only reject non-frozen
+    /// inheriting from frozen, since the transform lets each class independently opt into frozen.
     pub fn validate_frozen_dataclass_inheritance(
         &self,
         cls: &Class,
@@ -676,10 +675,16 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 let is_current_frozen = dataclass_metadata.kws.frozen;
 
                 if is_current_frozen != is_base_frozen {
-                    // For dataclass_transform classes, a frozen subclass of a non-frozen base is
-                    // allowed. The restriction only applies when a non-frozen subclass inherits
-                    // from a frozen base, which would violate the parent's immutability guarantee.
-                    if is_from_dataclass_transform && is_current_frozen && !is_base_frozen {
+                    // For non-attrs dataclass_transform classes, a frozen subclass of a non-frozen
+                    // base is allowed; the restriction only applies when a non-frozen subclass
+                    // inherits from a frozen base, which would violate the parent's immutability
+                    // guarantee.
+                    let is_attrs = matches!(dataclass_metadata.kind, DataclassKind::Attrs { .. });
+                    if is_from_dataclass_transform
+                        && !is_attrs
+                        && is_current_frozen
+                        && !is_base_frozen
+                    {
                         continue;
                     }
 

@@ -6,6 +6,8 @@
  */
 
 use crate::attrs_testcase;
+use crate::test::attrs::util::attrs_env;
+use crate::testcase;
 
 // DECORATOR DETECTION
 //
@@ -157,6 +159,58 @@ class B:
 
 A(1).x = 2  # E: Cannot set field `x`
 B(1).x = 2  # E: Cannot set field `x`
+"#,
+);
+
+// A frozen attrs subclass of a non-frozen base is rejected at the declaration (like stdlib),
+// not at each write. The own frozen field `b` is still read-only.
+attrs_testcase!(
+    test_attrs_frozen_subclass_of_non_frozen_base,
+    r#"
+import attrs
+
+@attrs.define
+class P:
+    a: int
+
+@attrs.frozen
+class C(P):  # E: Cannot inherit frozen dataclass `C` from non-frozen dataclass `P`
+    b: int = 0
+
+c = C(1)
+c.a = 5
+c.b = 6  # E: Cannot set field `b`
+"#,
+);
+
+// Same as above, but the non-frozen base lives in another module.
+testcase!(
+    test_attrs_frozen_subclass_of_non_frozen_base_cross_module,
+    {
+        let mut env = attrs_env();
+        env.add(
+            "base",
+            r#"
+import attrs
+
+@attrs.define
+class P:
+    a: int
+"#,
+        );
+        env
+    },
+    r#"
+import attrs
+from base import P
+
+@attrs.frozen
+class C(P):  # E: Cannot inherit frozen dataclass `C` from non-frozen dataclass `P`
+    b: int = 0
+
+c = C(1)
+c.a = 5
+c.b = 6  # E: Cannot set field `b`
 "#,
 );
 

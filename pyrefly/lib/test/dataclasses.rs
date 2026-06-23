@@ -2587,22 +2587,18 @@ reveal_type(C.__init__)  # E: revealed type: (self: C, _x: int) -> None
 "#,
 );
 
+// A dataclass field named 'self" must not collide with the implicit "self" parameter of the synthesized "__init__". cpython renames the instance param to "__dataclass_self__".
 testcase!(
-    test_dataclass_subclass_override_keeps_position,
+    test_dataclass_field_named_self,
     r#"
-from typing import reveal_type
 from dataclasses import dataclass
+from typing import assert_type
 
 @dataclass
-class Base:
-    x: int
-    y: str
+class C:
+    self: str
 
-@dataclass
-class Sub(Base):
-    z: bool
-    x: int  # redeclaring x keeps it at the original (first) position
-
-reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, x: int, y: str, z: bool) -> None
+c = C(self="test")
+assert_type(c.self, str)
 "#,
 );

@@ -434,6 +434,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 })
             });
         let dataclass_transform_metadata = self.dataclass_transform_metadata(
+            &keywords,
             &decorators,
             metaclass,
             dataclass_defaults_from_base_class.clone(),
@@ -934,6 +935,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
     fn dataclass_transform_metadata(
         &self,
+        keywords: &[(Name, Annotation)],
         decorators: &[(Arc<Decorator>, TextRange)],
         metaclass: Option<&ClassType>,
         dataclass_defaults_from_base_class: Option<DataclassTransformMetadata>,
@@ -941,14 +943,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         // This is set when a class is decorated with `@typing.dataclass_transform(...)`. Note that
         // this does not turn the class into a dataclass! Instead, it becomes a special base class
         // (or metaclass) that turns child classes into dataclasses.
+        // `dataclass_defaults_from_base_class` already falls back to the metaclass's transform
+        // metadata, so prefer it here: a base's accumulated keyword defaults (folded below) must
+        // propagate down the whole subtree rather than being reset to the metaclass's raw defaults.
         let mut dataclass_transform_metadata = dataclass_defaults_from_base_class;
-        if let Some(c) = metaclass
-            && let Some(m) = self
-                .get_metadata_for_class(c.class_object())
-                .dataclass_transform_metadata()
-        {
-            dataclass_transform_metadata = Some(m.clone());
-        }
         for (decorator, _) in decorators {
             // `@dataclass_transform(...)`
             if let Type::KwCall(call) = &decorator.ty
@@ -956,6 +954,25 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             {
                 dataclass_transform_metadata =
                     Some(DataclassTransformMetadata::from_type_map(&call.keywords));
+            }
+        }
+        // A metaclass-based dataclass_transform (e.g. SQLAlchemy's `DCTransformDeclarative`)
+        // re-applies its dataclass keywords to every subclass, so a `kw_only=True` set in a base's
+        // class-keyword list configures the whole subtree (fixes facebook/pyrefly#3881). A plain
+        // `@dataclass_transform` base or decorator does not propagate this way, so only fold for
+        // the metaclass form.
+        let metaclass_is_transform = metaclass.is_some_and(|c| {
+            self.get_metadata_for_class(c.class_object())
+                .dataclass_transform_metadata()
+                .is_some()
+        });
+        if metaclass_is_transform && let Some(metadata) = &mut dataclass_transform_metadata {
+            for (name, annot) in keywords {
+                if name.as_str() == "kw_only"
+                    && let Some(kw_only) = annot.get_type().as_bool()
+                {
+                    metadata.kw_only_default = kw_only;
+                }
             }
         }
         dataclass_transform_metadata

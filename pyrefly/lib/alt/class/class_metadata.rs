@@ -703,9 +703,16 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     Some(NamedTupleMetadata {
                         elements: self.get_named_tuple_elements(cls, errors),
                         has_dynamic_fields,
+                        directly_extends_named_tuple: true,
                     })
                 } else {
-                    metadata.named_tuple_metadata().cloned()
+                    metadata
+                        .named_tuple_metadata()
+                        .map(|nt| NamedTupleMetadata {
+                            elements: nt.elements.clone(),
+                            has_dynamic_fields: nt.has_dynamic_fields,
+                            directly_extends_named_tuple: false,
+                        })
                 }
             })
     }

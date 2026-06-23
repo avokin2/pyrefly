@@ -3039,6 +3039,22 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                                 SuperObj::Instance(obj_type)
                             }
                         };
+                        // A zero-arg `super()` in a method of a class that directly subclasses
+                        // `NamedTuple` makes the class fail to define at runtime: the `__class__`
+                        // cell the compiler creates for `super()` is not propagated by the
+                        // NamedTuple machinery. See https://github.com/facebook/pyrefly/issues/3763.
+                        if self
+                            .get_metadata_for_class(obj_cls)
+                            .named_tuple_metadata()
+                            .is_some_and(|nt| nt.directly_extends_named_tuple)
+                        {
+                            self.error(
+                                errors,
+                                range,
+                                ErrorKind::InvalidSuperCall,
+                                "`super` call with no arguments is not allowed in a `NamedTuple` method".to_owned(),
+                            );
+                        }
                         self.heap.mk_super_instance(lookup_cls, obj)
                     }
                     None => self.heap.mk_any_implicit(),

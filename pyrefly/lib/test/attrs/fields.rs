@@ -1076,3 +1076,39 @@ class C:
 reveal_type(C.__init__)  # E: revealed type: (self: C, x: int, y: int) -> None
 "#,
 );
+
+// The eq/order/cmp combination rules apply to field specifiers too, not just the decorator.
+attrs_testcase!(
+    test_attrs_field_eq_false_order_true,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field(eq=False, order=True)  # E: `order` cannot be True when `eq` is False
+"#,
+);
+
+// Classic `attr.ib` rejects `cmp` mixed with `eq`/`order`.
+attrs_testcase!(
+    test_attrs_attr_ib_cmp_with_eq,
+    r#"
+import attr
+
+@attr.s
+class C:
+    x = attr.ib(cmp=True, eq=True)  # E: Cannot mix `cmp` with `eq` or `order`
+"#,
+);
+
+// A callable `eq` (a key function) is truthy, so `order=True` alongside it is legal.
+attrs_testcase!(
+    test_attrs_field_callable_eq_with_order_ok,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field(eq=str, order=True)
+"#,
+);

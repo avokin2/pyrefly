@@ -445,6 +445,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             &decorators,
             dataclass_defaults_from_base_class,
             pydantic_config.as_ref(),
+            errors,
         );
         let is_attrs_class =
             self.is_attrs_class(&dataclass_from_dataclass_transform, &bases_with_metadata);
@@ -1019,6 +1020,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         decorators: &[(Arc<Decorator>, TextRange)],
         dataclass_defaults_from_base_class: Option<DataclassTransformMetadata>,
         pydantic_config: Option<&PydanticConfig>,
+        errors: &ErrorCollector,
     ) -> Option<TransformDataclass> {
         // This is set when we should apply dataclass-like transformations to the class. The class
         // should be transformed if:
@@ -1094,6 +1096,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 }
                 let attrs_hash =
                     if Self::field_specifiers_reference_attrs(&defaults.field_specifiers) {
+                        self.validate_attrs_eq_order_cmp(&call.keywords, *decorator_range, errors);
                         DataclassKeywords::attrs_hash_from_map(&call.keywords)
                     } else {
                         None

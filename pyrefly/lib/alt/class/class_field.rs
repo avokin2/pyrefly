@@ -87,6 +87,7 @@ use crate::types::class::ClassType;
 use crate::types::display::LspDisplayMode;
 use crate::types::display::TypeDisplayContext;
 use crate::types::keywords::DataclassFieldKeywords;
+use crate::types::keywords::TypeMap;
 use crate::types::literal::Lit;
 use crate::types::quantified::AnchorIndex;
 use crate::types::quantified::Quantified;
@@ -1596,6 +1597,21 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                                 ErrorKind::BadClassDefinition,
                                 format!("`{name}` cannot specify both `default` and `factory`"),
                             );
+                        }
+                        // attrs validates eq/order/cmp legality on the field specifier, mirroring
+                        // the decorator-site check.
+                        if matches!(&dm.kind, DataclassKind::Attrs { .. }) {
+                            let ignore = self.error_swallower();
+                            let mut kws = TypeMap::new();
+                            for kw in call.arguments.keywords.iter() {
+                                if let Some(arg) = &kw.arg {
+                                    kws.0.insert(
+                                        arg.id.clone(),
+                                        self.expr_infer(&kw.value, &ignore),
+                                    );
+                                }
+                            }
+                            self.validate_attrs_eq_order_cmp(&kws, range, errors);
                         }
                     }
                     // Drop a NOTHING default so the field stays required.

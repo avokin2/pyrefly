@@ -650,3 +650,94 @@ class C(B):
 reveal_type(C.__init__)  # E: revealed type: (self: C, b: int, c: int, a: int) -> None
 "#,
 );
+
+// EQ / ORDER / CMP KEYWORD VALIDATION (decorator site)
+//
+// attrs raises `ValueError` at class creation for two combinations: `order=True` with `eq=False`
+// (ordering needs equality), and `cmp` mixed with `eq`/`order` (`cmp` is the legacy alias).
+
+// `order=True` requires `eq` to not be False.
+attrs_testcase!(
+    test_attrs_decorator_eq_false_order_true,
+    r#"
+import attr
+
+@attr.s(eq=False, order=True)  # E: `order` cannot be True when `eq` is False
+class C:
+    x = attr.ib()
+"#,
+);
+
+// Same rule on the next-gen `@define` path.
+attrs_testcase!(
+    test_attrs_decorator_define_eq_false_order_true,
+    r#"
+from attrs import define
+
+@define(eq=False, order=True)  # E: `order` cannot be True when `eq` is False
+class C:
+    x: int
+"#,
+);
+
+// `cmp` cannot be combined with `eq`.
+attrs_testcase!(
+    test_attrs_decorator_cmp_with_eq,
+    r#"
+import attr
+
+@attr.s(cmp=True, eq=True)  # E: Cannot mix `cmp` with `eq` or `order`
+class C:
+    x = attr.ib()
+"#,
+);
+
+// `cmp` cannot be combined with `order` either.
+attrs_testcase!(
+    test_attrs_decorator_cmp_with_order,
+    r#"
+import attr
+
+@attr.s(cmp=False, order=True)  # E: Cannot mix `cmp` with `eq` or `order`
+class C:
+    x = attr.ib()
+"#,
+);
+
+// Legal combinations must NOT error: `eq` defaulting True with `order=True`; `eq=False` with
+// `order` omitted (order mirrors eq); both False; and `cmp` on its own.
+attrs_testcase!(
+    test_attrs_decorator_eq_order_cmp_legal,
+    r#"
+import attr
+from attrs import define
+
+@attr.s(order=True)
+class A:
+    x = attr.ib()
+
+@define(eq=False)
+class B:
+    x: int
+
+@attr.s(eq=False, order=False)
+class C:
+    x = attr.ib()
+
+@attr.s(cmp=True)
+class D:
+    x = attr.ib()
+"#,
+);
+
+// attrs treats an explicit `None` like an omitted argument, so `cmp=None` does not conflict.
+attrs_testcase!(
+    test_attrs_decorator_cmp_none_with_eq_ok,
+    r#"
+import attr
+
+@attr.s(cmp=None, eq=True)
+class C:
+    x = attr.ib()
+"#,
+);

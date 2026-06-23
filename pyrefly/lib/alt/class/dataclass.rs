@@ -58,6 +58,7 @@ use crate::types::class::ClassType;
 use crate::types::display::ClassDisplayContext;
 use crate::types::keywords::ConverterMap;
 use crate::types::keywords::DataclassFieldKeywords;
+use crate::types::keywords::DataclassKeywords;
 use crate::types::keywords::TypeMap;
 use crate::types::literal::Lit;
 use crate::types::types::Type;
@@ -744,6 +745,38 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         self.check_type(&post_init, &want, range, errors, &|| {
             TypeCheckContext::of_kind(TypeCheckKind::PostInit)
         });
+    }
+
+    /// attrs rejects two `eq`/`order`/`cmp` combinations at runtime (`ValueError`), on both the
+    /// class decorator and the field specifier: `cmp` mixed with `eq`/`order`, and `order=True`
+    /// with `eq=False` (ordering requires equality). A non-bool `eq` (e.g. a key callable) is
+    /// truthy, so only a literal `False` triggers the second rule.
+    pub fn validate_attrs_eq_order_cmp(
+        &self,
+        kws: &TypeMap,
+        range: TextRange,
+        errors: &ErrorCollector,
+    ) {
+        if kws.is_set(&DataclassKeywords::CMP)
+            && (kws.is_set(&DataclassKeywords::EQ) || kws.is_set(&DataclassKeywords::ORDER))
+        {
+            self.error(
+                errors,
+                range,
+                ErrorKind::BadClassDefinition,
+                "Cannot mix `cmp` with `eq` or `order`".to_owned(),
+            );
+        }
+        if kws.get_bool(&DataclassKeywords::EQ) == Some(false)
+            && kws.get_bool(&DataclassKeywords::ORDER) == Some(true)
+        {
+            self.error(
+                errors,
+                range,
+                ErrorKind::BadClassDefinition,
+                "`order` cannot be True when `eq` is False".to_owned(),
+            );
+        }
     }
 
     pub fn dataclass_field_keywords(

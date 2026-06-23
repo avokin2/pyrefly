@@ -33,6 +33,12 @@ impl TypeMap {
         self.0.get(name).and_then(|t| t.as_bool())
     }
 
+    /// Whether a keyword was passed with a value other than `None`. attrs treats an explicit
+    /// `None` like an omitted argument, so mere key presence is not enough.
+    pub fn is_set(&self, name: &Name) -> bool {
+        self.0.get(name).is_some_and(|t| !t.is_none())
+    }
+
     pub fn get_string(&self, name: &Name) -> Option<&str> {
         self.0.get(name).and_then(|t| match t {
             Type::Literal(lit) if let Lit::Str(s) = &lit.value => Some(&**s),
@@ -214,11 +220,12 @@ pub struct DataclassKeywords {
 
 impl DataclassKeywords {
     const INIT: Name = Name::new_static("init");
-    const ORDER: Name = Name::new_static("order");
+    pub const ORDER: Name = Name::new_static("order");
     const FROZEN: Name = Name::new_static("frozen");
     const MATCH_ARGS: Name = Name::new_static("match_args");
     const KW_ONLY: Name = Name::new_static("kw_only");
-    const EQ: Name = Name::new_static("eq");
+    pub const EQ: Name = Name::new_static("eq");
+    pub const CMP: Name = Name::new_static("cmp");
     const UNSAFE_HASH: Name = Name::new_static("unsafe_hash");
     const HASH: Name = Name::new_static("hash");
     const SLOTS: Name = Name::new_static("slots");

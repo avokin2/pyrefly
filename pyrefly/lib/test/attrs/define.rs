@@ -581,3 +581,72 @@ class Sub2(Base2):
 reveal_type(Sub2.__init__)  # E: revealed type: (self: Sub2, a: int, b: Any) -> None
 "#,
 );
+
+// A subclass that re-declares an inherited field relocates it to the redefinition position,
+// matching attrs (a redefined field moves to its newest declaration site).
+attrs_testcase!(
+    test_attrs_subclass_override_reorders,
+    r#"
+from typing import reveal_type
+from attrs import define
+
+@define
+class Base:
+    x: int
+    y: str
+
+@define
+class Sub(Base):
+    z: bool
+    x: int  # redeclaring x relocates it after y, z
+
+reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, y: str, z: bool, x: int) -> None
+"#,
+);
+
+// The relocated field uses the override type. Changing a read-write field's type is independently
+// flagged (attribute invariance), but the field still moves and `__init__` reflects the new type.
+attrs_testcase!(
+    test_attrs_subclass_override_changes_type,
+    r#"
+from typing import reveal_type
+from attrs import define
+
+@define
+class Base:
+    x: int
+    y: str
+
+@define
+class Sub(Base):
+    z: bool
+    x: float  # E: not consistent with `int`
+
+reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, y: str, z: bool, x: float) -> None
+"#,
+);
+
+// The corrected order propagates transitively: a grandchild re-declaring a grandparent field
+// relocates it to the grandchild position.
+attrs_testcase!(
+    test_attrs_multilevel_override_reorders,
+    r#"
+from typing import reveal_type
+from attrs import define
+
+@define
+class A:
+    a: int
+    b: int
+
+@define
+class B(A):
+    c: int
+
+@define
+class C(B):
+    a: int  # re-declare grandparent field a
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, b: int, c: int, a: int) -> None
+"#,
+);

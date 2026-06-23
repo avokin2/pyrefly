@@ -2586,3 +2586,23 @@ class C:
 reveal_type(C.__init__)  # E: revealed type: (self: C, _x: int) -> None
 "#,
 );
+
+testcase!(
+    test_dataclass_subclass_override_keeps_position,
+    r#"
+from typing import reveal_type
+from dataclasses import dataclass
+
+@dataclass
+class Base:
+    x: int
+    y: str
+
+@dataclass
+class Sub(Base):
+    z: bool
+    x: int  # redeclaring x keeps it at the original (first) position
+
+reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, x: int, y: str, z: bool) -> None
+"#,
+);

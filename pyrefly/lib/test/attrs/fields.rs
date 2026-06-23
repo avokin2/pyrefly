@@ -1055,3 +1055,24 @@ class C:
         pass
 "#,
 );
+
+// attrs keeps only the LAST of a duplicated field name, at the last position with the last type
+// (desired: `(self: C, y: int, x: str)`). pyrefly keeps the FIRST position and loses the type —
+// the root is a binding-phase bug (scope.rs `Static::upsert` re-keys the rebound name to
+// `Anywhere`), separate from the `get_dataclass_fields` reorder. Tracked for a follow-up.
+attrs_testcase!(
+    bug = "Same-class duplicate field keeps first position and loses the override type",
+    test_attrs_same_class_duplicate_field,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.s
+class C:
+    x: int = attr.ib()
+    y: int = attr.ib()
+    x: str = attr.ib()  # E: `x` cannot be annotated with `str`, it is already defined with type `int`
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, x: int, y: int) -> None
+"#,
+);

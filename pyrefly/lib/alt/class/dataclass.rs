@@ -90,10 +90,20 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 ..
             }
         );
+        // attrs relocates a redefined field to its newest declaration site (it deletes the earlier
+        // occurrence and re-appends), whereas stdlib `@dataclass` keeps the original position (it
+        // reassigns a dict entry in place). `SmallSet::insert` keeps the existing position, so for
+        // attrs we `shift_remove` first to move the name to the end.
+        let relocate_redefined = matches!(kind, DataclassKind::Attrs { .. });
         let mut all_fields = SmallSet::new();
         for (_, metadata) in bases_with_metadata.iter().rev() {
             if let Some(dataclass) = metadata.dataclass_metadata() {
-                all_fields.extend(dataclass.fields.clone());
+                for name in dataclass.fields.iter() {
+                    if relocate_redefined {
+                        all_fields.shift_remove(name);
+                    }
+                    all_fields.insert(name.clone());
+                }
             }
         }
         if let Some(class_fields) = self.get_class_fields(cls) {
@@ -104,6 +114,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     class_fields.is_field_annotated(name)
                 };
                 if is_field {
+                    if relocate_redefined {
+                        all_fields.shift_remove(name);
+                    }
                     all_fields.insert(name.clone());
                 }
             }

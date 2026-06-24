@@ -24,7 +24,7 @@ import unittest
 from typing import Generic, TypedDict
 
 import torch
-from shape_extensions import Dim, TypeVar, TypeVarTuple
+from shape_extensions import D, Dim, TypeVar, TypeVarTuple
 
 
 class TestSubscriptRuntime(unittest.TestCase):
@@ -119,6 +119,44 @@ class TestCombined(unittest.TestCase):
 
             def f[N](x: torch.Tensor[N + 1, 3]) -> torch.Tensor[N, 3]:
                 return x
+
+
+class TestSymbolicArithExprRuntime(unittest.TestCase):
+    """D wraps PEP 695 TypeVars so runtime arithmetic can build an expression."""
+
+    def test_bracket_and_call_forms_match(self):
+        def f[N]() -> None:
+            self.assertEqual(D[N], D(N))
+
+        f()
+
+    def test_arithmetic_expression_tree(self):
+        def f[N, M]() -> None:
+            expr = (D[N] + 1) * (2 ** D(M)) // -D[N]
+            self.assertEqual(str(expr), "((N + 1) * (2 ** M)) // -N")
+
+        f()
+
+    def test_reverse_operators(self):
+        def f[N]() -> None:
+            self.assertEqual(str(1 + D[N]), "1 + N")
+            self.assertEqual(str(1 - D[N]), "1 - N")
+            self.assertEqual(str(2 * D[N]), "2 * N")
+            self.assertEqual(str(4 // D[N]), "4 // N")
+
+        f()
+
+    def test_tensor_annotations_with_bracket_form(self):
+        def f[N, M](x: torch.Tensor[D[N] + D[M], 3]) -> torch.Tensor[D[N] * 2, 3]:
+            return x
+
+        self.assertTrue(callable(f))
+
+    def test_tensor_annotations_with_call_form(self):
+        def f[N, M](x: torch.Tensor[D(N) + D(M), 3]) -> torch.Tensor[D(N) // 2, 3]:
+            return x
+
+        self.assertTrue(callable(f))
 
 
 class TestClassAnnotationRuntime(unittest.TestCase):

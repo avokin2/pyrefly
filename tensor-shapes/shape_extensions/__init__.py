@@ -13,6 +13,7 @@ don't crash when evaluated by Python.
 """
 
 import typing
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
@@ -59,6 +60,79 @@ class Dim[T]:
     """
 
     pass
+
+
+@dataclass(frozen=True)
+class SymbolicArithExpr:
+    """Runtime representation of symbolic dimension arithmetic."""
+
+    op: str
+    args: tuple[typing.Any, ...]
+
+    def __str__(self):
+        if self.op == "var":
+            return str(self.args[0])
+        if self.op == "-" and len(self.args) == 2 and self.args[0] == 0:
+            return f"-{_format_symbolic_arg(self.args[1])}"
+        if len(self.args) == 2:
+            return (
+                f"{_format_symbolic_arg(self.args[0])} "
+                f"{self.op} {_format_symbolic_arg(self.args[1])}"
+            )
+        return repr(self)
+
+    def __add__(self, other):
+        return SymbolicArithExpr("+", (self, other))
+
+    def __radd__(self, other):
+        return SymbolicArithExpr("+", (other, self))
+
+    def __sub__(self, other):
+        return SymbolicArithExpr("-", (self, other))
+
+    def __rsub__(self, other):
+        return SymbolicArithExpr("-", (other, self))
+
+    def __mul__(self, other):
+        return SymbolicArithExpr("*", (self, other))
+
+    def __rmul__(self, other):
+        return SymbolicArithExpr("*", (other, self))
+
+    def __floordiv__(self, other):
+        return SymbolicArithExpr("//", (self, other))
+
+    def __rfloordiv__(self, other):
+        return SymbolicArithExpr("//", (other, self))
+
+    def __pow__(self, other):
+        return SymbolicArithExpr("**", (self, other))
+
+    def __rpow__(self, other):
+        return SymbolicArithExpr("**", (other, self))
+
+    def __neg__(self):
+        return SymbolicArithExpr("-", (0, self))
+
+
+def _format_symbolic_arg(value):
+    if (
+        isinstance(value, SymbolicArithExpr)
+        and value.op != "var"
+        and not (value.op == "-" and len(value.args) == 2 and value.args[0] == 0)
+    ):
+        return f"({value})"
+    return str(value)
+
+
+class D:
+    """Wrap a shape type variable so Python can evaluate dimension arithmetic."""
+
+    def __new__(cls, value):
+        return SymbolicArithExpr("var", (value,))
+
+    def __class_getitem__(cls, value):
+        return cls(value)
 
 
 def shaped_array(*, shape: str) -> typing.Callable[[type], type]:

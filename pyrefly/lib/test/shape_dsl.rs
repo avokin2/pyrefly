@@ -171,6 +171,29 @@ def add_leading_axis[DType, *Shape](x: ndarray[DType, *Shape]) -> ndarray[DType,
     env
 }
 
+fn shape_dsl_base_env() -> TestEnv {
+    let mut env = TestEnv::new();
+    env.add_with_path(
+        "shape_extensions",
+        "shape_extensions/__init__.pyi",
+        r#"
+from typing import Any, Callable
+
+def uses_shape_dsl(ir_fn: Callable[..., Any], *, capture_init: list[str] | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+"#,
+    );
+    env.add_with_path(
+        "shape_extensions.dsl",
+        "shape_extensions/dsl.pyi",
+        r#"
+from typing import Any, Callable
+
+def shape_dsl_function(fn: Callable[..., Any]) -> Callable[..., Any]: ...
+"#,
+    );
+    env
+}
+
 fn assert_shaped_array_shape(shape: &Quantified) {
     assert_eq!(shape.name().as_str(), "Shape");
     assert_eq!(shape.kind, QuantifiedKind::TypeVarTuple);
@@ -711,8 +734,7 @@ def f(x: np.ndarray[float, 2, 3]) -> None:
 );
 
 fn shape_dsl_env() -> TestEnv {
-    let path = std::env::var("SHAPE_DSL_TEST_PATH").expect("SHAPE_DSL_TEST_PATH must be set");
-    let mut env = TestEnv::new_with_site_package_paths(&[&path]);
+    let mut env = shape_dsl_base_env();
     env.add_with_path(
         "my_shapes",
         "my_shapes.pyi",
@@ -1008,8 +1030,7 @@ assert_type(dotted_fn(1), int)
 // ── Recursion-safety tests ────────────────────────────────────────────────────
 
 fn shape_dsl_recursion_env() -> TestEnv {
-    let path = std::env::var("SHAPE_DSL_TEST_PATH").expect("SHAPE_DSL_TEST_PATH must be set");
-    let mut env = TestEnv::new_with_site_package_paths(&[&path]);
+    let mut env = shape_dsl_base_env();
     env.add_with_path(
         "recursive_shapes",
         "recursive_shapes.pyi",

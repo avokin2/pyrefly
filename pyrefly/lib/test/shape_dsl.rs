@@ -189,6 +189,8 @@ def uses_shape_dsl(ir_fn: Callable[..., Any], *, capture_init: list[str] | None 
 from typing import Any, Callable
 
 def shape_dsl_function(fn: Callable[..., Any]) -> Callable[..., Any]: ...
+def prod(x: Any) -> Any: ...
+def sum(x: Any) -> Any: ...
 "#,
     );
     env
@@ -741,6 +743,7 @@ fn shape_dsl_env() -> TestEnv {
         r#"
 from typing import Any
 from shape_extensions.dsl import shape_dsl_function
+import shape_extensions.dsl
 
 class symint: ...
 class Error(Exception): ...
@@ -789,6 +792,10 @@ def iterator_kernel_ir(x: list[int], y: list[int]) -> int:
     indexed = [i * d for i, d in enumerate(x)]
     paired = [a + b for a, b in zip(x, y)]
     return indexed[2] + paired[1]
+
+@shape_dsl_function
+def reductions_ir(x: list[int | symint]) -> int | symint:
+    return shape_extensions.dsl.prod(x) + shape_extensions.dsl.sum(x)
 
 def not_a_dsl_fn(x: int) -> int: ...
 
@@ -845,7 +852,7 @@ def two_errors_ir(x: int) -> int:  # E: @shape_dsl_function type error: undefine
         r#"
 from typing import Any, overload
 from shape_extensions import uses_shape_dsl
-from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, list_kernel_ir, iterator_kernel_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
+from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, list_kernel_ir, iterator_kernel_ir, reductions_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
 import my_shapes
 
 non_literal: Any
@@ -880,6 +887,9 @@ def list_kernel_fn(x: tuple[int, ...]) -> int: ...
 
 @uses_shape_dsl(iterator_kernel_ir)
 def iterator_kernel_fn(x: tuple[int, ...], y: tuple[int, ...]) -> int: ...
+
+@uses_shape_dsl(reductions_ir)
+def reductions_fn(x: tuple[int, ...]) -> int: ...
 
 @uses_shape_dsl(not_a_dsl_fn)  # E: `@uses_shape_dsl` argument does not resolve to a `@shape_dsl_function`
 def bad_fn(x: int) -> int: ...
@@ -1020,6 +1030,17 @@ from typing import Literal, assert_type
 from my_lib import iterator_kernel_fn
 
 assert_type(iterator_kernel_fn((2, 3, 5), (7, 11, 13)), Literal[24])
+"#,
+);
+
+testcase!(
+    test_shape_dsl_reduction_builtins,
+    shape_dsl_env(),
+    r#"
+from typing import Literal, assert_type
+from my_lib import reductions_fn
+
+assert_type(reductions_fn((2, 3, 4)), Literal[33])
 "#,
 );
 

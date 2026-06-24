@@ -242,9 +242,17 @@ impl DataclassKeywords {
         defaults: &DataclassTransformMetadata,
         strict_default: bool,
     ) -> Self {
+        // Legacy `cmp` aliases both `eq` and `order`; `cmp=None` means omitted.
+        let cmp = if map.is_set(&Self::CMP) {
+            map.get_bool(&Self::CMP)
+        } else {
+            None
+        };
         Self {
             init: map.get_bool(&Self::INIT).unwrap_or(true),
-            order: map.get_bool(&Self::ORDER).unwrap_or(defaults.order_default),
+            order: cmp
+                .or(map.get_bool(&Self::ORDER))
+                .unwrap_or(defaults.order_default),
             frozen: map
                 .get_bool(&Self::FROZEN)
                 .unwrap_or(defaults.frozen_default),
@@ -252,7 +260,9 @@ impl DataclassKeywords {
             kw_only: map
                 .get_bool(&Self::KW_ONLY)
                 .unwrap_or(defaults.kw_only_default),
-            eq: map.get_bool(&Self::EQ).unwrap_or(defaults.eq_default),
+            eq: cmp
+                .or(map.get_bool(&Self::EQ))
+                .unwrap_or(defaults.eq_default),
             unsafe_hash: map.get_bool(&Self::UNSAFE_HASH).unwrap_or(false),
             slots: map.get_bool(&Self::SLOTS).unwrap_or(false),
             extra: false,

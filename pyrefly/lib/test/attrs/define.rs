@@ -795,3 +795,47 @@ class C:
     x = attr.ib()
 "#,
 );
+
+// `cmp` is the legacy alias setting both `eq` and `order`: `cmp=False` disables ordering even
+// though classic `@attr.s` enables it by default.
+attrs_testcase!(
+    test_attrs_cmp_false_disables_order,
+    r#"
+import attr
+
+@attr.s(auto_attribs=True, cmp=False)
+class C:
+    x: int
+
+C(1) < C(2)  # E: `<` is not supported
+"#,
+);
+
+// `cmp=True` is the same alias the other way: it enables both `eq` and `order`.
+attrs_testcase!(
+    test_attrs_cmp_true_enables_order,
+    r#"
+import attr
+
+@attr.s(auto_attribs=True, cmp=True)
+class C:
+    x: int
+
+C(1) < C(2)  # OK: cmp=True enables ordering
+"#,
+);
+
+// An explicit `cmp=None` is treated like an omitted argument (not as `cmp=False`), so the
+// per-decorator default applies — classic `@attr.s` still enables ordering.
+attrs_testcase!(
+    test_attrs_cmp_none_is_omitted,
+    r#"
+import attr
+
+@attr.s(auto_attribs=True, cmp=None)
+class C:
+    x: int
+
+C(1) < C(2)  # OK: cmp=None falls back to the order default (True for classic `@attr.s`)
+"#,
+);

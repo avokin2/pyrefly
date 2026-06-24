@@ -179,6 +179,7 @@ fn shape_dsl_base_env() -> TestEnv {
         r#"
 from typing import Any, Callable
 
+shaped_array: Any
 def uses_shape_dsl(ir_fn: Callable[..., Any], *, capture_init: list[str] | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
 "#,
     );
@@ -191,6 +192,26 @@ from typing import Any, Callable
 def shape_dsl_function(fn: Callable[..., Any]) -> Callable[..., Any]: ...
 def prod(x: Any) -> Any: ...
 def sum(x: Any) -> Any: ...
+
+class ShapedArray:
+    shape: list[int]
+    def __init__(self, *, shape: list[int]) -> None: ...
+"#,
+    );
+    env
+}
+
+fn shape_dsl_tensor_env() -> TestEnv {
+    let mut env = shape_dsl_base_env();
+    env.add_with_path(
+        "torch",
+        "torch.pyi",
+        r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Tensor[*Shape]:
+    shape: tuple[*Shape]
 "#,
     );
     env
@@ -1311,5 +1332,43 @@ from my_lib import BadCaptureInit
 # capture_init is read during class binding. Non-literal entries are rejected
 # instead of silently dropping them from the captured __init__ field list.
 BadCaptureInit()
+"#,
+);
+
+testcase!(
+    test_shape_dsl_shape_specific_primitives,
+    {
+        let mut env = shape_dsl_tensor_env();
+        env.add_with_path(
+            "shape_ops",
+            "shape_ops.pyi",
+            r#"
+from shape_extensions import uses_shape_dsl
+from shape_extensions.dsl import ShapedArray, shape_dsl_function
+from torch import Tensor
+
+class symint: ...
+
+@shape_dsl_function
+def replace_leading_dim_ir(x: ShapedArray, dim: int | symint) -> ShapedArray:
+    dims = x.shape
+    if isinstance(x, ShapedArray) and isinstance(dims, list) and isinstance(dims[0], int) and not isinstance(dim, symint):
+        return ShapedArray(shape=[dim] + dims[1:])
+    return ShapedArray(shape=dims)
+
+@uses_shape_dsl(replace_leading_dim_ir)
+def replace_leading_dim[*Shape](x: Tensor[*Shape], dim: int) -> Tensor[*Shape]: ...
+"#,
+        );
+        env
+    },
+    r#"
+from shape_ops import replace_leading_dim
+from torch import Tensor
+from typing import Literal, assert_type
+
+def f(x: Tensor[2, 3]) -> None:
+    assert_type(x.shape, tuple[Literal[2], Literal[3]])
+    assert_type(replace_leading_dim(x, 4), Tensor[4, 3])
 "#,
 );

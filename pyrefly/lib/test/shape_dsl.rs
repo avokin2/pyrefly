@@ -784,6 +784,12 @@ def list_kernel_ir(x: list[int]) -> int:
     kept = [i for i in range(len(x)) if i in [1, 3] and i not in (0,)]
     return pair[0] + pair[-1] + middle[0] + middle[-1] + kept[0] + kept[1]
 
+@shape_dsl_function
+def iterator_kernel_ir(x: list[int], y: list[int]) -> int:
+    indexed = [i * d for i, d in enumerate(x)]
+    paired = [a + b for a, b in zip(x, y)]
+    return indexed[2] + paired[1]
+
 def not_a_dsl_fn(x: int) -> int: ...
 
 @shape_dsl_function
@@ -839,7 +845,7 @@ def two_errors_ir(x: int) -> int:  # E: @shape_dsl_function type error: undefine
         r#"
 from typing import Any, overload
 from shape_extensions import uses_shape_dsl
-from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, list_kernel_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
+from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, list_kernel_ir, iterator_kernel_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
 import my_shapes
 
 non_literal: Any
@@ -871,6 +877,9 @@ def string_guard_fn(x: int) -> str: ...
 
 @uses_shape_dsl(list_kernel_ir)
 def list_kernel_fn(x: tuple[int, ...]) -> int: ...
+
+@uses_shape_dsl(iterator_kernel_ir)
+def iterator_kernel_fn(x: tuple[int, ...], y: tuple[int, ...]) -> int: ...
 
 @uses_shape_dsl(not_a_dsl_fn)  # E: `@uses_shape_dsl` argument does not resolve to a `@shape_dsl_function`
 def bad_fn(x: int) -> int: ...
@@ -1000,6 +1009,17 @@ from typing import Literal, assert_type
 from my_lib import list_kernel_fn
 
 assert_type(list_kernel_fn((2, 3, 5, 7)), Literal[21])
+"#,
+);
+
+testcase!(
+    test_shape_dsl_iterator_builtins,
+    shape_dsl_env(),
+    r#"
+from typing import Literal, assert_type
+from my_lib import iterator_kernel_fn
+
+assert_type(iterator_kernel_fn((2, 3, 5), (7, 11, 13)), Literal[24])
 "#,
 );
 

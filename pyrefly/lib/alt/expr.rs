@@ -3154,8 +3154,57 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         cls.has_toplevel_qname("shape_extensions", "Dim")
     }
 
+    /// Check if a class is the shape arithmetic wrapper (shape_extensions.D)
+    fn is_shape_arith_wrapper_class(&self, cls: &Class) -> bool {
+        cls.has_toplevel_qname("shape_extensions", "D")
+    }
+
     /// Parse a single dimension expression (recursive helper)
     fn parse_dimension_expr(&self, expr: &Expr, errors: &ErrorCollector) -> Option<Type> {
+        // shape_extensions.D[...] and D(...) are runtime-only wrappers that
+        // let Python evaluate arithmetic on PEP 695 type variables.
+        match expr {
+            Expr::Subscript(x) => {
+                let base = self.expr_infer(&x.value, errors);
+                if let Type::ClassDef(ref cls) = base
+                    && self.is_shape_arith_wrapper_class(cls)
+                {
+                    return self.parse_dimension_expr(&x.slice, errors);
+                }
+            }
+            Expr::Call(ExprCall {
+                func, arguments, ..
+            }) => {
+                let callee = self.expr_infer(func, errors);
+                if let Type::ClassDef(ref cls) = callee
+                    && self.is_shape_arith_wrapper_class(cls)
+                {
+                    if arguments.args.len() == 1 && arguments.keywords.is_empty() {
+                        return self.parse_dimension_expr(&arguments.args[0], errors);
+                    }
+                    self.error(
+                        errors,
+                        expr.range(),
+                        ErrorKind::InvalidAnnotation,
+                        if arguments.keywords.is_empty() {
+                            format!(
+                                "Expected 1 positional argument for `D`, got {}",
+                                arguments.args.len()
+                            )
+                        } else {
+                            format!(
+                                "`D` accepts exactly 1 positional argument and no keyword arguments, got {} positional and {} keyword",
+                                arguments.args.len(),
+                                arguments.keywords.len()
+                            )
+                        },
+                    );
+                    return None;
+                }
+            }
+            _ => {}
+        }
+
         match expr {
             // String literals are not valid dimensions
             Expr::StringLiteral(_) => {

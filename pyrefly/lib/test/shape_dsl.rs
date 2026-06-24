@@ -23,6 +23,7 @@ from typing import Any
 
 shaped_array: Any
 class Dim[T]: ...
+class D: ...
 "#,
     );
     env
@@ -444,6 +445,54 @@ def f(x: Tensor[2, 3], y: Tensor) -> None:
     reveal_type(y)  # E: revealed type: Tensor
     reveal_type(x[0])  # E: revealed type: Tensor[3]
     reveal_type(y[0])  # E: revealed type: Tensor
+"#,
+);
+
+testcase!(
+    test_shape_arithmetic_wrapper_bracket_form,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import D
+from typing import reveal_type
+from torch import Tensor
+
+def f[N, M](x: Tensor[D[N] + D[M], D[N] * 2]) -> None:
+    reveal_type(x)  # E: revealed type: Tensor[(N + M), (2 * N)]
+"#,
+);
+
+testcase!(
+    test_shape_arithmetic_wrapper_call_form,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import D
+from typing import reveal_type
+from torch import Tensor
+
+def f[N, M](x: Tensor[D(N) // 2, D(N) ** D(M), -D(M)]) -> None:
+    reveal_type(x)  # E: revealed type: Tensor[(N // 2), (N ** M), (-1 * M)]
+"#,
+);
+
+testcase!(
+    test_shape_arithmetic_wrapper_rejects_invalid_forms,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import D
+from torch import Tensor
+
+class Box[T]: ...
+class Factory:
+    def __init__(self, x: object) -> None: ...
+
+def f[N, M](
+    no_arg: Tensor[D()],  # E: Expected 1 positional argument for `D`, got 0
+    too_many: Tensor[D(N, M)],  # E: Expected 1 positional argument for `D`, got 2
+    keyword: Tensor[D(N, dim=M)],  # E: `D` accepts exactly 1 positional argument and no keyword arguments, got 1 positional and 1 keyword
+    non_d_subscript: Tensor[Box[N]],  # E: Tensor shape dimensions must be positive integer literals, string literals, type variables, or expressions
+    non_d_call: Tensor[Factory(N)],  # E: Tensor shape dimensions must be positive integer literals, string literals, type variables, or expressions
+) -> None:
+    pass
 "#,
 );
 

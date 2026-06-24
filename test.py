@@ -160,7 +160,7 @@ class CargoExecutor(Executor):
         jq_path = shutil.which("jq")
         if scrut_path is not None:
             run(
-                [scrut_path, "test", "test"],
+                [scrut_path, "test", "test", "tensor-shapes/torch/test"],
                 env={
                     "PYREFLY": str(script_dir / "target" / "debug" / "pyrefly"),
                     "TYPESHED_ROOT": str(
@@ -170,8 +170,12 @@ class CargoExecutor(Executor):
                     "TEST_PY": str(script_dir / "test.py"),
                     "PYREFLY_PY": str(script_dir / "pyrefly" / "python"),
                     "TENSOR_SHAPES_ROOT": str(script_dir / "tensor-shapes"),
-                    "TENSOR_TEST_ROOT": str(script_dir / "test" / "tensor_shapes"),
-                    "JAXTYPING_TEST_ROOT": str(script_dir / "test" / "tensor_shapes"),
+                    "TENSOR_TEST_ROOT": str(
+                        script_dir / "tensor-shapes" / "torch" / "test"
+                    ),
+                    "JAXTYPING_TEST_ROOT": str(
+                        script_dir / "tensor-shapes" / "torch" / "test"
+                    ),
                     "PATH": os.environ.get("PATH", ""),
                 },
             )

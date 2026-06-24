@@ -193,15 +193,10 @@ It reports:
 After adding stubs, DSL functions, or ported models, run the test suite:
 
 ```bash
-# Run a specific test
-buck test pyrefly:pyrefly_library -- tensor_shape
-
-# Run all tests
-buck test pyrefly:pyrefly_library
+python3 test.py
 ```
 
-For external contributors using cargo:
-
-```bash
-cargo test tensor_shape
-```
+TODO(stroxler): At the moment we don't have automated tests for the actual
+stubs in `tensor-shapes` that run in github CI - the tests are buck-only
+and will run when we import the code. We are actively working to improve
+this infrastructure.

@@ -1,5 +1,5 @@
 search_path = [
-    "../../tensor-shapes",
+    "../..",
 ]
 
 python_version = "3.13"

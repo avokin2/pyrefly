@@ -1,6 +1,6 @@
 search_path = [
     "fixtures",
-    "../../../tensor-shapes",
+    "../../..",
 ]
 
 python_version = "3.12"

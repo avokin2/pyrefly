@@ -743,6 +743,7 @@ from typing import Any
 from shape_extensions.dsl import shape_dsl_function
 
 class symint: ...
+class Error(Exception): ...
 Unknown: Any = ...
 
 @shape_dsl_function
@@ -756,6 +757,15 @@ def times_two(x: int) -> int:
 @shape_dsl_function
 def double_ir(x: int) -> int:
     return times_two(x)
+
+@shape_dsl_function
+def scalar_kernel_ir(x: int) -> int:
+    # Equivalent to x == 3 for the test input. The verbose spelling forces the
+    # DSL evaluator through scalar arithmetic, comparison, unary, and boolean
+    # operators while leaving the traced value precise.
+    if not (((x + 2 == 5) and (x - 1 != 1) and (x * 2 > 5) and (x // 2 >= 1) and (x % 2 < 2) and (-x <= -3)) or False):
+        raise Error("unreachable")
+    return x
 
 def not_a_dsl_fn(x: int) -> int: ...
 
@@ -812,7 +822,7 @@ def two_errors_ir(x: int) -> int:  # E: @shape_dsl_function type error: undefine
         r#"
 from typing import Any, overload
 from shape_extensions import uses_shape_dsl
-from my_shapes import identity_ir, double_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
+from my_shapes import identity_ir, double_ir, scalar_kernel_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
 import my_shapes
 
 non_literal: Any
@@ -835,6 +845,9 @@ def overloaded_no_impl(x: str) -> str: ...
 
 @uses_shape_dsl(double_ir)
 def double_fn(x: int) -> int: ...
+
+@uses_shape_dsl(scalar_kernel_ir)
+def scalar_kernel_fn(x: int) -> int: ...
 
 @uses_shape_dsl(not_a_dsl_fn)  # E: `@uses_shape_dsl` argument does not resolve to a `@shape_dsl_function`
 def bad_fn(x: int) -> int: ...
@@ -930,6 +943,17 @@ from typing import Literal, assert_type
 from my_lib import double_fn
 
 assert_type(double_fn(3), Literal[6])
+"#,
+);
+
+testcase!(
+    test_shape_dsl_scalar_arithmetic_and_comparisons,
+    shape_dsl_env(),
+    r#"
+from typing import Literal, assert_type
+from my_lib import scalar_kernel_fn
+
+assert_type(scalar_kernel_fn(3), Literal[3])
 "#,
 );
 

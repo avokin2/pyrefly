@@ -767,6 +767,13 @@ def scalar_kernel_ir(x: int) -> int:
         raise Error("unreachable")
     return x
 
+@shape_dsl_function
+def string_guard_ir(x: int, label: str = "n") -> str:
+    text = label + str(x)
+    if text != "n3":
+        raise Error(text)
+    return "ok" if x == 3 else "bad"
+
 def not_a_dsl_fn(x: int) -> int: ...
 
 @shape_dsl_function
@@ -822,7 +829,7 @@ def two_errors_ir(x: int) -> int:  # E: @shape_dsl_function type error: undefine
         r#"
 from typing import Any, overload
 from shape_extensions import uses_shape_dsl
-from my_shapes import identity_ir, double_ir, scalar_kernel_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
+from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
 import my_shapes
 
 non_literal: Any
@@ -848,6 +855,9 @@ def double_fn(x: int) -> int: ...
 
 @uses_shape_dsl(scalar_kernel_ir)
 def scalar_kernel_fn(x: int) -> int: ...
+
+@uses_shape_dsl(string_guard_ir)
+def string_guard_fn(x: int) -> str: ...
 
 @uses_shape_dsl(not_a_dsl_fn)  # E: `@uses_shape_dsl` argument does not resolve to a `@shape_dsl_function`
 def bad_fn(x: int) -> int: ...
@@ -954,6 +964,18 @@ from typing import Literal, assert_type
 from my_lib import scalar_kernel_fn
 
 assert_type(scalar_kernel_fn(3), Literal[3])
+"#,
+);
+
+testcase!(
+    test_shape_dsl_strings_defaults_conditionals_and_raise,
+    shape_dsl_env(),
+    r#"
+from typing import assert_type
+from my_lib import string_guard_fn
+
+assert_type(string_guard_fn(3), str)
+string_guard_fn(4)  # E: n4
 "#,
 );
 

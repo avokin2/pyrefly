@@ -192,6 +192,7 @@ from typing import Any, Callable
 def shape_dsl_function(fn: Callable[..., Any]) -> Callable[..., Any]: ...
 def prod(x: Any) -> Any: ...
 def sum(x: Any) -> Any: ...
+def parse_einsum_equation(x: Any) -> Any: ...
 
 class ShapedArray:
     shape: list[int]
@@ -818,6 +819,15 @@ def iterator_kernel_ir(x: list[int], y: list[int]) -> int:
 def reductions_ir(x: list[int | symint]) -> int | symint:
     return shape_extensions.dsl.prod(x) + shape_extensions.dsl.sum(x)
 
+@shape_dsl_function
+def einsum_kernel_ir() -> int:
+    parsed = shape_extensions.dsl.parse_einsum_equation("ab,bc->ac")
+    output_map = parsed[0]
+    checks = parsed[1]
+    first = output_map[0]
+    second = output_map[1]
+    return first[0] + first[1] + second[0] + second[1] + len(checks)
+
 def not_a_dsl_fn(x: int) -> int: ...
 
 @shape_dsl_function
@@ -873,7 +883,7 @@ def two_errors_ir(x: int) -> int:  # E: @shape_dsl_function type error: undefine
         r#"
 from typing import Any, overload
 from shape_extensions import uses_shape_dsl
-from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, list_kernel_ir, iterator_kernel_ir, reductions_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
+from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, list_kernel_ir, iterator_kernel_ir, reductions_ir, einsum_kernel_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
 import my_shapes
 
 non_literal: Any
@@ -911,6 +921,9 @@ def iterator_kernel_fn(x: tuple[int, ...], y: tuple[int, ...]) -> int: ...
 
 @uses_shape_dsl(reductions_ir)
 def reductions_fn(x: tuple[int, ...]) -> int: ...
+
+@uses_shape_dsl(einsum_kernel_ir)
+def einsum_kernel_fn() -> int: ...
 
 @uses_shape_dsl(not_a_dsl_fn)  # E: `@uses_shape_dsl` argument does not resolve to a `@shape_dsl_function`
 def bad_fn(x: int) -> int: ...
@@ -1062,6 +1075,17 @@ from typing import Literal, assert_type
 from my_lib import reductions_fn
 
 assert_type(reductions_fn((2, 3, 4)), Literal[33])
+"#,
+);
+
+testcase!(
+    test_shape_dsl_parse_einsum_equation_builtin,
+    shape_dsl_env(),
+    r#"
+from typing import Literal, assert_type
+from my_lib import einsum_kernel_fn
+
+assert_type(einsum_kernel_fn(), Literal[3])
 "#,
 );
 

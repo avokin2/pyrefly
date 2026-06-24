@@ -3380,11 +3380,19 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     .with_annotation(annot_range, "declared type".to_owned())
                 };
                 let annot_ty = annot.ty(self.heap, self.stdlib);
-                // Skip the assignment check for a NOTHING `default=`. Gating on the argument keeps
-                // ordinary `default=` calls (e.g. `ContextVar(default=None)`) on the hinted path.
+                // Skip the assignment check for a NOTHING `default=`.
                 let expr_ty = if let Expr::Call(call) = expr
-                    && let Some(default) =
-                        call.arguments.find_keyword("default").map(|kw| &kw.value)
+                    && let Some(default) = call
+                        .arguments
+                        .find_keyword("default")
+                        .map(|kw| &kw.value)
+                        // For attrs specifiers a positional first arg counts too, since
+                        // `attr.ib`'s first parameter is `default`.
+                        .or_else(|| {
+                            is_attrs_specifier
+                                .then(|| call.arguments.args.first())
+                                .flatten()
+                        })
                     && is_attrs_nothing(&self.expr_infer(default, &self.error_swallower()))
                 {
                     let got = self.expr_infer(expr, errors);

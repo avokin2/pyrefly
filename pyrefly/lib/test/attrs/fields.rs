@@ -334,16 +334,16 @@ x: int = f(default=attr.NOTHING)  # E: `str` is not assignable to `int`
 "#,
 );
 
-// `attr.ib`'s first positional arg is `default`, so positional NOTHING ⇒ required.
+// `attr.ib`'s first positional arg is `default`, so positional NOTHING ⇒ required. The NOTHING
+// sentinel means "no default", so it must not be checked against the field's declared type.
 attrs_testcase!(
-    bug = "positional attr.ib(NOTHING) still emits a spurious `_Nothing` assignment error",
     test_attrs_field_nothing_positional_required,
     r#"
 import attr
 
 @attr.s(auto_attribs=True)
 class C:
-    x: int = attr.ib(attr.NOTHING)  # E: `_Nothing` is not assignable to `int`
+    x: int = attr.ib(attr.NOTHING)
 
 C()   # E: Missing argument `x`
 C(1)  # OK

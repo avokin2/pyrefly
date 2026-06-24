@@ -189,13 +189,13 @@ impl Transaction<'_> {
                 return Some(vec1![item]);
             }
         }
-        // Nested attribute fallback: handles `module.Container.member`
-        // where `module` is a non-Python file (e.g. .thrift). The base
-        // expression `module.Container` resolves to Any/Unknown because
-        // the type system can't resolve attributes on non-Python modules.
-        // We look at the AST to find the base's own base expression,
-        // check if it's a Module type, and if so search for the member
-        // as a whole-word match in the module source file.
+        // Fallback for base expressions that resolve to Any/Unknown.
+        // Two cases:
+        // 1. Nested attribute: `module.Container.member` — the base
+        //    `module.Container` is an ExprAttribute whose inner value
+        //    has Type::Module.
+        // 2. From-import: `from module import Name; Name.member` — the
+        //    base `Name` is an ExprName imported from a non-Python module.
         if base_type.is_any()
             && let Some(mod_module) = self.get_ast(handle)
         {
@@ -212,6 +212,27 @@ impl Transaction<'_> {
                         && !item.is_python_module()
                     {
                         return Some(vec1![item]);
+                    }
+                    break;
+                }
+                if let AnyNodeRef::ExprName(expr_name) = node
+                    && expr_name.range() == base_range
+                {
+                    let id = Ast::expr_name_identifier((*expr_name).clone());
+                    if let Ok(Some(def_item)) =
+                        self.find_definition_for_name_use(handle, &id, preference)
+                        && !def_item.is_python_module()
+                    {
+                        let definition_range =
+                            find_symbol_range_in_text(def_item.module.contents(), name)
+                                .unwrap_or_default();
+                        return Some(vec1![FindDefinitionItemWithDocstring {
+                            metadata: DefinitionMetadata::Module,
+                            definition_range,
+                            module: def_item.module,
+                            docstring_range: None,
+                            display_name: Some(name.to_owned()),
+                        }]);
                     }
                     break;
                 }

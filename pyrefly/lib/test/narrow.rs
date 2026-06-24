@@ -773,22 +773,24 @@ def test_alias_hiding_any_consumed(x: Alias) -> None:
 );
 
 testcase!(
-    test_isinstance_dynamic_classinfo_keeps_definite_members,
+    test_isinstance_dynamic_classinfo_narrows_to_any,
     r#"
-from typing import Any, reveal_type
+from typing import Any, assert_type, reveal_type
 
 class A: ...
 class B: ...
 
-def test_dynamic_classinfo_keeps_definite_members(x: A, cls: Any) -> None:
+def test_dynamic_classinfo_narrows_to_any(x: A, cls: Any) -> None:
     if isinstance(x, cls):
+        assert_type(x, Any)
         if isinstance(x, B):
-            reveal_type(x)  # E: revealed type: A & B
+            reveal_type(x)  # E: revealed type: B
 
-def test_type_any_classinfo_keeps_definite_members(x: A, cls: type[Any]) -> None:
+def test_type_any_classinfo_narrows_to_any(x: A, cls: type[Any]) -> None:
     if isinstance(x, cls):
+        assert_type(x, Any)
         if isinstance(x, B):
-            reveal_type(x)  # E: revealed type: A & B
+            reveal_type(x)  # E: revealed type: B
     "#,
 );
 

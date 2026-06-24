@@ -590,10 +590,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         self.distribute_over_union(left, |l| {
             self.with_fresh_class_info_target(l, right, |right| {
                 if right.is_any() {
-                    // This is essentially `isinstance(..., Any)`, which gives no useful narrowing information.
-                    // We currently emit `left & Any` directly with `left` as the fallback to land on the middle
-                    // ground between strictness and gradualness. Subject to future behavioral adjustments.
-                    intersect(vec![l.clone(), right], l.clone(), self.heap)
+                    // NOTE(grievejia): The most precise refinement would be `left`:
+                    // `isinstance(x, Any)` provides no concrete evidence about the type
+                    // of `x`, so keeping the original type is sound. In practice, that is
+                    // currently too strict for some primer projects. Refining to `Any` is
+                    // a gradual-typing compromise; we can revisit `left` in strict mode.
+                    right.clone()
                 } else {
                     // TODO: falling back to Never when the lhs is a union is a hack to get
                     // reasonable behavior in cases like this:

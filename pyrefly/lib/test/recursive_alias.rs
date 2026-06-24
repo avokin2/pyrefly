@@ -382,3 +382,18 @@ def f(x: Outer) -> None:
     reveal_type(x)  # E: dict[str, int | list[int]]
     "#,
 );
+
+testcase!(
+    test_nested_literal_against_recursive_alias_branch,
+    r#"
+from collections.abc import Mapping
+from typing import TypeAlias
+
+class A: ...
+class B(A): ...
+
+IncEx: TypeAlias = Mapping[int, int] | Mapping[str, "IncEx | list[A]"]
+
+ok: IncEx = {"a": {"__all__": [B()]}}
+    "#,
+);

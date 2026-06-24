@@ -1401,6 +1401,12 @@ impl Type {
         }
     }
 
+    pub fn is_assert_shape(&self) -> bool {
+        self.visit_toplevel_func_metadata(&|meta| {
+            meta.flags.is_assert_shape || meta.kind == FunctionKind::AssertShape
+        })
+    }
+
     pub fn is_none(&self) -> bool {
         matches!(self, Type::None)
     }

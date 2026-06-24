@@ -19,11 +19,13 @@ fn shaped_array_env() -> TestEnv {
         "shape_extensions",
         "shape_extensions.pyi",
         r#"
-from typing import Any
+from typing import Any, Callable
 
 shaped_array: Any
 class Dim[T]: ...
 class D: ...
+def assert_shape[T](x: T, shape: tuple[Any, ...]) -> T: ...
+def defines_assert_shape[F: Callable[..., Any]](fn: F) -> F: ...
 "#,
     );
     env
@@ -493,6 +495,48 @@ def f[N, M](
     non_d_call: Tensor[Factory(N)],  # E: Tensor shape dimensions must be positive integer literals, string literals, type variables, or expressions
 ) -> None:
     pass
+"#,
+);
+
+testcase!(
+    test_assert_shape_builtin,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import D, assert_shape
+from typing import assert_type
+from torch import Tensor
+
+def f[N, M](x: Tensor[N, M]) -> None:
+    assert_type(assert_shape(x, (D[N], D(M))), Tensor[N, M])
+    assert_shape(x, (D[M], D[N]))  # E: assert_shape((N, M), (M, N)) failed
+    assert_shape(x, [D[N], D(M)])  # E: Second argument to `assert_shape` must be a tuple of tensor dimensions
+"#,
+);
+
+testcase!(
+    test_assert_shape_user_defined_helper,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import defines_assert_shape
+from typing import Any, assert_type
+from torch import Tensor
+
+@defines_assert_shape
+def check_shape(x: object, shape: tuple[Any, ...]) -> object: ...
+
+def f(x: Tensor[2, 3]) -> None:
+    assert_type(check_shape(x, (2, 3)), Tensor[2, 3])
+    check_shape(x, (2, 4))  # E: assert_shape((2, 3), (2, 4)) failed
+"#,
+);
+
+testcase!(
+    test_assert_shape_rejects_non_shaped_array,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import assert_shape
+
+assert_shape(0, (2, 3))  # E: First argument to `assert_shape` must be a shaped array, got `Literal[0]`
 "#,
 );
 

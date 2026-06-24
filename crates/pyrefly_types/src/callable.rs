@@ -719,6 +719,8 @@ pub struct FuncFlags {
     /// A function decorated with `@uses_shape_dsl`, whose return type should be
     /// refined by evaluating the referenced shape-DSL function at call sites.
     pub shape_transform: Option<Arc<ShapeTransform>>,
+    /// A function decorated with `@defines_assert_shape`.
+    pub is_assert_shape: bool,
 }
 
 impl FuncFlags {
@@ -872,6 +874,7 @@ pub enum FunctionKind {
     Override,
     Cast,
     AssertType,
+    AssertShape,
     RevealType,
     Final,
     RuntimeCheckable,
@@ -897,6 +900,8 @@ pub enum FunctionKind {
     ),
     /// The `shape_extensions.uses_shape_dsl` decorator function itself.
     UsesShapeDsl,
+    /// The `shape_extensions.defines_assert_shape` decorator function itself.
+    DefinesAssertShape,
 }
 
 impl Callable {
@@ -1232,6 +1237,7 @@ impl FunctionKind {
             ("typing" | "typing_extensions", None, "override") => Self::Override,
             ("typing" | "typing_extensions", None, "cast") => Self::Cast,
             ("typing" | "typing_extensions", None, "assert_type") => Self::AssertType,
+            ("shape_extensions", None, "assert_shape") => Self::AssertShape,
             ("typing" | "typing_extensions", None, "reveal_type") => Self::RevealType,
             ("typing" | "typing_extensions", None, "final") => Self::Final,
             ("typing" | "typing_extensions", None, "runtime_checkable") => Self::RuntimeCheckable,
@@ -1245,6 +1251,7 @@ impl FunctionKind {
             ("numba.core.decorators", None, "jit") => Self::NumbaJit,
             ("numba.core.decorators", None, "njit") => Self::NumbaNjit,
             ("shape_extensions", None, "uses_shape_dsl") => Self::UsesShapeDsl,
+            ("shape_extensions", None, "defines_assert_shape") => Self::DefinesAssertShape,
             _ => Self::Def(Arc::new(FuncId {
                 module,
                 cls,
@@ -1270,6 +1277,7 @@ impl FunctionKind {
             Self::Override => ModuleName::typing(),
             Self::Cast => ModuleName::typing(),
             Self::AssertType => ModuleName::typing(),
+            Self::AssertShape => ModuleName::from_str("shape_extensions"),
             Self::RevealType => ModuleName::typing(),
             Self::RuntimeCheckable => ModuleName::typing(),
             Self::CallbackProtocol(cls) => cls.qname().module_name(),
@@ -1282,6 +1290,7 @@ impl FunctionKind {
             Self::Def(func_id) => func_id.module.name().dupe(),
             Self::ShapeDsl(id, _, _) => id.module.name().dupe(),
             Self::UsesShapeDsl => ModuleName::from_str("shape_extensions"),
+            Self::DefinesAssertShape => ModuleName::from_str("shape_extensions"),
         }
     }
 
@@ -1300,6 +1309,7 @@ impl FunctionKind {
             Self::Override => Cow::Owned(Name::new_static("override")),
             Self::Cast => Cow::Owned(Name::new_static("cast")),
             Self::AssertType => Cow::Owned(Name::new_static("assert_type")),
+            Self::AssertShape => Cow::Owned(Name::new_static("assert_shape")),
             Self::RevealType => Cow::Owned(Name::new_static("reveal_type")),
             Self::RuntimeCheckable => Cow::Owned(Name::new_static("runtime_checkable")),
             Self::CallbackProtocol(_) => Cow::Owned(dunder::CALL),
@@ -1312,6 +1322,7 @@ impl FunctionKind {
             Self::Def(func_id) => Cow::Borrowed(&func_id.name),
             Self::ShapeDsl(id, _, _) => Cow::Borrowed(&id.name),
             Self::UsesShapeDsl => Cow::Owned(Name::new_static("uses_shape_dsl")),
+            Self::DefinesAssertShape => Cow::Owned(Name::new_static("defines_assert_shape")),
         }
     }
 
@@ -1330,6 +1341,7 @@ impl FunctionKind {
             Self::Override => None,
             Self::Cast => None,
             Self::AssertType => None,
+            Self::AssertShape => None,
             Self::RevealType => None,
             Self::RuntimeCheckable => None,
             Self::NumbaJit => None,
@@ -1342,6 +1354,7 @@ impl FunctionKind {
             Self::Def(func_id) => func_id.cls.clone(),
             Self::ShapeDsl(id, _, _) => id.cls.clone(),
             Self::UsesShapeDsl => None,
+            Self::DefinesAssertShape => None,
         }
     }
 

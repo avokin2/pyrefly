@@ -1916,6 +1916,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         hint,
                         errors,
                     ),
+                _ if ty.is_assert_shape() => self
+                    .call_assert_shape(
+                        &x.arguments.args,
+                        &x.arguments.keywords,
+                        x.arguments.range,
+                        hint,
+                        errors,
+                    ),
                 Some(CalleeKind::Function(FunctionKind::RevealType)) => self
                     .call_reveal_type(
                         &x.arguments.args,

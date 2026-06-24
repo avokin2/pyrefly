@@ -3352,6 +3352,28 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         Some(dims)
     }
 
+    pub fn parse_assert_shape_expr(
+        &self,
+        expr: &Expr,
+        errors: &ErrorCollector,
+    ) -> Option<ShapedArrayShape> {
+        match expr {
+            Expr::Tuple(ExprTuple { elts, .. }) => self
+                .parse_dimension_list(elts, errors)
+                .map(ShapedArrayShape::from_types),
+            _ => {
+                self.error(
+                    errors,
+                    expr.range(),
+                    ErrorKind::BadArgumentType,
+                    "Second argument to `assert_shape` must be a tuple of tensor dimensions"
+                        .to_owned(),
+                );
+                None
+            }
+        }
+    }
+
     fn contains_quantified(ty: &Type, param: &Quantified) -> bool {
         ty.any(|ty| {
             matches!(ty, Type::Quantified(q) | Type::QuantifiedValue(q) if q.as_ref() == param)

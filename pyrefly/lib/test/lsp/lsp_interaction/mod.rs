@@ -13,6 +13,7 @@ mod code_lens;
 mod completion;
 mod configuration;
 mod convert_module_package;
+mod cross_file_invalidation_project_mode;
 mod definition;
 mod diagnostic;
 mod did_change;

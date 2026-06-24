@@ -774,6 +774,16 @@ def string_guard_ir(x: int, label: str = "n") -> str:
         raise Error(text)
     return "ok" if x == 3 else "bad"
 
+@shape_dsl_function
+def list_kernel_ir(x: list[int]) -> int:
+    # For the test input, this sums the first four entries and adds 4 from the
+    # retained indices. The deliberately indirect spelling covers indexing,
+    # negative indexing, slicing, len/range, comprehensions, and in/not in.
+    pair = (x[0], x[-1])
+    middle = x[1:3]
+    kept = [i for i in range(len(x)) if i in [1, 3] and i not in (0,)]
+    return pair[0] + pair[-1] + middle[0] + middle[-1] + kept[0] + kept[1]
+
 def not_a_dsl_fn(x: int) -> int: ...
 
 @shape_dsl_function
@@ -829,7 +839,7 @@ def two_errors_ir(x: int) -> int:  # E: @shape_dsl_function type error: undefine
         r#"
 from typing import Any, overload
 from shape_extensions import uses_shape_dsl
-from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
+from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, list_kernel_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
 import my_shapes
 
 non_literal: Any
@@ -858,6 +868,9 @@ def scalar_kernel_fn(x: int) -> int: ...
 
 @uses_shape_dsl(string_guard_ir)
 def string_guard_fn(x: int) -> str: ...
+
+@uses_shape_dsl(list_kernel_ir)
+def list_kernel_fn(x: tuple[int, ...]) -> int: ...
 
 @uses_shape_dsl(not_a_dsl_fn)  # E: `@uses_shape_dsl` argument does not resolve to a `@shape_dsl_function`
 def bad_fn(x: int) -> int: ...
@@ -976,6 +989,17 @@ from my_lib import string_guard_fn
 
 assert_type(string_guard_fn(3), str)
 string_guard_fn(4)  # E: n4
+"#,
+);
+
+testcase!(
+    test_shape_dsl_list_primitives,
+    shape_dsl_env(),
+    r#"
+from typing import Literal, assert_type
+from my_lib import list_kernel_fn
+
+assert_type(list_kernel_fn((2, 3, 5, 7)), Literal[21])
 "#,
 );
 

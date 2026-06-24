@@ -40,7 +40,7 @@ arithmetic is `eval_binop`); the symbolic dim algebra it calls
 
 ## You MUST unit-test the DSL logic, not just an example
 
-An end-to-end example (`tensor-shapes/examples/torch`) exercises an op but does
+An end-to-end example (`tensor-shapes/torch/examples`) exercises an op but does
 **not** pin the algebra — off-by-one, ceiling-vs-floor, and zero/negative-dim
 edge cases slip through. Add a targeted test that asserts the computed shape.
 

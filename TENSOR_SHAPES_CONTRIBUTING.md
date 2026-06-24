@@ -28,7 +28,7 @@ require changes to Pyrefly's Rust source.
 ### Where they live
 
 ```
-test/tensor_shapes/fixtures/torch/
+tensor-shapes/torch-stubs/
 ├── __init__.pyi
 ├── nn/
 │   ├── __init__.pyi      # nn.Linear, nn.Conv2d, nn.LSTM, etc.
@@ -67,8 +67,7 @@ dimensions.
    their original types.
 3. **Write the `forward` signature** expressing the shape transform. Use
    `*Xs` or `*Bs` for batch dimensions that pass through unchanged.
-4. **Add the stub** to the appropriate `.pyi` file in the fixtures
-   directory.
+4. **Add the stub** to the appropriate `.pyi` file in `tensor-shapes/torch-stubs`.
 5. **Test it** by writing a small model that uses the op and running the
    checker.
 
@@ -154,7 +153,7 @@ others.
 ### Where they live
 
 ```
-test/tensor_shapes/models/
+tensor-shapes/torch/examples/
 ```
 
 Each file is a fully annotated port of a real-world PyTorch model with
@@ -175,7 +174,7 @@ Each file is a fully annotated port of a real-world PyTorch model with
 This script checks a ported model for common issues:
 
 ```bash
-tensor-shapes/skills/add-shape-types-to-torch-model/verify_port.sh test/tensor_shapes/models/<model>.py
+tensor-shapes/skills/add-shape-types-to-torch-model/verify_port.sh tensor-shapes/torch/examples/<model>.py
 ```
 
 It reports:

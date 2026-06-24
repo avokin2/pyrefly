@@ -20,7 +20,7 @@ import unittest
 from typing import assert_type, Generic
 
 import torch
-from shape_extensions import Dim, TypeVar
+from shape_extensions import assert_shape, Dim, TypeVar
 
 
 class TestSubscriptRuntime(unittest.TestCase):
@@ -35,7 +35,7 @@ class TestSubscriptRuntime(unittest.TestCase):
 
         t = torch.randn(3, 4)
         result = f(t)
-        self.assertEqual(result.shape, (3, 4))
+        assert_shape(result, (3, 4))
 
     def test_typevar_subscript(self):
         """Tensor[N, 3] — TypeVar in subscript, no arithmetic."""
@@ -45,7 +45,7 @@ class TestSubscriptRuntime(unittest.TestCase):
 
         t = torch.randn(4, 3)
         result = f(t)
-        self.assertEqual(result.shape, (4, 3))
+        assert_shape(result, (4, 3))
 
 
 class TestTypeVarArithmetic(unittest.TestCase):
@@ -104,7 +104,7 @@ class TestCombined(unittest.TestCase):
 
         t = torch.randn(4, 3)
         result = f(t)
-        self.assertEqual(result.shape, (4, 3))
+        assert_shape(result, (4, 3))
 
 
 class TestClassAnnotationRuntime(unittest.TestCase):
@@ -118,7 +118,7 @@ class TestClassAnnotationRuntime(unittest.TestCase):
                 return x
 
         result = Layer().forward(torch.randn(3, 4))
-        self.assertEqual(result.shape, (3, 4))
+        assert_shape(result, (3, 4))
 
     def test_class_typevars_no_arithmetic(self):
         """Class-level (N, M) and method-level (B) TypeVars, no arithmetic."""
@@ -128,7 +128,7 @@ class TestClassAnnotationRuntime(unittest.TestCase):
                 return x  # type: ignore[return-value]
 
         result = Layer().forward(torch.randn(2, 5))
-        self.assertEqual(result.shape, (2, 5))
+        assert_shape(result, (2, 5))
 
     def test_class_typevar_arithmetic(self):
         """Class-level TypeVar with arithmetic in method annotation."""
@@ -138,7 +138,7 @@ class TestClassAnnotationRuntime(unittest.TestCase):
                 return x  # type: ignore[return-value]
 
         result = PadLayer().forward(torch.randn(4, 3))
-        self.assertEqual(result.shape, (4, 3))
+        assert_shape(result, (4, 3))
 
 
 class TestDimRuntime(unittest.TestCase):
@@ -222,7 +222,7 @@ class TestTypeVarWithFutureAnnotations(unittest.TestCase):
 
         t = torch.randn(3, 4)
         result = f(t)
-        self.assertEqual(result.shape, (3, 4))
+        assert_shape(result, (3, 4))
 
     def test_arithmetic_in_annotation(self):
         """shape_extensions.TypeVar arithmetic in annotations with future annotations."""
@@ -233,7 +233,7 @@ class TestTypeVarWithFutureAnnotations(unittest.TestCase):
 
         t = torch.randn(4, 3)
         result = f(t)
-        self.assertEqual(result.shape, (4, 3))
+        assert_shape(result, (4, 3))
 
     def test_generic_class(self):
         """Generic class with future annotations."""
@@ -247,7 +247,7 @@ class TestTypeVarWithFutureAnnotations(unittest.TestCase):
         layer = Layer()
         t = torch.randn(5)
         result = layer.forward(t)
-        self.assertEqual(result.shape, (5,))
+        assert_shape(result, (5,))
 
 
 if __name__ == "__main__":

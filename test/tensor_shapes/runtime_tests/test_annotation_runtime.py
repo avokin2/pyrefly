@@ -24,7 +24,14 @@ import unittest
 from typing import Generic, TypedDict
 
 import torch
-from shape_extensions import D, Dim, TypeVar, TypeVarTuple
+from shape_extensions import (
+    assert_shape,
+    D,
+    defines_assert_shape,
+    Dim,
+    TypeVar,
+    TypeVarTuple,
+)
 
 
 class TestSubscriptRuntime(unittest.TestCase):
@@ -157,6 +164,46 @@ class TestSymbolicArithExprRuntime(unittest.TestCase):
             return x
 
         self.assertTrue(callable(f))
+
+
+class TestAssertShapeRuntime(unittest.TestCase):
+    """Default assert_shape checks concrete shapes and symbolic ranks."""
+
+    class Array:
+        __slots__ = ("shape",)
+
+        def __init__(self, shape):
+            self.shape = shape
+
+    def test_concrete_shape_matches(self):
+        x = self.Array((2, 3))
+        self.assertIs(assert_shape(x, (2, 3)), x)
+
+    def test_concrete_shape_mismatch(self):
+        with self.assertRaisesRegex(
+            AssertionError, r"expected shape \(2, 3\), got \(2, 4\)"
+        ):
+            assert_shape(self.Array((2, 4)), (2, 3))
+
+    def test_symbolic_shape_checks_rank_only(self):
+        def f[N]() -> None:
+            x = self.Array((2, 4))
+            self.assertIs(assert_shape(x, (2, D[N] + 1)), x)
+
+        f()
+
+    def test_symbolic_shape_rank_mismatch(self):
+        def f[N]() -> None:
+            with self.assertRaisesRegex(AssertionError, r"expected rank 2"):
+                assert_shape(self.Array((2, 4, 5)), (2, D[N] + 1))
+
+        f()
+
+    def test_defines_assert_shape_returns_function(self):
+        def custom(x, shape):
+            return (x, shape)
+
+        self.assertIs(defines_assert_shape(custom), custom)
 
 
 class TestClassAnnotationRuntime(unittest.TestCase):

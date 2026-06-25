@@ -3015,11 +3015,20 @@ impl Server {
                 diags.insert(handle_path_buf, Vec::new());
             }
         }
-        for e in transaction
+        let (normal_errors, baseline_errors) = transaction
             .get_errors(handles)
-            .collect_display_errors_with_unused_ignores()
-        {
+            .collect_lsp_errors_with_baselines();
+        for e in normal_errors {
             if let Some((path, diag)) = self.get_diag_if_shown(&e, &open_files, None) {
+                diags.entry(path.to_owned()).or_default().push(diag);
+            }
+        }
+        for e in baseline_errors {
+            // Errors in open files that match a baseline file are downgraded to HINT.
+            if let Some((path, mut diag)) = self.get_diag_if_shown(&e, &open_files, None) {
+                if to_real_path(e.path()).is_some_and(|p| open_files.contains_key(&p)) {
+                    diag.severity = Some(DiagnosticSeverity::HINT);
+                }
                 diags.entry(path.to_owned()).or_default().push(diag);
             }
         }
@@ -5519,11 +5528,20 @@ impl Server {
         let handle = make_open_handle(&self.state, &path);
         let mut items = Vec::new();
         let open_files = &self.open_files.read();
-        for e in transaction
+        let (normal_errors, baseline_errors) = transaction
             .get_errors(once(&handle))
-            .collect_display_errors_with_unused_ignores()
-        {
+            .collect_lsp_errors_with_baselines();
+        for e in normal_errors {
             if let Some((_, diag)) = self.get_diag_if_shown(&e, open_files, cell_uri) {
+                items.push(diag);
+            }
+        }
+        for e in baseline_errors {
+            // Errors in open files that match a baseline file are downgraded to HINT.
+            if let Some((_, mut diag)) = self.get_diag_if_shown(&e, open_files, cell_uri) {
+                if to_real_path(e.path()).is_some_and(|p| open_files.contains_key(&p)) {
+                    diag.severity = Some(DiagnosticSeverity::HINT);
+                }
                 items.push(diag);
             }
         }

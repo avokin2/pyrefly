@@ -7,6 +7,7 @@
 from typing import Any, assert_type, Literal
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -17,6 +18,39 @@ def test_cat_basic():
     # Should infer: Tensor[4, 3] (concat along dim 0 adds 2+2=4)
     result = torch.cat((x, y), dim=0)
     assert_type(result, Tensor[4, 3])
+
+
+def test_concat_alias():
+    x: Tensor[2, 3] = torch.randn(2, 3)
+    y: Tensor[4, 3] = torch.randn(4, 3)
+    result = torch.concat((x, y), dim=0)
+    assert_type(result, Tensor[6, 3])
+
+
+def test_shape_preserving_stub_surface():
+    x: Tensor[2, 3] = torch.randn(2, 3)
+
+    assert_type(x.fill_(0), Tensor[2, 3])
+    assert_type(torch.bitwise_and(x, 1), Tensor[2, 3])
+    assert_type(torch.flip(x, dims=(0,)), Tensor[2, 3])
+    assert_type(
+        torch.ones_like(x, dtype=torch.float32, device=x.device),
+        Tensor[2, 3],
+    )
+
+
+def test_unrefined_stub_surface():
+    x: Tensor[2, 3] = torch.randn(2, 3)
+    lengths: Tensor[2] = torch.randn(2)
+
+    assert_type(F.mse_loss(input=x, target=x), Tensor)
+    assert_type(torch.equal(x, x), bool)
+    assert_type(int(x[0][0]), int)
+    assert_type(len(x), int)
+    assert_type(
+        torch.segment_reduce(data=x, reduce="sum", lengths=lengths, axis=0),
+        Tensor,
+    )
 
 
 # Test 2: torch.reshape with literal shape tuple

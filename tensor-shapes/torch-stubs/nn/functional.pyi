@@ -585,14 +585,27 @@ def logsigmoid[*Shape](input: Tensor[*Shape]) -> Tensor[*Shape]:
 # ==============================================================================
 
 @uses_shape_dsl(loss_ir)
+@overload
 def mse_loss(
     self: Tensor,
     target: Tensor,
-    size_average: bool = None,
-    reduce: bool = None,
+    size_average: bool | None = None,
+    reduce: bool | None = None,
     reduction: str = "mean",
 ) -> Tensor:
     """Mean squared error loss. Shape inference via meta-shape: torch.nn.functional.mse_loss"""
+    ...
+
+@overload
+def mse_loss(
+    *,
+    input: Tensor,
+    target: Tensor,
+    size_average: bool | None = None,
+    reduce: bool | None = None,
+    reduction: str = "mean",
+) -> Tensor:
+    """Mean squared error loss. Keyword form is accepted but not shape-refined."""
     ...
 
 @uses_shape_dsl(loss_ir)

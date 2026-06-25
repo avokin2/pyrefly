@@ -93,7 +93,9 @@ int8: Any
 int16: Any
 int32: Any
 int64: Any
+int: Any
 bool: Any
+ops: Any
 
 # ============================================================================
 # Tensor Class
@@ -116,6 +118,7 @@ class Tensor[*Shape]:
     requires_grad: bool  # Whether gradient tracking is enabled
     device: Any  # Device where tensor is stored (cpu, cuda, etc.)
     dtype: Any  # Data type of tensor elements (float32, int64, etc.)
+    ndim: builtins.int  # Number of dimensions
     T: Self  # Transpose property (for 2D tensors). Use .t() method for shape inference.
     real: Self  # Real part of complex tensor (shape-preserving)
     imag: Self  # Imaginary part of complex tensor (shape-preserving)
@@ -173,6 +176,8 @@ class Tensor[*Shape]:
     # Unary operations
     def __neg__(self) -> Self: ...
     def __abs__(self) -> Self: ...
+    def __int__(self) -> builtins.int: ...
+    def __len__(self) -> builtins.int: ...
 
     # ==== Comparison Operations ====
     # Return boolean tensors with the same shape
@@ -383,6 +388,10 @@ class Tensor[*Shape]:
 
     def copy_(self, src: Tensor, non_blocking: builtins.bool = False) -> Self:
         """Copy elements from src into self in-place. Shape-preserving."""
+        ...
+
+    def fill_(self, value: Any) -> Self:
+        """Fill tensor in-place. Shape-preserving."""
         ...
 
     def backward(
@@ -1226,6 +1235,11 @@ def cat(tensors: list[Tensor] | tuple[Tensor, ...], dim: int = 0) -> Tensor:
     """Concatenate tensors. Shape inference via meta-shape: torch.cat"""
     ...
 
+@uses_shape_dsl(cat_ir)
+def concat(tensors: list[Tensor] | tuple[Tensor, ...], dim: int = 0) -> Tensor:
+    """Alias for concatenate/cat. Shape inference via meta-shape: torch.cat"""
+    ...
+
 @uses_shape_dsl(stack_ir)
 def stack(tensors: list[Tensor] | tuple[Tensor, ...], dim: int = 0) -> Tensor:
     """Stack tensors (adds new dimension)."""
@@ -1234,6 +1248,12 @@ def stack(tensors: list[Tensor] | tuple[Tensor, ...], dim: int = 0) -> Tensor:
 @uses_shape_dsl(transpose_ir)
 def transpose(self: Tensor, dim0: int, dim1: int) -> Tensor:
     """Transpose two dimensions. Shape inference via meta-shape: torch.transpose"""
+    ...
+
+def flip[*Shape](
+    input: Tensor[*Shape], dims: int | tuple[int, ...] | list[int]
+) -> Tensor[*Shape]:
+    """Reverse tensor elements along dimensions. Shape-preserving."""
     ...
 
 @uses_shape_dsl(reshape_ir)
@@ -1249,6 +1269,31 @@ def squeeze(self: Tensor, dim: int | None = None) -> Tensor:
 @uses_shape_dsl(unsqueeze_ir)
 def unsqueeze(self: Tensor, dim: int) -> Tensor:
     """Add dimension of size 1. Shape inference via meta-shape: torch.unsqueeze"""
+    ...
+
+@uses_shape_dsl(repeat_interleave_ir)
+def repeat_interleave(
+    input: Tensor,
+    repeats: int | Tensor,
+    dim: int | None = None,
+    *,
+    output_size: int | None = None,
+) -> Tensor:
+    """Repeat tensor elements. Shape inference via meta-shape: torch.repeat_interleave"""
+    ...
+
+def segment_reduce(
+    data: Tensor,
+    reduce: str,
+    *,
+    lengths: Tensor | None = None,
+    indices: Tensor | None = None,
+    offsets: Tensor | None = None,
+    axis: int = 0,
+    unsafe: bool = False,
+    initial: int | float | None = None,
+) -> Tensor:
+    """Reduce values by segment. Data-dependent shape."""
     ...
 
 @uses_shape_dsl(permute_ir)
@@ -1284,13 +1329,13 @@ def min(self: Tensor) -> Tensor:
     ...
 
 @overload
-def min(self: Tensor, dim: int, keepdim: bool = False) -> tuple[Tensor, Tensor]:
-    """Min along dimension. Returns (values, indices). Shape inference via meta-shape: torch.min"""
+def min[*S](input: Tensor[*S], other: Tensor) -> Tensor[*S]:
+    """Element-wise minimum of two tensors."""
     ...
 
 @overload
-def min[*S](input: Tensor[*S], other: Tensor) -> Tensor[*S]:
-    """Element-wise minimum of two tensors."""
+def min(self: Tensor, dim: int, keepdim: bool = False) -> tuple[Tensor, Tensor]:
+    """Min along dimension. Returns (values, indices). Shape inference via meta-shape: torch.min"""
     ...
 
 @uses_shape_dsl(reduce_ir)
@@ -1653,7 +1698,15 @@ def zeros_like[*Shape](input: Tensor[*Shape]) -> Tensor[*Shape]:
     """Create zeros with same shape. Shape inference via generic fixture signature."""
     ...
 
-def ones_like[*Shape](input: Tensor[*Shape]) -> Tensor[*Shape]:
+def ones_like[*Shape](
+    input: Tensor[*Shape],
+    *,
+    dtype: Any = None,
+    layout: Any = None,
+    device: Any = None,
+    requires_grad: builtins.bool = False,
+    memory_format: Any = None,
+) -> Tensor[*Shape]:
     """Create ones with same shape. Shape inference via generic fixture signature."""
     ...
 
@@ -1932,8 +1985,14 @@ def rad2deg[*Shape](input: Tensor[*Shape]) -> Tensor[*Shape]:
     ...
 
 # Bitwise operations
-def bitwise_and[*Shape](input: Tensor[*Shape], other: Tensor) -> Tensor[*Shape]:
+def bitwise_and[*Shape](
+    input: Tensor[*Shape], other: Tensor | int | bool
+) -> Tensor[*Shape]:
     """Bitwise AND. Shape inference via generic fixture signature."""
+    ...
+
+def equal(input: Tensor, other: Tensor) -> builtins.bool:
+    """Return whether two tensors have the same size and elements."""
     ...
 
 def bitwise_or[*Shape](input: Tensor[*Shape], other: Tensor) -> Tensor[*Shape]:

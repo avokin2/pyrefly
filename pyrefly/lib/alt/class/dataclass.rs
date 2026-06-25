@@ -335,9 +335,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     /// because the dataclass __init__ writes to the instance dict, shadowing the
     /// class-level descriptor.
     ///
-    /// Exception: If the descriptor's __get__ returns Self, then the shadowing is sound
-    /// (the runtime type of the shadow matches the static type of the descriptor call).
-    /// We check for exactly Self rather than using assignability to avoid issues with overloads.
+    /// Exception: a __get__ returning Self or the descriptor's own class is sound.
     fn check_dataclass_non_data_descriptors(
         &self,
         cls: &Class,
@@ -348,16 +346,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             if let DataclassMember::Field(field, _) = self.get_dataclass_member(cls, name)
                 && let Some((range, descriptor_cls)) = field.value.non_data_descriptor_info()
             {
-                // Get the __get__ method's return type from the descriptor class.
-                // If all overloads return Self, the type will be SelfType, and
-                // shadowing is sound because the instance dict value has the same type.
-                // We don't use assignability here because overloads could cause issues.
                 let get_return_ty = self
                     .get_class_member(descriptor_cls.class_object(), &dunder::GET)
                     .and_then(|get_field| get_field.ty().callable_return_type(self.heap));
 
-                if let Some(Type::SelfType(_)) = get_return_ty {
-                    continue;
+                match &get_return_ty {
+                    Some(Type::SelfType(_)) => continue,
+                    Some(Type::ClassType(ret)) if *ret == descriptor_cls => continue,
+                    _ => {}
                 }
 
                 let cls = descriptor_cls.name();

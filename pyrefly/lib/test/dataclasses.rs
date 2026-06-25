@@ -2316,6 +2316,37 @@ c = C()
 );
 
 testcase!(
+    test_non_data_descriptor_returns_own_class,
+    r#"
+from dataclasses import dataclass
+from typing import assert_type
+
+# A __get__ returning the descriptor's own class (not literal Self) is sound.
+class Dev:
+    def __get__(self, obj, cls) -> "Dev": ...
+
+class Other: ...
+class Bad:
+    def __get__(self, obj, cls) -> Other: ...
+
+@dataclass
+class Base:
+    x: Dev = Dev()
+
+@dataclass
+class Sub(Base):
+    pass
+
+@dataclass
+class C:
+    y: Bad = Bad()  # E: Cannot set field `y` to non-data descriptor `Bad`
+
+assert_type(Base().x, Dev)
+assert_type(Sub().x, Dev)
+    "#,
+);
+
+testcase!(
     test_data_descriptor_in_dataclass,
     r#"
 from dataclasses import dataclass

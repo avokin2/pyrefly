@@ -865,8 +865,10 @@ pub enum FunctionKind {
     DataclassField,
     DataclassReplace,
     DataclassAsdict,
-    /// `attr.fields(C)` / `attrs.fields(C)`: returns a tuple of per-field `Attribute[T]`.
+    /// `attr.fields(C)` / `attrs.fields(C)`.
     AttrsFields,
+    /// `attr.fields_dict(C)` / `attrs.fields_dict(C)`.
+    AttrsFieldsDict,
     /// `typing.dataclass_transform`. Note that this is `dataclass_transform` itself, *not* the
     /// decorator created by a `dataclass_transform(...)` call. See
     /// https://typing.python.org/en/latest/spec/dataclasses.html#specification.
@@ -1262,6 +1264,7 @@ impl FunctionKind {
             ("dataclasses", None, "replace") => Self::DataclassReplace,
             ("dataclasses", None, "asdict") => Self::DataclassAsdict,
             ("attr" | "attrs", None, "fields") => Self::AttrsFields,
+            ("attr" | "attrs", None, "fields_dict") => Self::AttrsFieldsDict,
             ("typing" | "typing_extensions", None, "overload") => Self::Overload,
             ("typing" | "typing_extensions", None, "override") => Self::Override,
             ("typing" | "typing_extensions", None, "cast") => Self::Cast,
@@ -1304,6 +1307,7 @@ impl FunctionKind {
             Self::DataclassReplace => ModuleName::dataclasses(),
             Self::DataclassAsdict => ModuleName::dataclasses(),
             Self::AttrsFields => ModuleName::attr(),
+            Self::AttrsFieldsDict => ModuleName::attr(),
             Self::DataclassTransform => ModuleName::typing(),
             Self::Final => ModuleName::typing(),
             Self::Overload => ModuleName::typing(),
@@ -1338,6 +1342,7 @@ impl FunctionKind {
             Self::DataclassReplace => Cow::Owned(Name::new_static("replace")),
             Self::DataclassAsdict => Cow::Owned(Name::new_static("asdict")),
             Self::AttrsFields => Cow::Owned(Name::new_static("fields")),
+            Self::AttrsFieldsDict => Cow::Owned(Name::new_static("fields_dict")),
             Self::DataclassTransform => Cow::Owned(Name::new_static("dataclass_transform")),
             Self::Final => Cow::Owned(Name::new_static("final")),
             Self::Overload => Cow::Owned(Name::new_static("overload")),
@@ -1372,6 +1377,7 @@ impl FunctionKind {
             Self::DataclassReplace => None,
             Self::DataclassAsdict => None,
             Self::AttrsFields => None,
+            Self::AttrsFieldsDict => None,
             Self::DataclassTransform => None,
             Self::Final => None,
             Self::Overload => None,

@@ -942,3 +942,32 @@ def f(cls: type[C]) -> None:
     attr.fields(cls)
 "#,
 );
+
+// ATTR.FIELDS_DICT: same validation as `fields`, but its `dict[str, Attribute[Any]]` return is
+// already precise in the stub and is preserved.
+
+attrs_testcase!(
+    test_attrs_fields_dict_returns_dict,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.define
+class C:
+    x: int
+
+reveal_type(attr.fields_dict(C))  # E: revealed type: dict[str, Attribute[Any]]
+"#,
+);
+
+attrs_testcase!(
+    test_attrs_fields_dict_non_attrs_class,
+    r#"
+import attr
+
+class NotAttrs:
+    x: int
+
+attr.fields_dict(NotAttrs)  # E: `fields_dict()` is not an attrs class
+"#,
+);

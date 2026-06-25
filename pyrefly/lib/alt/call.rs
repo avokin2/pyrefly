@@ -1984,8 +1984,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         errors,
                     )
                 }
-                Some(CalleeKind::Function(FunctionKind::AttrsFields)) => {
+                Some(CalleeKind::Function(
+                    kind @ (FunctionKind::AttrsFields | FunctionKind::AttrsFieldsDict),
+                )) => {
                     self.call_attrs_fields(
+                        &kind.function_name(),
                         ty,
                         &args,
                         &kws,

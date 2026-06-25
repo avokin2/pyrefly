@@ -619,11 +619,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         )
     }
 
-    /// Reject a non-attrs class argument to `attr.fields`, matching attrs' runtime
-    /// `NotAnAttrsClassError`. The return stays the stub's `Any`: the result exposes fields by name
-    /// (`fields(C).x`), which a plain tuple type can't model.
+    /// Reject a non-attrs class argument to `attr.fields` / `attr.fields_dict`, matching attrs'
+    /// runtime `NotAnAttrsClassError`. The stub's declared return is kept (`fields` is `Any`, since
+    /// its result exposes fields by name which a tuple can't model; `fields_dict` is already a
+    /// precise `dict`).
     pub fn call_attrs_fields(
         &self,
+        func_name: &Name,
         fields_ty: &Type,
         args: &[CallArg],
         kws: &[CallKeyword],
@@ -655,7 +657,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         errors,
                         arg_range,
                         ErrorKind::BadArgumentType,
-                        "Argument to `fields()` is not an attrs class".to_owned(),
+                        format!("Argument to `{func_name}()` is not an attrs class"),
                     );
                     return self.heap.mk_any_explicit();
                 }

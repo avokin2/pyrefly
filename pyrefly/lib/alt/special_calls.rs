@@ -717,9 +717,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 }
 
 fn format_assert_shape_shape(shape: &ShapedArrayShape) -> String {
-    match shape {
-        ShapedArrayShape::Concrete(dims) if dims.is_empty() => "()".to_owned(),
-        ShapedArrayShape::Concrete(dims) if dims.len() == 1 => format!("({},)", dims[0]),
+    match shape.as_concrete() {
+        Some([]) => "()".to_owned(),
+        Some([dim]) => format!("({dim},)"),
         _ => format!("({shape})"),
     }
 }

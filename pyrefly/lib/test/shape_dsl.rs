@@ -388,6 +388,12 @@ def annotations(concrete: Array[int, 2, 3], scalar: Array[int], shapeless: Array
     scalar[0]  # E: Cannot index scalar tensor (rank 0)
     reveal_type(shapeless)  # E: revealed type: Array
     reveal_type(shapeless[0])  # E: revealed type: Array
+    reveal_type(shapeless[None])  # E: revealed type: Array[1, *tuple[Unknown, ...]]
+    reveal_type(shapeless[None, ...])  # E: revealed type: Array[1, *tuple[Unknown, ...]]
+
+def unbounded_shape(x: Array[int, *tuple[int, ...]], y: Array[int, 2, *tuple[int, ...]]) -> None:
+    reveal_type(x)  # E: revealed type: Array[*tuple[int, ...]]
+    reveal_type(y[0])  # E: revealed type: Array[*tuple[int, ...]]
 
 def values() -> None:
     value = Array()

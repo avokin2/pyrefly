@@ -2929,8 +2929,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 return Some(IndexOp::NewAxis);
             }
             if let Type::ShapedArray(ref idx_shaped_array) = idx_ty {
-                if let ShapedArrayShape::Concrete(dims) = &idx_shaped_array.shape {
-                    return Some(IndexOp::ShapedArrayIndex(dims.clone()));
+                if let Some(dims) = idx_shaped_array.shape.as_concrete() {
+                    return Some(IndexOp::ShapedArrayIndex(dims.to_vec()));
                 }
                 return None; // shapeless index tensor → bail
             }
@@ -2991,8 +2991,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             Expr::NoneLiteral(_) => {
                 let one = self.heap.mk_size(SizeExpr::Literal(1));
                 let mut new_dims = vec![one];
-                match &shaped_array_type.shape {
-                    ShapedArrayShape::Concrete(dims) => {
+                match shaped_array_type.shape.as_tuple() {
+                    Tuple::Concrete(dims) => {
                         new_dims.extend(dims.iter().cloned());
                         ShapedArrayType::new(
                             shaped_array_type.base_class.clone(),
@@ -3000,16 +3000,21 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         )
                         .to_type()
                     }
-                    ShapedArrayShape::Unpacked(f) => {
+                    Tuple::Unbounded(middle) => ShapedArrayType::new(
+                        shaped_array_type.base_class.clone(),
+                        ShapedArrayShape::unpacked(
+                            new_dims,
+                            Type::Tuple(Tuple::Unbounded(middle.clone())),
+                            Vec::new(),
+                        ),
+                    )
+                    .to_type(),
+                    Tuple::Unpacked(f) => {
                         let (prefix, middle, suffix) = &**f;
                         new_dims.extend(prefix.iter().cloned());
                         ShapedArrayType::new(
                             shaped_array_type.base_class.clone(),
-                            ShapedArrayShape::Unpacked(Box::new((
-                                new_dims,
-                                middle.clone(),
-                                suffix.clone(),
-                            ))),
+                            ShapedArrayShape::unpacked(new_dims, middle.clone(), suffix.clone()),
                         )
                         .to_type()
                     }
@@ -3075,7 +3080,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     }
                 } else if let Type::ShapedArray(ref idx_shaped_array) = idx_type {
                     // Tensor indexing: tensor[index_tensor] replaces first dim with index shape
-                    let ShapedArrayShape::Concrete(idx_dims) = &idx_shaped_array.shape else {
+                    let Some(idx_dims) = idx_shaped_array.shape.as_concrete() else {
                         return ShapedArrayType::shapeless(shaped_array_type.base_class.clone())
                             .to_type();
                     };
@@ -3397,11 +3402,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         match ty {
             Type::Dim(inner) => Self::contains_quantified(inner, param),
             Type::Size(_) => Self::contains_quantified(ty, param),
-            Type::ShapedArray(tensor) => match &tensor.shape {
-                ShapedArrayShape::Concrete(dims) => {
+            Type::ShapedArray(tensor) => match tensor.shape.as_tuple() {
+                Tuple::Concrete(dims) => {
                     dims.iter().any(|dim| Self::contains_quantified(dim, param))
                 }
-                ShapedArrayShape::Unpacked(unpacked) => {
+                Tuple::Unbounded(middle) => Self::contains_quantified(middle, param),
+                Tuple::Unpacked(unpacked) => {
                     let (prefix, middle, suffix) = &**unpacked;
                     prefix
                         .iter()

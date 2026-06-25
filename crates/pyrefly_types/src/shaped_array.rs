@@ -77,13 +77,13 @@ impl crate::equality::TypeEq for ShapedArraySyntax {
 
 /// A class instance with shape information.
 /// Example: Tensor[2, 3] represents a 2x3 tensor
-/// Example: Tensor (no brackets) represents a shapeless tensor (Unpacked with tuple[Unknown, ...])
+/// Example: Tensor (no brackets) represents a shapeless tensor (`tuple[Any, ...]`)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Visit, VisitMut, TypeEq)]
 pub struct ShapedArrayType {
     /// Base shaped-array class (e.g., torch.Tensor)
     pub base_class: ClassType,
-    /// Shape dimensions. Shapeless arrays use Unpacked([], tuple[Unknown, ...], []).
+    /// Shape dimensions. Shapeless arrays use `tuple[Any, ...]`.
     pub shape: ShapedArrayShape,
     /// Whether this type was constructed from native or jaxtyping syntax.
     pub syntax: ShapedArraySyntax,
@@ -100,11 +100,11 @@ impl ShapedArrayType {
     }
 
     /// Create a shapeless shaped-array type (compatible with any shape).
-    /// Represented as Unpacked([], tuple[Unknown, ...], [])
+    /// Represented as `tuple[Any, ...]`.
     pub fn shapeless(base_class: ClassType) -> Self {
         Self {
             base_class,
-            shape: ShapedArrayShape::Unpacked(Box::new((vec![], Type::any_tuple(), vec![]))),
+            shape: ShapedArrayShape::shapeless(),
             syntax: ShapedArraySyntax::Native,
         }
     }
@@ -121,14 +121,14 @@ impl ShapedArrayType {
 
     /// Returns rank if shape is concrete, None for variadic/shapeless
     pub fn rank(&self) -> Option<usize> {
-        match &self.shape {
-            ShapedArrayShape::Concrete(dims) => Some(dims.len()),
-            ShapedArrayShape::Unpacked(_) => None,
+        match self.shape.as_tuple() {
+            Tuple::Concrete(dims) => Some(dims.len()),
+            Tuple::Unbounded(_) | Tuple::Unpacked(_) => None,
         }
     }
 
     /// Returns true if the shaped array has no shape information.
-    /// (represented as Unpacked([], tuple[Unknown/Any, ...], []))
+    /// (represented as `tuple[Any, ...]`)
     pub fn is_shapeless(&self) -> bool {
         is_shapeless(&self.shape)
     }
@@ -157,26 +157,21 @@ impl Display for ShapedArrayType {
 }
 
 /// Shape of a shaped array.
-/// Similar to Tuple, supports unpacked TypeVarTuple for variadic shapes
+///
+/// This is a tuple-shaped representation with shape-specific invariants:
+/// concrete tuple elements are internal dimension types, while unbounded tuples
+/// are only used for the gradual shape `tuple[Any, ...]`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Visit, VisitMut, TypeEq)]
-pub enum ShapedArrayShape {
-    /// Concrete shape: Tensor[2, 3, 4]
-    /// List of dimensions, where each dimension is a Type
-    /// Can be Type::Size(SizeExpr::Literal(n)), Type::Var(...), Type::Quantified(...), or Type::Any(...)
-    Concrete(Vec<Type>),
-    /// Variadic shape with unpacked TypeVarTuple: Tensor[2, *Shape, 4]
-    /// Stores (prefix dims, middle TypeVarTuple, suffix dims)
-    Unpacked(Box<(Vec<Type>, Type, Vec<Type>)>),
-}
+pub struct ShapedArrayShape(Tuple);
 
 impl ShapedArrayShape {
     pub fn new(dims: Vec<SizeExpr>) -> Self {
-        Self::Concrete(
+        Self(Tuple::Concrete(
             dims.into_iter()
                 .map(|d| canonicalize(Type::Size(d)))
                 .collect(),
-        )
+        ))
     }
 
     /// Create from Vec<Type> directly (for when dims are already wrapped)
@@ -184,7 +179,31 @@ impl ShapedArrayShape {
     /// - Canonicalizes SizeExpr expressions (e.g., 2+3 -> 5, N+0 -> N)
     /// - Leaves Quantified, Var, and Any as-is (already canonical)
     pub fn from_types(dims: Vec<Type>) -> Self {
-        Self::Concrete(dims.into_iter().map(canonicalize).collect())
+        Self(Tuple::Concrete(
+            dims.into_iter().map(canonicalize).collect(),
+        ))
+    }
+
+    pub fn from_tuple(tuple: Tuple) -> Self {
+        match tuple {
+            Tuple::Concrete(dims) => Self::from_types(dims),
+            Tuple::Unpacked(unpacked) => {
+                let (prefix, middle, suffix) = *unpacked;
+                Self::unpacked(prefix, middle, suffix)
+            }
+            Tuple::Unbounded(elt) if elt.is_any() => Self::shapeless(),
+            Tuple::Unbounded(elt) => {
+                Self::unpacked(Vec::new(), Type::Tuple(Tuple::Unbounded(elt)), Vec::new())
+            }
+        }
+    }
+
+    pub fn shapeless() -> Self {
+        Self(Tuple::Unbounded(Box::new(Type::any_implicit())))
+    }
+
+    pub fn as_tuple(&self) -> &Tuple {
+        &self.0
     }
 
     /// Create variadic shape with unpacked TypeVarTuple: Tensor[2, *Shape, 4]
@@ -193,13 +212,21 @@ impl ShapedArrayShape {
         let prefix: Vec<Type> = prefix.into_iter().map(canonicalize).collect();
         let suffix: Vec<Type> = suffix.into_iter().map(canonicalize).collect();
 
-        Self::Unpacked(Box::new((prefix, middle, suffix)))
+        if prefix.is_empty()
+            && suffix.is_empty()
+            && let Type::Tuple(Tuple::Unbounded(elt)) = &middle
+            && elt.is_any()
+        {
+            Self::shapeless()
+        } else {
+            Self(Tuple::Unpacked(Box::new((prefix, middle, suffix))))
+        }
     }
 
     pub fn rank(&self) -> usize {
-        match self {
-            Self::Concrete(dims) => dims.len(),
-            Self::Unpacked(_) => {
+        match &self.0 {
+            Tuple::Concrete(dims) => dims.len(),
+            Tuple::Unbounded(_) | Tuple::Unpacked(_) => {
                 // For unpacked shapes, rank is unknown at parse time
                 // This should not be called for variadic shapes
                 panic!("Cannot determine rank of variadic tensor shape")
@@ -208,36 +235,36 @@ impl ShapedArrayShape {
     }
 
     pub fn is_empty(&self) -> bool {
-        match self {
-            Self::Concrete(dims) => dims.is_empty(),
-            Self::Unpacked(_) => false, // Variadic shapes are never empty
+        match &self.0 {
+            Tuple::Concrete(dims) => dims.is_empty(),
+            Tuple::Unbounded(_) | Tuple::Unpacked(_) => false, // Variadic shapes are never empty
         }
     }
 
     /// Get a slice of dimensions (only valid for concrete shapes)
     pub fn dims_slice(&self) -> &[Type] {
-        match self {
-            Self::Concrete(dims) => dims,
-            Self::Unpacked(_) => {
+        match &self.0 {
+            Tuple::Concrete(dims) => dims,
+            Tuple::Unbounded(_) | Tuple::Unpacked(_) => {
                 panic!("Cannot get dims_slice for variadic tensor shape")
             }
         }
     }
 
-    /// Get the concrete dims if this is a Concrete shape
-    pub fn as_concrete(&self) -> Option<&Vec<Type>> {
-        match self {
-            Self::Concrete(dims) => Some(dims),
-            Self::Unpacked(_) => None,
+    /// Get the concrete dims if this is a concrete shape.
+    pub fn as_concrete(&self) -> Option<&[Type]> {
+        match &self.0 {
+            Tuple::Concrete(dims) => Some(dims),
+            Tuple::Unbounded(_) | Tuple::Unpacked(_) => None,
         }
     }
 
     /// Get a mutable reference to concrete dims (for meta-shape operations)
     /// Panics if called on Unpacked shape
     pub fn dims_mut(&mut self) -> &mut Vec<Type> {
-        match self {
-            Self::Concrete(dims) => dims,
-            Self::Unpacked(_) => {
+        match &mut self.0 {
+            Tuple::Concrete(dims) => dims,
+            Tuple::Unbounded(_) | Tuple::Unpacked(_) => {
                 panic!("Cannot get mutable dims for variadic tensor shape")
             }
         }
@@ -246,35 +273,30 @@ impl ShapedArrayShape {
     /// Get dims as a Vec for concrete shapes, panics for unpacked
     /// This is used by meta-shape code that doesn't support variadic shapes yet
     pub fn dims(&self) -> &Vec<Type> {
-        match self {
-            Self::Concrete(dims) => dims,
-            Self::Unpacked(_) => {
+        match &self.0 {
+            Tuple::Concrete(dims) => dims,
+            Tuple::Unbounded(_) | Tuple::Unpacked(_) => {
                 panic!("Meta-shape operations do not yet support variadic tensor shapes")
             }
         }
     }
 
-    /// Check if this is a variadic shape with unpacked TypeVarTuple
-    pub fn is_unpacked(&self) -> bool {
-        matches!(self, Self::Unpacked(_))
-    }
-
     /// Check if all dimensions are literal (concrete integers)
     /// Returns false for variadic shapes
     pub fn all_literal(&self) -> bool {
-        match self {
-            Self::Concrete(dims) => dims
+        match &self.0 {
+            Tuple::Concrete(dims) => dims
                 .iter()
                 .all(|ty| matches!(ty, Type::Size(SizeExpr::Literal(_)))),
-            Self::Unpacked(_) => false,
+            Tuple::Unbounded(_) | Tuple::Unpacked(_) => false,
         }
     }
 
     /// Extract literal dimension values if all are literal
     /// Returns None for variadic shapes
     pub fn as_literals(&self) -> Option<Vec<i64>> {
-        match self {
-            Self::Concrete(dims) if self.all_literal() => Some(
+        match &self.0 {
+            Tuple::Concrete(dims) if self.all_literal() => Some(
                 dims.iter()
                     .filter_map(|ty| {
                         if let Type::Size(SizeExpr::Literal(n)) = ty {
@@ -291,9 +313,9 @@ impl ShapedArrayShape {
 
     /// Get a dimension by index (only for concrete shapes)
     pub fn get_dim(&self, index: usize) -> Type {
-        match self {
-            Self::Concrete(dims) => dims.get(index).unwrap().clone(),
-            Self::Unpacked(_) => {
+        match &self.0 {
+            Tuple::Concrete(dims) => dims.get(index).unwrap().clone(),
+            Tuple::Unbounded(_) | Tuple::Unpacked(_) => {
                 panic!("Cannot get dimension by index for variadic tensor shape")
             }
         }
@@ -305,7 +327,7 @@ impl ShapedArrayShape {
     /// Returns an error if the index is out of range.
     pub fn normalize_dim(&self, dim: i64) -> Result<usize, ShapeError> {
         // Check for variadic shape first - cannot normalize dims for unpacked shapes
-        if let Self::Unpacked(_) = self {
+        if !matches!(self.0, Tuple::Concrete(_)) {
             return Err(ShapeError::InvalidDimension {
                 value: dim,
                 reason: "Cannot normalize dimension index for variadic tensor shape".to_owned(),
@@ -349,8 +371,8 @@ impl ShapedArrayShape {
     /// - Unpacked with `tuple[Any, ...]` middle → `...` (ellipsis)
     /// - Unpacked with TypeVarTuple middle → `*name`
     pub fn fmt_jaxtyping(&self) -> String {
-        match self {
-            Self::Concrete(dims) => {
+        match &self.0 {
+            Tuple::Concrete(dims) => {
                 if dims.is_empty() {
                     String::new() // Scalar: empty string inside quotes
                 } else {
@@ -360,7 +382,11 @@ impl ShapedArrayShape {
                         .join(" ")
                 }
             }
-            Self::Unpacked(unpacked) => {
+            Tuple::Unbounded(t) if t.is_any() => "...".to_owned(),
+            Tuple::Unbounded(_) => {
+                unreachable!("shaped-array unbounded shapes must be tuple[Any, ...]")
+            }
+            Tuple::Unpacked(unpacked) => {
                 let (prefix, middle, suffix) = &**unpacked;
                 let mut parts: Vec<String> = prefix.iter().map(fmt_jaxtyping_dim).collect();
 
@@ -418,15 +444,19 @@ fn fmt_jaxtyping_size_expr(expr: &SizeExpr) -> String {
 
 impl Display for ShapedArrayShape {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Concrete(dims) => {
+        match &self.0 {
+            Tuple::Concrete(dims) => {
                 if dims.is_empty() {
                     write!(f, "()") // Scalar tensor: Tensor[()]
                 } else {
                     write!(f, "{}", commas_iter(|| dims.iter()))
                 }
             }
-            Self::Unpacked(unpacked) => {
+            Tuple::Unbounded(t) if t.is_any() => write!(f, "*{}", Type::any_tuple()),
+            Tuple::Unbounded(_) => {
+                unreachable!("shaped-array unbounded shapes must be tuple[Any, ...]")
+            }
+            Tuple::Unpacked(unpacked) => {
                 let (prefix, middle, suffix) = &**unpacked;
                 let prefix_str = if prefix.is_empty() {
                     "".to_owned()
@@ -444,15 +474,9 @@ impl Display for ShapedArrayShape {
     }
 }
 
-/// Check if a shape is shapeless: Unpacked([], tuple[Any,...], [])
+/// Check if a shape is shapeless: tuple[Any, ...]
 fn is_shapeless(shape: &ShapedArrayShape) -> bool {
-    if let ShapedArrayShape::Unpacked(unpacked) = shape {
-        let (prefix, middle, suffix) = &**unpacked;
-        return prefix.is_empty()
-            && suffix.is_empty()
-            && matches!(middle, Type::Tuple(Tuple::Unbounded(t)) if matches!(**t, Type::Any(_)));
-    }
-    false
+    shape.as_tuple().is_any_tuple()
 }
 
 /// Compute the broadcasted shape of two tensor shapes following NumPy/PyTorch broadcasting rules:
@@ -473,16 +497,27 @@ pub fn broadcast_shapes(
     a: &ShapedArrayShape,
     b: &ShapedArrayShape,
 ) -> Result<ShapedArrayShape, ShapeError> {
-    match (a, b) {
-        (ShapedArrayShape::Concrete(a_dims), ShapedArrayShape::Concrete(b_dims)) => {
-            broadcast_concrete(a_dims, b_dims)
+    match (a.as_tuple(), b.as_tuple()) {
+        (Tuple::Concrete(a_dims), Tuple::Concrete(b_dims)) => broadcast_concrete(a_dims, b_dims),
+        (Tuple::Concrete(concrete), Tuple::Unbounded(_))
+        | (Tuple::Unbounded(_), Tuple::Concrete(concrete)) => {
+            broadcast_concrete_with_unpacked(concrete, &[], &Type::any_tuple(), &[])
         }
-        (ShapedArrayShape::Concrete(concrete), ShapedArrayShape::Unpacked(u))
-        | (ShapedArrayShape::Unpacked(u), ShapedArrayShape::Concrete(concrete)) => {
+        (Tuple::Concrete(concrete), Tuple::Unpacked(u))
+        | (Tuple::Unpacked(u), Tuple::Concrete(concrete)) => {
             let (prefix, middle, suffix) = &**u;
             broadcast_concrete_with_unpacked(concrete, prefix, middle, suffix)
         }
-        (ShapedArrayShape::Unpacked(au), ShapedArrayShape::Unpacked(bu)) => {
+        (Tuple::Unbounded(_), Tuple::Unbounded(_)) => Ok(ShapedArrayShape::shapeless()),
+        (Tuple::Unpacked(au), Tuple::Unbounded(_)) => {
+            let (ap, am, a_suf) = &**au;
+            broadcast_unpacked_with_unpacked(ap, am, a_suf, &[], &Type::any_tuple(), &[])
+        }
+        (Tuple::Unbounded(_), Tuple::Unpacked(bu)) => {
+            let (bp, bm, b_suf) = &**bu;
+            broadcast_unpacked_with_unpacked(&[], &Type::any_tuple(), &[], bp, bm, b_suf)
+        }
+        (Tuple::Unpacked(au), Tuple::Unpacked(bu)) => {
             let (ap, am, a_suf) = &**au;
             let (bp, bm, b_suf) = &**bu;
             broadcast_unpacked_with_unpacked(ap, am, a_suf, bp, bm, b_suf)
@@ -524,18 +559,18 @@ fn broadcast_concrete_with_unpacked(
 
     if remaining.is_empty() {
         // All concrete dims consumed → preserve prefix + middle
-        Ok(ShapedArrayShape::Unpacked(Box::new((
+        Ok(ShapedArrayShape::unpacked(
             prefix.to_vec(),
             middle.clone(),
             result_suffix,
-        ))))
+        ))
     } else if is_unbounded_middle(middle) {
         // Can't align remaining concrete with unbounded middle
-        Ok(ShapedArrayShape::Unpacked(Box::new((
+        Ok(ShapedArrayShape::unpacked(
             vec![],
             Type::any_tuple(),
             result_suffix,
-        ))))
+        ))
     } else {
         Err(ShapeError::ShapeComputation {
             message: "Cannot broadcast concrete dims with variadic shape: alignment is ambiguous"
@@ -578,32 +613,32 @@ fn broadcast_unpacked_with_unpacked(
 
     if !has_extra && am_canon == bm_canon && !is_unbounded_middle(am) {
         // Same TypeVarTuple, no extra suffix → cancel middles, broadcast prefixes
-        let prefix = match broadcast_concrete(ap, bp)? {
-            ShapedArrayShape::Concrete(dims) => dims,
-            _ => unreachable!(),
-        };
-        Ok(ShapedArrayShape::Unpacked(Box::new((
+        let prefix = broadcast_concrete(ap, bp)?
+            .as_concrete()
+            .expect("broadcast_concrete returns a concrete shape")
+            .to_vec();
+        Ok(ShapedArrayShape::unpacked(
             prefix,
             am.clone(),
             result_suffix,
-        ))))
+        ))
     } else if is_unbounded_middle(am) || is_unbounded_middle(bm) {
         // At least one unbounded middle → can't determine alignment
-        Ok(ShapedArrayShape::Unpacked(Box::new((
+        Ok(ShapedArrayShape::unpacked(
             vec![],
             Type::any_tuple(),
             result_suffix,
-        ))))
+        ))
     } else {
         // Different TypeVarTuples or structural mismatch — degrade to shapeless
         // batch dims rather than producing a hard error. At runtime the middles
         // are often identical (e.g. two Linear.forward calls on the same batch)
         // but the checker can't prove it.
-        Ok(ShapedArrayShape::Unpacked(Box::new((
+        Ok(ShapedArrayShape::unpacked(
             vec![],
             Type::any_tuple(),
             result_suffix,
-        ))))
+        ))
     }
 }
 
@@ -702,23 +737,23 @@ pub enum IndexOp {
 /// Apply a single integer index — removes first dimension.
 /// E.g. `Tensor[10, 20][i]` -> `Tensor[20]`
 pub fn index_shape_int(shape: &ShapedArrayShape) -> Result<ShapedArrayShape, ShapeError> {
-    match shape {
-        ShapedArrayShape::Concrete(dims) => {
+    match shape.as_tuple() {
+        Tuple::Concrete(dims) => {
             if dims.is_empty() {
                 return Err(ShapeError::ScalarIndex);
             }
-            Ok(ShapedArrayShape::Concrete(dims[1..].to_vec()))
+            Ok(ShapedArrayShape::from_types(dims[1..].to_vec()))
         }
-        ShapedArrayShape::Unpacked(unpacked) if !unpacked.0.is_empty() => {
+        Tuple::Unpacked(unpacked) if !unpacked.0.is_empty() => {
             let (prefix, middle, suffix) = &**unpacked;
-            Ok(ShapedArrayShape::Unpacked(Box::new((
+            Ok(ShapedArrayShape::unpacked(
                 prefix[1..].to_vec(),
                 middle.clone(),
                 suffix.clone(),
-            ))))
+            ))
         }
         // First dim is in variadic middle; can't determine result
-        ShapedArrayShape::Unpacked(_) => Ok(shapeless_shape()),
+        Tuple::Unbounded(_) | Tuple::Unpacked(_) => Ok(shapeless_shape()),
     }
 }
 
@@ -731,8 +766,8 @@ pub fn index_shape_slice(
     stop: Option<Type>,
     step: Option<Type>,
 ) -> Result<ShapedArrayShape, ShapeError> {
-    match shape {
-        ShapedArrayShape::Concrete(dims) => {
+    match shape.as_tuple() {
+        Tuple::Concrete(dims) => {
             if dims.is_empty() {
                 return Err(ShapeError::ScalarIndex);
             }
@@ -747,7 +782,7 @@ pub fn index_shape_slice(
             new_dims.extend_from_slice(&dims[1..]);
             Ok(ShapedArrayShape::from_types(new_dims))
         }
-        ShapedArrayShape::Unpacked(unpacked) if !unpacked.0.is_empty() => {
+        Tuple::Unpacked(unpacked) if !unpacked.0.is_empty() => {
             let (prefix, middle, suffix) = &**unpacked;
             let start = adjust_negative(
                 start.unwrap_or_else(|| Type::Size(SizeExpr::Literal(0))),
@@ -758,14 +793,14 @@ pub fn index_shape_slice(
             let new_first_dim = apply_step(range_dim, step);
             let mut new_prefix = vec![new_first_dim];
             new_prefix.extend_from_slice(&prefix[1..]);
-            Ok(ShapedArrayShape::Unpacked(Box::new((
+            Ok(ShapedArrayShape::unpacked(
                 new_prefix,
                 middle.clone(),
                 suffix.clone(),
-            ))))
+            ))
         }
         // Empty prefix: dim0 is hidden in the variadic middle
-        ShapedArrayShape::Unpacked(_) => Ok(shapeless_shape()),
+        Tuple::Unbounded(_) | Tuple::Unpacked(_) => Ok(shapeless_shape()),
     }
 }
 
@@ -775,8 +810,8 @@ pub fn index_shape_tensor(
     shape: &ShapedArrayShape,
     idx_dims: &[Type],
 ) -> Result<ShapedArrayShape, ShapeError> {
-    match shape {
-        ShapedArrayShape::Concrete(dims) => {
+    match shape.as_tuple() {
+        Tuple::Concrete(dims) => {
             if dims.is_empty() {
                 return Err(ShapeError::ScalarIndex);
             }
@@ -784,18 +819,18 @@ pub fn index_shape_tensor(
             new_dims.extend_from_slice(&dims[1..]);
             Ok(ShapedArrayShape::from_types(new_dims))
         }
-        ShapedArrayShape::Unpacked(unpacked) if !unpacked.0.is_empty() => {
+        Tuple::Unpacked(unpacked) if !unpacked.0.is_empty() => {
             let (prefix, middle, suffix) = &**unpacked;
             let mut new_prefix = idx_dims.to_vec();
             new_prefix.extend_from_slice(&prefix[1..]);
-            Ok(ShapedArrayShape::Unpacked(Box::new((
+            Ok(ShapedArrayShape::unpacked(
                 new_prefix,
                 middle.clone(),
                 suffix.clone(),
-            ))))
+            ))
         }
         // First dim is in variadic middle; can't determine result
-        ShapedArrayShape::Unpacked(_) => Ok(shapeless_shape()),
+        Tuple::Unbounded(_) | Tuple::Unpacked(_) => Ok(shapeless_shape()),
     }
 }
 
@@ -817,8 +852,8 @@ pub fn index_shape_multi(
     post_ops: &[IndexOp],
     has_ellipsis: bool,
 ) -> Result<ShapedArrayShape, ShapeError> {
-    match shape {
-        ShapedArrayShape::Concrete(shape_dims) => {
+    match shape.as_tuple() {
+        Tuple::Concrete(shape_dims) => {
             let pre_consumed = ops_dims_consumed(pre_ops);
             let post_consumed = ops_dims_consumed(post_ops);
             let total_consumed = pre_consumed + post_consumed;
@@ -850,7 +885,19 @@ pub fn index_shape_multi(
 
             Ok(ShapedArrayShape::from_types(new_dims))
         }
-        ShapedArrayShape::Unpacked(unpacked) => {
+        Tuple::Unbounded(middle) => {
+            let pre_consumed = ops_dims_consumed(pre_ops);
+            let post_consumed = ops_dims_consumed(post_ops);
+            if pre_consumed > 0 || post_consumed > 0 {
+                return Ok(shapeless_shape());
+            }
+
+            let (pre_result, _) = apply_ops_to_dims(pre_ops, &[])?;
+            let (post_result, _) = apply_ops_to_dims(post_ops, &[])?;
+            let middle = Type::Tuple(Tuple::Unbounded(middle.clone()));
+            Ok(ShapedArrayShape::unpacked(pre_result, middle, post_result))
+        }
+        Tuple::Unpacked(unpacked) => {
             let (prefix, middle, suffix) = &**unpacked;
             let pre_consumed = ops_dims_consumed(pre_ops);
             let post_consumed = ops_dims_consumed(post_ops);
@@ -871,18 +918,18 @@ pub fn index_shape_multi(
             let mut result_suffix = remaining_suffix.to_vec();
             result_suffix.extend(post_result);
 
-            Ok(ShapedArrayShape::Unpacked(Box::new((
+            Ok(ShapedArrayShape::unpacked(
                 result_prefix,
                 middle.clone(),
                 result_suffix,
-            ))))
+            ))
         }
     }
 }
 
 /// Create a shapeless shape (compatible with any shape).
 fn shapeless_shape() -> ShapedArrayShape {
-    ShapedArrayShape::Unpacked(Box::new((vec![], Type::any_tuple(), vec![])))
+    ShapedArrayShape::shapeless()
 }
 
 /// Adjust a negative slice bound by adding dim size (Python negative index semantics).

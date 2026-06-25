@@ -993,33 +993,14 @@ impl Solver {
                     .heap
                     .mk_tuple(simplify_tuples(mem::take(tuple), &self.heap));
             }
-            // Flatten Tensor[prefix, *tuple[...], suffix] after TypeVarTuple resolution
-            if let Type::ShapedArray(tensor) = x
-                && let ShapedArrayShape::Unpacked(unpacked) = &mut tensor.shape
-                && let Type::Tuple(tuple_variant) = &unpacked.1
-            {
-                let (prefix, _, suffix) = &**unpacked;
-                match tuple_variant {
-                    Tuple::Concrete(elements) => {
-                        let mut new_dims = prefix.clone();
-                        new_dims.extend(elements.clone());
-                        new_dims.extend(suffix.clone());
-                        tensor.shape = ShapedArrayShape::Concrete(new_dims);
-                    }
-                    Tuple::Unpacked(inner) => {
-                        let (tuple_prefix, tuple_middle, tuple_suffix) = &**inner;
-                        let mut new_prefix = prefix.clone();
-                        new_prefix.extend(tuple_prefix.clone());
-                        let mut new_suffix = tuple_suffix.clone();
-                        new_suffix.extend(suffix.clone());
-                        tensor.shape = ShapedArrayShape::Unpacked(Box::new((
-                            new_prefix,
-                            tuple_middle.clone(),
-                            new_suffix,
-                        )));
-                    }
-                    _ => {}
-                }
+            if let Type::ShapedArray(tensor) = x {
+                // Reuse tuple simplification for unpack flattening, then restore
+                // the shaped-array invariant that only `tuple[Any, ...]` is stored
+                // as a direct unbounded tuple.
+                tensor.shape = ShapedArrayShape::from_tuple(simplify_tuples(
+                    tensor.shape.as_tuple().clone(),
+                    &self.heap,
+                ));
             }
             // When a param spec is resolved, collapse any Concatenate and Callable types that use it
             if let Type::Concatenate(ts, inner) = x

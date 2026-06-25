@@ -2577,9 +2577,33 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
         got_shape: &ShapedArrayShape,
         want_shape: &ShapedArrayShape,
     ) -> Result<(), SubsetError> {
-        match (got_shape, want_shape) {
+        // The subset logic only has two real cases: a fixed-rank shape or a shape
+        // with a variadic middle. Normalize direct `tuple[T, ...]` shapes to the
+        // variadic form locally so the case analysis below does not need a third
+        // `Unbounded` axis that behaves the same as `Unpacked([], tuple[T, ...], [])`.
+        enum ShapeView<'a> {
+            Concrete(&'a [Type]),
+            Unpacked(Vec<Type>, Type, Vec<Type>),
+        }
+
+        fn shape_view(shape: &ShapedArrayShape) -> ShapeView<'_> {
+            match shape.as_tuple() {
+                Tuple::Concrete(dims) => ShapeView::Concrete(dims),
+                Tuple::Unbounded(middle) => ShapeView::Unpacked(
+                    Vec::new(),
+                    Type::Tuple(Tuple::Unbounded(middle.clone())),
+                    Vec::new(),
+                ),
+                Tuple::Unpacked(unpacked) => {
+                    let (prefix, middle, suffix) = &**unpacked;
+                    ShapeView::Unpacked(prefix.clone(), middle.clone(), suffix.clone())
+                }
+            }
+        }
+
+        match (shape_view(got_shape), shape_view(want_shape)) {
             // Both concrete: check rank equality and iterate through dimension pairs
-            (ShapedArrayShape::Concrete(got_dims), ShapedArrayShape::Concrete(want_dims)) => {
+            (ShapeView::Concrete(got_dims), ShapeView::Concrete(want_dims)) => {
                 if got_dims.len() != want_dims.len() {
                     return Err(SubsetError::ShapedArrayShape(ShapeError::rank_mismatch(
                         got_dims.len(),
@@ -2591,8 +2615,10 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                 }
             }
             // Concrete got, Unpacked want: bind the TypeVarTuple to the corresponding slice
-            (ShapedArrayShape::Concrete(got_dims), ShapedArrayShape::Unpacked(want_unpacked)) => {
-                let (want_prefix, want_middle, want_suffix) = &**want_unpacked;
+            (
+                ShapeView::Concrete(got_dims),
+                ShapeView::Unpacked(want_prefix, want_middle, want_suffix),
+            ) => {
                 // Example: got = Tensor[2, 3, 5, 4], want = Tensor[2, *Ts, 4]
                 // Should bind Ts to (3, 5)
 
@@ -2622,7 +2648,7 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                 if middle_start <= middle_end {
                     let middle_slice = &got_dims[middle_start..middle_end];
                     let tuple_ty = Type::concrete_tuple(middle_slice.to_vec());
-                    self.is_subset_eq(&tuple_ty, want_middle)?;
+                    self.is_subset_eq(&tuple_ty, &want_middle)?;
                 }
             }
             // Both Unpacked: symmetric matching of prefix and suffix dims.
@@ -2642,11 +2668,9 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
             //   want extras: none → *Qs directly
             //   check: tuple[B, *Cs, D] <: *Qs
             (
-                ShapedArrayShape::Unpacked(got_unpacked),
-                ShapedArrayShape::Unpacked(want_unpacked),
+                ShapeView::Unpacked(got_prefix, got_middle, got_suffix),
+                ShapeView::Unpacked(want_prefix, want_middle, want_suffix),
             ) => {
-                let (got_prefix, got_middle, got_suffix) = &**got_unpacked;
-                let (want_prefix, want_middle, want_suffix) = &**want_unpacked;
                 let matched_prefix = got_prefix.len().min(want_prefix.len());
                 let matched_suffix = got_suffix.len().min(want_suffix.len());
 
@@ -2698,8 +2722,8 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                     }
                 };
 
-                let got_folded = fold(got_extra_prefix, got_middle, got_extra_suffix);
-                let want_folded = fold(want_extra_prefix, want_middle, want_extra_suffix);
+                let got_folded = fold(got_extra_prefix, &got_middle, got_extra_suffix);
+                let want_folded = fold(want_extra_prefix, &want_middle, want_extra_suffix);
 
                 self.is_subset_eq(&got_folded, &want_folded)?;
             }
@@ -2708,8 +2732,10 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
             //   - Bind prefix: A <: 1, B <: 2
             //   - Bind suffix: C <: 5, D <: 6
             //   - Bind middle: Ts := (3, 4)
-            (ShapedArrayShape::Unpacked(got_unpacked), ShapedArrayShape::Concrete(want_dims)) => {
-                let (got_prefix, got_middle, got_suffix) = &**got_unpacked;
+            (
+                ShapeView::Unpacked(got_prefix, got_middle, got_suffix),
+                ShapeView::Concrete(want_dims),
+            ) => {
                 // Check bounds: want must have at least as many dims as prefix + suffix
                 let min_required = got_prefix.len() + got_suffix.len();
                 if want_dims.len() < min_required {
@@ -2737,7 +2763,7 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                 if middle_start <= middle_end {
                     let middle_slice = &want_dims[middle_start..middle_end];
                     let tuple_ty = Type::concrete_tuple(middle_slice.to_vec());
-                    self.is_subset_eq(got_middle, &tuple_ty)?;
+                    self.is_subset_eq(&got_middle, &tuple_ty)?;
                 }
             }
         }

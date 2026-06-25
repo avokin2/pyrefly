@@ -14,7 +14,6 @@ use pyrefly_types::dimension::SizeExpr;
 use pyrefly_types::heap::TypeHeap;
 use pyrefly_types::lit_int::LitInt;
 use pyrefly_types::literal::LitEnum;
-use pyrefly_types::shaped_array::ShapedArrayShape;
 use pyrefly_types::shaped_array::ShapedArrayType;
 use pyrefly_types::special_form::SpecialForm;
 use pyrefly_types::typed_dict::TypedDictInner;
@@ -1570,11 +1569,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                             _ => self.heap.mk_dim(dim.clone()),
                         }
                     };
-                    let tuple_type = match &tensor.shape {
-                        ShapedArrayShape::Concrete(dims) => {
+                    let tuple_type = match tensor.shape.as_tuple() {
+                        Tuple::Concrete(dims) => {
                             Type::concrete_tuple(dims.iter().map(dim_to_type).collect())
                         }
-                        ShapedArrayShape::Unpacked(f) => {
+                        Tuple::Unbounded(middle) => Type::Tuple(Tuple::Unbounded(middle.clone())),
+                        Tuple::Unpacked(f) => {
                             let (prefix, middle, suffix) = &**f;
                             Type::Tuple(Tuple::Unpacked(Box::new((
                                 prefix.iter().map(dim_to_type).collect(),

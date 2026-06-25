@@ -182,19 +182,13 @@ mod extract {
     /// support variadic shapes (e.g., slicing) can operate on them.
     pub fn shaped_array_shape(ty: &Type) -> Option<ShapedArrayShape> {
         match ty {
-            Type::ShapedArray(shaped_array) => match &shaped_array.shape {
-                ShapedArrayShape::Concrete(_) => Some(shaped_array.shape.clone()),
-                ShapedArrayShape::Unpacked(_) => {
-                    // Allow unpacked shapes through — the DSL evaluator handles
-                    // them via Val::Unpacked. Shapeless tensors (Unpacked with
-                    // any_tuple middle and empty prefix/suffix) still return None.
-                    if shaped_array.is_shapeless() {
-                        None
-                    } else {
-                        Some(shaped_array.shape.clone())
-                    }
+            Type::ShapedArray(shaped_array) => {
+                if shaped_array.is_shapeless() {
+                    None
+                } else {
+                    Some(shaped_array.shape.clone())
                 }
-            },
+            }
             Type::Union(union) => {
                 let mut shapes = union.members.iter().map(shaped_array_shape);
                 let first = shapes.next()??;
@@ -2602,15 +2596,20 @@ fn eval_dsl_expr(
         DslExpr::Shape(inner) => {
             let val = eval_dsl_expr(inner, env, fns, op_name)?;
             let shape = val.as_shape();
-            match shape {
-                ShapedArrayShape::Concrete(dims) => {
+            match shape.as_tuple() {
+                Tuple::Concrete(dims) => {
                     // Use dim_val to convert concrete Size(Literal(n)) to Val::Int(n)
                     // so comparisons against literal ints (e.g., `d != 1` in squeeze)
                     // work naturally.
                     let vals: Vec<Val> = dims.iter().map(|d| dim_val(d.clone())).collect();
                     Ok(Val::List(vals))
                 }
-                ShapedArrayShape::Unpacked(unpacked) => {
+                Tuple::Unbounded(_) => Ok(Val::Unpacked {
+                    prefix: Vec::new(),
+                    middle: Type::any_tuple(),
+                    suffix: Vec::new(),
+                }),
+                Tuple::Unpacked(unpacked) => {
                     let (prefix, middle, suffix) = &**unpacked;
                     Ok(Val::Unpacked {
                         prefix: prefix.iter().map(|d| dim_val(d.clone())).collect(),

@@ -1059,6 +1059,29 @@ impl Callable {
             .map(|(first, _)| first.clone())
     }
 
+    /// Whether this signature can be called with a single positional argument, i.e. none of the
+    /// parameters after the first is required (positional or keyword-only). `*args`/`**kwargs`
+    /// don't prevent it.
+    pub fn accepts_single_positional_arg(&self) -> bool {
+        match &self.params {
+            Params::List(params) => match params.0.split_first() {
+                Some((_, rest)) => !rest.iter().any(|p| {
+                    matches!(
+                        p,
+                        Param::PosOnly(_, _, Required::Required)
+                            | Param::Pos(_, _, Required::Required)
+                            | Param::KwOnly(_, _, Required::Required)
+                    )
+                }),
+                None => false,
+            },
+            Params::Ellipsis | Params::Materialization => true,
+            // A bare `P` or `Concatenate[A, P]` can resolve to anything, so stay permissive; only
+            // `Concatenate[A, B, ...]` (2+ prepended args) cannot be called with one positional.
+            Params::ParamSpec(prefix, _) => prefix.len() <= 1,
+        }
+    }
+
     pub fn is_typeguard(&self) -> bool {
         matches!(
             self,

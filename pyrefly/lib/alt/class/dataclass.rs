@@ -1036,8 +1036,19 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let constructor_callable = self.constructor_to_callable_distributed(converter);
         let converter = constructor_callable.as_ref().unwrap_or(converter);
         self.distribute_over_union(converter, |ty| {
-            ty.callable_first_param(self.heap)
-                .unwrap_or_else(|| self.heap.mk_any_implicit())
+            // Only overloads callable with a single positional argument contribute an input type;
+            // an overload requiring a second positional arg can't be the converter.
+            let inputs: Vec<Type> = ty
+                .callable_signatures()
+                .iter()
+                .filter(|sig| sig.accepts_single_positional_arg())
+                .filter_map(|sig| sig.get_first_param())
+                .collect();
+            if inputs.is_empty() {
+                self.heap.mk_any_implicit()
+            } else {
+                self.unions(inputs)
+            }
         })
     }
 

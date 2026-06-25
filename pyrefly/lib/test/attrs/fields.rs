@@ -83,6 +83,52 @@ assert_type(c.x, int)
 "#,
 );
 
+// An overloaded converter only contributes the input types of overloads callable with a single
+// positional argument; an overload requiring a second positional arg is ignored.
+attrs_testcase!(
+    test_attrs_field_overloaded_converter_single_positional,
+    r#"
+from typing import overload, reveal_type
+from attrs import define, field
+
+@overload
+def conv(x: int) -> str: ...
+@overload
+def conv(x: str, y: int) -> str: ...
+def conv(x: object, y: int = 0) -> str:
+    return str(x)
+
+@define
+class C:
+    a: str = field(converter=conv)
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, a: int) -> None
+"#,
+);
+
+// An overload requiring a second keyword-only argument is also ignored (it can't be called with
+// a single positional arg).
+attrs_testcase!(
+    test_attrs_field_overloaded_converter_required_kwonly,
+    r#"
+from typing import overload, reveal_type
+from attrs import define, field
+
+@overload
+def conv(x: int) -> str: ...
+@overload
+def conv(x: bytes, *, mode: int) -> str: ...
+def conv(x: object, *, mode: int = 0) -> str:
+    return str(x)
+
+@define
+class C:
+    a: str = field(converter=conv)
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, a: int) -> None
+"#,
+);
+
 // A generic-class converter (`list[int]`) applies its type arguments: the `__init__` param
 // takes the parameterized constructor's input type, not `Any`.
 attrs_testcase!(

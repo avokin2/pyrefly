@@ -85,6 +85,25 @@ def test_tile_multiplies_dimension():
     assert_type(y, Tensor[10, 3])
 
 
+def broadcast_binary_symbolic[N, M](x: Tensor[N], y: Tensor[M, N]) -> Tensor[M, N]:
+    """Binary tensor ops broadcast symbolic dimensions."""
+    return x * y
+
+
+def test_binary_ops_broadcast_symbolic():
+    x: Tensor[3] = torch.randn(3)
+    y: Tensor[2, 3] = torch.randn(2, 3)
+    z = broadcast_binary_symbolic(x, y)
+    assert_type(z, Tensor[2, 3])
+
+
+def loop_binary_preserves_shape[B, N](x: Tensor[B, N], y: Tensor[B, N]) -> Tensor[B, N]:
+    for _ in range(2):
+        x = x + y
+        assert_type(x, Tensor[B, N])
+    return x
+
+
 def repeat_symbolic[N, M](x: Tensor[N, M]) -> Tensor[N * 2, M * 3]:
     """Repeat multiplies each dimension"""
     return x.repeat(2, 3)

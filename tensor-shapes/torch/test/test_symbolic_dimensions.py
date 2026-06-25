@@ -100,6 +100,19 @@ def test_repeat_multiplies_dimensions():
     assert_type(y, Tensor[8, 15])
 
 
+def test_repeat_interleave_tensor_repeats_output_size():
+    """Tensor-valued repeats can preserve shape when output_size is supplied."""
+    x: Tensor[2, 3] = torch.randn(2, 3)
+    repeats: Tensor[2] = torch.randn(2)
+    y = torch.repeat_interleave(
+        x,
+        repeats,
+        dim=0,
+        output_size=5,
+    )
+    assert_type(y, Tensor[5, 3])
+
+
 def process_batch[B, D](x: Tensor[B, D]) -> Tensor[B, D]:
     """Identity operation preserves symbolic dimensions"""
     return torch.relu(x)

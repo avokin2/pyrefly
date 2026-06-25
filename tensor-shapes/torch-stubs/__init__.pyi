@@ -45,6 +45,7 @@ from torch._shapes import (
     randint_ir,
     randn_ir,
     reduce_ir,
+    repeat_interleave_input_ir,
     repeat_interleave_ir,
     repeat_ir,
     reshape_ir,
@@ -271,14 +272,19 @@ class Tensor[*Shape]:
 
     @uses_shape_dsl(repeat_interleave_ir)
     def repeat_interleave(
-        self: Tensor, repeats: int | Tensor, dim: int | None = None
+        self: Tensor,
+        repeats: int | Tensor,
+        dim: int | None = None,
+        *,
+        output_size: int | None = None,
     ) -> Tensor:
         """Repeat elements along a dimension.
 
         Shape inference via DSL (repeat_interleave_ir):
         - dim=None: 1D output of size numel * repeats.
         - dim=D, repeats=int: shape[D] *= repeats, others preserved.
-        - repeats=Tensor: DSL not invoked, falls back to unrefined.
+        - repeats=Tensor with output_size: shape[D] = output_size.
+        - repeats=Tensor without output_size: falls back to unrefined.
         """
         ...
 
@@ -1271,7 +1277,7 @@ def unsqueeze(self: Tensor, dim: int) -> Tensor:
     """Add dimension of size 1. Shape inference via meta-shape: torch.unsqueeze"""
     ...
 
-@uses_shape_dsl(repeat_interleave_ir)
+@uses_shape_dsl(repeat_interleave_input_ir)
 def repeat_interleave(
     input: Tensor,
     repeats: int | Tensor,

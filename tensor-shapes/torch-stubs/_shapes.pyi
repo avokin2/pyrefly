@@ -375,12 +375,31 @@ def topk_ir(
 
 @shape_dsl_function
 def repeat_interleave_ir(
-    self: ShapedArray, repeats: int | symint, dim: int | None = None
+    self: ShapedArray,
+    repeats: int | symint | ShapedArray,
+    dim: int | None = None,
+    output_size: int | symint | None = None,
 ) -> ShapedArray:
+    if output_size != None:
+        if dim == None:
+            return ShapedArray(shape=[output_size])
+        d = normalize_dim(len(self.shape), dim)
+        return ShapedArray(shape=replace_dim(self.shape, d, output_size))
+    if isinstance(repeats, ShapedArray):
+        return Unknown
     if dim == None:
         return ShapedArray(shape=[prod(self.shape) * repeats])
     d = normalize_dim(len(self.shape), dim)
     return ShapedArray(shape=replace_dim(self.shape, d, self.shape[d] * repeats))
+
+@shape_dsl_function
+def repeat_interleave_input_ir(
+    input: ShapedArray,
+    repeats: int | symint | ShapedArray,
+    dim: int | None = None,
+    output_size: int | symint | None = None,
+) -> ShapedArray:
+    return repeat_interleave_ir(input, repeats, dim, output_size)
 
 @shape_dsl_function
 def cosine_similarity_ir(x1: ShapedArray, x2: ShapedArray, dim: int = 1) -> ShapedArray:

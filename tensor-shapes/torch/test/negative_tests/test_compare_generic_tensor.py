@@ -5,7 +5,7 @@
 
 """Compare regular generics vs Tensor+Dim generics"""
 
-from typing import assert_type, reveal_type, TYPE_CHECKING
+from typing import reveal_type, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -34,4 +34,4 @@ reveal_type(result2)  # E: revealed type: Tensor[2, 3]
 # Test what assignment works
 correct_assignment: Tensor[2, 3] = result2
 # E: `Tensor[2, 3]` is not assignable to `Tensor[100, 3]`
-wrong_assignment: Tensor[100, 3] = result2  # Should error if result2 is Tensor[2, 3]
+wrong_assignment: Tensor[100, 3] = result2

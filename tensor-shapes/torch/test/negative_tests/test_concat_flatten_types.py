@@ -35,10 +35,9 @@ def test_concat_what_is_actual_type() -> Tensor[100, 3]:
     z = concat_symbolic(x, y)
     reveal_type(z)  # E: revealed type: Tensor[7, 3]
 
-    # Test if wrong type is accepted
     # E: Returned type `Tensor[7, 3]` is not assignable
     #    to declared return type `Tensor[100, 3]`
-    return z  # Should error if z is Tensor[7, 3]
+    return z
 
 
 def test_flatten_what_is_actual_type() -> Tensor[999]:
@@ -47,7 +46,6 @@ def test_flatten_what_is_actual_type() -> Tensor[999]:
     y = flatten_symbolic(x)
     reveal_type(y)  # E: revealed type: Tensor[24]
 
-    # Test if wrong type is accepted
     # E: Returned type `Tensor[24]` is not assignable
     #    to declared return type `Tensor[999]`
-    return y  # Should error if y is Tensor[24]
+    return y

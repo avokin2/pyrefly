@@ -27,7 +27,7 @@ def test_top_level_unification[A, B](a: Dim[A], b: Dim[B]):
     assert_type(result, Dim[A * B])
 
 
-# Test 2: Nested type var - SHOULD FAIL (X not bound)
+# Test 2: Nested type var without prior binding
 # When passing Dim[(A * B) // 2] to a function expecting Dim[X // 2],
 # X cannot be inferred from a nested position - this is an error
 def half_symint[X](x: Dim[X // 2]) -> Dim[X]:
@@ -36,12 +36,12 @@ def half_symint[X](x: Dim[X // 2]) -> Dim[X]:
 
 def test_nested_unification_fails[A, B](a: Dim[A], b: Dim[B]):
     expr = (a * b) // 2  # Dim[(A * B) // 2]
-    # This should fail - X is in a nested position and cannot be inferred
+    # X is in a nested position and cannot be inferred.
     # E: Type variable cannot be inferred from a nested position
     half_symint(expr)
 
 
-# Test 3: Nested type var with prior binding - SHOULD PASS
+# Test 3: Nested type var with prior binding
 # If X is bound from the first argument, then the second argument can use X in a nested position
 def two_args[X](first: Dim[X], second: Dim[X // 2]) -> Dim[X]:
     return first
@@ -49,7 +49,7 @@ def two_args[X](first: Dim[X], second: Dim[X // 2]) -> Dim[X]:
 
 def test_nested_with_prior_binding[N](n: Dim[N]):
     half_n = n // 2  # Dim[N // 2]
-    # First arg binds X = N, second arg checks N // 2 = N // 2 (should pass)
+    # First arg binds X = N, second arg checks N // 2 = N // 2.
     result = two_args(n, half_n)
     reveal_type(result)  # E: revealed type: Dim[N]
     assert_type(result, Dim[N])

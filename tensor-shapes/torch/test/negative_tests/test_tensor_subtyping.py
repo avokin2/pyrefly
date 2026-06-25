@@ -9,7 +9,7 @@ These tests verify that Tensor types follow proper subtyping:
 - Tensor[2, 3] is NOT a subtype of Tensor[4, 3] (different dimensions)
 - Tensor[N, 3] with N=2 substitutes correctly
 - Shapeless Tensor is compatible with any shaped Tensor
-- Variance in dimensions is covariant
+- Shape dimensions and expressions must be compatible
 """
 
 from typing import TYPE_CHECKING
@@ -25,38 +25,38 @@ if TYPE_CHECKING:
 
 def tensor_identity_2_3(x: Tensor[2, 3]) -> Tensor[2, 3]:
     """Identity - same shape in and out"""
-    return x  # OK
+    return x
 
 
 def tensor_wrong_first_dim(x: Tensor[2, 3]) -> Tensor[4, 3]:
-    """ERROR: First dimension mismatch"""
+    """First dimension mismatch."""
     # E: Returned type `Tensor[2, 3]` is not assignable
     #    to declared return type `Tensor[4, 3]`
     return x
 
 
 def tensor_wrong_second_dim(x: Tensor[2, 3]) -> Tensor[2, 5]:
-    """ERROR: Second dimension mismatch"""
+    """Second dimension mismatch."""
     # E: Returned type `Tensor[2, 3]` is not assignable
     #    to declared return type `Tensor[2, 5]`
     return x
 
 
 def tensor_wrong_rank(x: Tensor[2, 3]) -> Tensor[2, 3, 4]:
-    """ERROR: Rank mismatch"""
+    """Rank mismatch."""
     # E: Returned type `Tensor[2, 3]` is not assignable
     #    to declared return type `Tensor[2, 3, 4]`
     return x
 
 
 def tensor_to_shapeless(x: Tensor[2, 3]) -> Tensor:
-    """OK: Any shaped tensor is subtype of shapeless"""
-    return x  # OK
+    """Any shaped tensor is subtype of shapeless."""
+    return x
 
 
 def shapeless_to_shaped(x: Tensor) -> Tensor[2, 3]:
-    """OK: Shapeless is compatible with any shape (widening)"""
-    return x  # OK
+    """Shapeless Tensor is accepted where a specific shape is expected."""
+    return x
 
 
 # ============================================================================
@@ -66,11 +66,11 @@ def shapeless_to_shaped(x: Tensor) -> Tensor[2, 3]:
 
 def tensor_generic_identity[N, M](x: Tensor[N, M]) -> Tensor[N, M]:
     """Generic identity preserves shape"""
-    return x  # OK
+    return x
 
 
 def tensor_generic_wrong_order[N, M](x: Tensor[N, M]) -> Tensor[M, N]:
-    """ERROR: Swapped dimensions"""
+    """Swapped dimensions."""
     # E: Returned type `Tensor[N, M]` is not assignable
     #    to declared return type `Tensor[M, N]`
     return x
@@ -78,11 +78,11 @@ def tensor_generic_wrong_order[N, M](x: Tensor[N, M]) -> Tensor[M, N]:
 
 def tensor_generic_first_dim[N](x: Tensor[N, 3]) -> Tensor[N, 3]:
     """Generic in first dimension only"""
-    return x  # OK
+    return x
 
 
 def tensor_generic_first_dim_wrong[N](x: Tensor[N, 3]) -> Tensor[N, 5]:
-    """ERROR: Second dimension mismatch even with generic first"""
+    """Second dimension mismatch even with generic first."""
     # E: Returned type `Tensor[N, 3]` is not assignable
     #    to declared return type `Tensor[N, 5]`
     return x
@@ -94,31 +94,31 @@ def tensor_generic_first_dim_wrong[N](x: Tensor[N, 3]) -> Tensor[N, 5]:
 
 
 def tensor_add_dims[N, M](x: Tensor[N, M]) -> Tensor[N + M]:
-    """ERROR: Can't just return 2D tensor as 1D with sum dimension"""
+    """Cannot return a 2D tensor as 1D with sum dimension."""
     # E: Returned type `Tensor[N, M]` is not assignable
     #    to declared return type `Tensor[(N + M)]`
     return x
 
 
 def tensor_same_arithmetic[N](x: Tensor[N + 1, 3]) -> Tensor[N + 1, 3]:
-    """OK: Same arithmetic expression"""
-    return x  # OK
+    """Same arithmetic expression."""
+    return x
 
 
 def tensor_different_arithmetic[N](x: Tensor[N + 1, 3]) -> Tensor[N + 2, 3]:
-    """ERROR: Different arithmetic expression"""
+    """Different arithmetic expression."""
     # E: Returned type `Tensor[(1 + N), 3]` is not assignable
     #    to declared return type `Tensor[(2 + N), 3]`
     return x
 
 
 def tensor_mul_dims[N, M](x: Tensor[N * M, 3]) -> Tensor[N * M, 3]:
-    """OK: Same multiplication expression"""
-    return x  # OK
+    """Same multiplication expression."""
+    return x
 
 
 def tensor_add_vs_mul[N, M](x: Tensor[N + M, 3]) -> Tensor[N * M, 3]:
-    """ERROR: Addition vs multiplication"""
+    """Addition vs multiplication."""
     # E: Returned type `Tensor[(N + M), 3]` is not assignable
     #    to declared return type `Tensor[(N * M), 3]`
     return x
@@ -131,11 +131,11 @@ def tensor_add_vs_mul[N, M](x: Tensor[N + M, 3]) -> Tensor[N * M, 3]:
 
 def call_generic_identity(x: Tensor[2, 3]) -> Tensor[2, 3]:
     """Call generic identity - should substitute N=2, M=3"""
-    return tensor_generic_identity(x)  # OK: returns Tensor[2, 3]
+    return tensor_generic_identity(x)
 
 
 def call_generic_wrong_return(x: Tensor[2, 3]) -> Tensor[4, 3]:
-    """ERROR: Generic identity returns Tensor[2, 3], not Tensor[4, 3]"""
+    """Generic identity returns Tensor[2, 3], not Tensor[4, 3]."""
     # E: Returned type `Tensor[2, 3]` is not assignable
     #    to declared return type `Tensor[4, 3]`
     return tensor_generic_identity(x)

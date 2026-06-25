@@ -29,10 +29,10 @@ def test_detailed():
     # E: revealed type: Tensor[2, 3]
     reveal_type(result)
 
-    # Step 3: These should both work because N is unbound
-    case1: Tensor[2, 3] = result  # OK (N=2)
+    # Step 3: The concrete shape is preserved, so mismatched first dimensions are rejected.
+    case1: Tensor[2, 3] = result
     # E: `Tensor[2, 3]` is not assignable to `Tensor[4, 3]`
-    case2: Tensor[4, 3] = result  # Should error but doesn't (N=4)
+    case2: Tensor[4, 3] = result
     # E: `Tensor[2, 3]` is not assignable to `Tensor[100, 3]`
-    case3: Tensor[100, 3] = result  # Should error but probably doesn't (N=100)
+    case3: Tensor[100, 3] = result
     _ = (case1, case2, case3)

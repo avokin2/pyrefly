@@ -118,21 +118,21 @@ def test_chained_symbolic[N, M](x: Tensor[N, M]) -> Tensor[N * M * 2]:
 
 
 def test_sum_dims_wrong(x: Tensor[2, 3]) -> Tensor[6]:
-    """ERROR: N+M=5, not 6"""
+    """N+M=5, not 6."""
     # E: Returned type `Tensor[5]` is not assignable
     #    to declared return type `Tensor[6]`
     return sum_dims(x)
 
 
 def test_product_dims_wrong(x: Tensor[2, 3]) -> Tensor[5]:
-    """ERROR: N*M=6, not 5"""
+    """N*M=6, not 5."""
     # E: Returned type `Tensor[6]` is not assignable
     #    to declared return type `Tensor[5]`
     return product_dims(x)
 
 
 def test_double_first_wrong(x: Tensor[4, 5]) -> Tensor[4, 5]:
-    """ERROR: First dim should be 8, not 4"""
+    """First dim should be 8, not 4."""
     # E: Returned type `Tensor[8, 5]` is not assignable
     #    to declared return type `Tensor[4, 5]`
     return double_first(x)

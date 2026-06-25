@@ -3,11 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Test Tensor arithmetic operations preserve shape.
-
-Arithmetic operations (__add__, __sub__, __mul__, __truediv__, __pow__)
-return Self, which should preserve the tensor's shape.
-"""
+"""Test tensor arithmetic shape behavior, including scalar preservation and broadcasting."""
 
 from typing import Any, assert_type, TYPE_CHECKING
 
@@ -141,14 +137,14 @@ def chained_symbolic[B, N, M](x: Tensor[B, N, M]) -> Tensor[B, N, M]:
 
 
 def add_wrong_shape(x: Tensor[2, 3]) -> Tensor[4, 5]:
-    """ERROR: Arithmetic preserves shape, can't return different shape"""
+    """Arithmetic preserves shape, so a different return shape is rejected."""
     # E: Returned type `Tensor[2, 3]` is not assignable
     #    to declared return type `Tensor[4, 5]`
     return x + 1.0
 
 
 def mul_wrong_rank(x: Tensor[2, 3]) -> Tensor[2, 3, 4]:
-    """ERROR: Scalar mul preserves rank"""
+    """Scalar multiplication preserves rank."""
     # E: Returned type `Tensor[2, 3]` is not assignable
     #    to declared return type `Tensor[2, 3, 4]`
     return x * 2.0
@@ -160,14 +156,14 @@ def mul_wrong_rank(x: Tensor[2, 3]) -> Tensor[2, 3, 4]:
 
 
 def broadcast_wrong_return(x: Tensor[1, 3], y: Tensor[2, 3]) -> Tensor[1, 3]:
-    """ERROR: Broadcast result is [2, 3], not [1, 3]"""
+    """Broadcast result is [2, 3], not [1, 3]."""
     # E: Returned type `Tensor[2, 3]` is not assignable
     #    to declared return type `Tensor[1, 3]`
     return x + y
 
 
 def broadcast_incompatible_dims(x: Tensor[2, 3], y: Tensor[4, 5]) -> Tensor[4, 5]:
-    """ERROR: Dimensions 2 and 4 are incompatible (neither is 1)"""
+    """Incompatible dimensions cannot broadcast."""
     # E: Cannot broadcast tensor shapes:
     #    Cannot broadcast dimension 3 with dimension 5 at position 1
     return x + y
@@ -211,7 +207,7 @@ def broadcast_1_with_symbolic[N](x: Tensor[1, 3], y: Tensor[N, 3]) -> None:
 def broadcast_different_symbolic[N, M](
     x: Tensor[N, 3], y: Tensor[M, 3]
 ) -> Tensor[N, 3]:
-    """ERROR: Different symbolics N and M are not compatible for broadcasting"""
+    """Different symbolic dimensions are not compatible for broadcasting."""
     # E: Cannot broadcast tensor shapes:
     #    Cannot broadcast dimension N with dimension M at position 0
     return x + y
@@ -250,7 +246,7 @@ def broadcast_scalar_with_unpacked[*Ts](x: Tensor[()], y: Tensor[*Ts, 3]) -> Non
 def broadcast_concrete_exceeds_suffix[*Ts](
     x: Tensor[5, 10, 20], y: Tensor[*Ts, 20]
 ) -> Tensor[5, 10, 20]:
-    """ERROR: Leftover concrete dims can't align with TypeVarTuple middle"""
+    """Leftover concrete dims cannot align with the TypeVarTuple middle."""
     # E: Cannot broadcast tensor shapes:
     #    Cannot broadcast concrete dims with variadic shape
     return x + y
@@ -279,14 +275,14 @@ def broadcast_same_tvt_prefix_extension[*Ts](
 
 
 # ============================================================================
-# Broadcasting Unpacked + Unpacked Errors
+# Broadcasting Unpacked + Unpacked with Different TypeVarTuples
 # ============================================================================
 
 
 def broadcast_different_tvt[*Ts, *Us](
     x: Tensor[*Ts, 3], y: Tensor[*Us, 3]
 ) -> Tensor[*Ts, 3]:
-    """ERROR: Different TypeVarTuples degrade to shapeless batch dims"""
+    """Different TypeVarTuples degrade to shapeless batch dims."""
     # E: Returned type `Tensor[*tuple[Unknown, ...], 3]` is not assignable
     #    to declared return type `Tensor[*Ts, 3]`
     return x + y
@@ -295,5 +291,5 @@ def broadcast_different_tvt[*Ts, *Us](
 def broadcast_different_tvt_any_batch[*Ts, *Us](
     x: Tensor[*Ts, 3], y: Tensor[*Us, 3]
 ) -> Tensor[*tuple[Any, ...], 3]:
-    """OK: Different TypeVarTuples degrade — accept with unbounded batch dims"""
+    """Different TypeVarTuples are accepted with unbounded batch dims."""
     return x + y

@@ -20,7 +20,7 @@ def accepts_symbolic_returns_symbolic[N](x: Tensor[N, 3]) -> Tensor[N, 3]:
 
 
 def test_symbolic_identity_correct() -> Tensor[2, 3]:
-    """This should work - expected type matches"""
+    """Expected type matches the preserved concrete shape."""
     x_concrete: Tensor[2, 3] = torch.randn(2, 3)
     result = accepts_symbolic_returns_symbolic(x_concrete)
     reveal_type(result)  # E: revealed type: Tensor[2, 3]
@@ -28,13 +28,13 @@ def test_symbolic_identity_correct() -> Tensor[2, 3]:
 
 
 def test_symbolic_identity_wrong() -> Tensor[4, 3]:
-    """This should ERROR - expected type doesn't match"""
+    """Expected type does not match the preserved concrete shape."""
     x_concrete: Tensor[2, 3] = torch.randn(2, 3)
     result = accepts_symbolic_returns_symbolic(x_concrete)
     reveal_type(result)  # E: revealed type: Tensor[2, 3]
     # E: Returned type `Tensor[2, 3]` is not assignable
     #    to declared return type `Tensor[4, 3]`
-    return result  # Should error: Tensor[2, 3] not assignable to Tensor[4, 3]
+    return result
 
 
 def numel_returns_bad_explicit_symint[N, M](x: Tensor[N, M]) -> Dim[N + M]:

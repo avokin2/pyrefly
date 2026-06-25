@@ -313,14 +313,14 @@ def stride_symbolic[N, M](x: Tensor[N, M]) -> None:
 
 
 def index_wrong_result(x: Tensor[10, 20]) -> Tensor[10, 20]:
-    """ERROR: Integer index reduces rank, can't return 2D"""
+    """Integer index reduces rank, so a 2D return type is rejected."""
     # E: Returned type `Tensor[20]` is not assignable
     #    to declared return type `Tensor[10, 20]`
     return x[0]
 
 
 def slice_wrong_size(x: Tensor[10, 20]) -> Tensor[3, 20]:
-    """ERROR: Slice [:5] gives 5 elements, not 3"""
+    """Slice [:5] gives 5 elements, not 3."""
     # E: Returned type `Tensor[5, 20]` is not assignable
     #    to declared return type `Tensor[3, 20]`
     return x[:5]

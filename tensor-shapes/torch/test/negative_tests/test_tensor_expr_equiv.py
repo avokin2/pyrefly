@@ -81,21 +81,21 @@ def double_is_times_two[N](x: Tensor[N + N]) -> Tensor[N * 2]:
 
 
 def add_not_equal_mul[N, M](x: Tensor[N + M]) -> Tensor[N * M]:
-    """ERROR: N + M != N * M in general"""
+    """N + M != N * M in general."""
     # E: Returned type `Tensor[(N + M)]` is not assignable
     #    to declared return type `Tensor[(N * M)]`
     return x
 
 
 def different_constants[N](x: Tensor[N + 1]) -> Tensor[N + 2]:
-    """ERROR: N + 1 != N + 2"""
+    """N + 1 != N + 2."""
     # E: Returned type `Tensor[(1 + N)]` is not assignable
     #    to declared return type `Tensor[(2 + N)]`
     return x
 
 
 def wrong_literal_simplification(x: Tensor[2 + 3, 4]) -> Tensor[6, 4]:
-    """ERROR: 2 + 3 = 5, not 6"""
+    """2 + 3 = 5, not 6."""
     # E: Returned type `Tensor[5, 4]` is not assignable
     #    to declared return type `Tensor[6, 4]`
     return x

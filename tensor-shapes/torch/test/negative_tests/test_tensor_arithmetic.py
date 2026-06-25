@@ -142,12 +142,16 @@ def chained_symbolic[B, N, M](x: Tensor[B, N, M]) -> Tensor[B, N, M]:
 
 def add_wrong_shape(x: Tensor[2, 3]) -> Tensor[4, 5]:
     """ERROR: Arithmetic preserves shape, can't return different shape"""
-    return x + 1.0  # ERROR: Tensor[2, 3] not assignable to Tensor[4, 5]
+    # E: Returned type `Tensor[2, 3]` is not assignable
+    #    to declared return type `Tensor[4, 5]`
+    return x + 1.0
 
 
 def mul_wrong_rank(x: Tensor[2, 3]) -> Tensor[2, 3, 4]:
     """ERROR: Scalar mul preserves rank"""
-    return x * 2.0  # ERROR: Tensor[2, 3] not assignable to Tensor[2, 3, 4]
+    # E: Returned type `Tensor[2, 3]` is not assignable
+    #    to declared return type `Tensor[2, 3, 4]`
+    return x * 2.0
 
 
 # ============================================================================
@@ -157,12 +161,16 @@ def mul_wrong_rank(x: Tensor[2, 3]) -> Tensor[2, 3, 4]:
 
 def broadcast_wrong_return(x: Tensor[1, 3], y: Tensor[2, 3]) -> Tensor[1, 3]:
     """ERROR: Broadcast result is [2, 3], not [1, 3]"""
-    return x + y  # ERROR: Tensor[2, 3] not assignable to Tensor[1, 3]
+    # E: Returned type `Tensor[2, 3]` is not assignable
+    #    to declared return type `Tensor[1, 3]`
+    return x + y
 
 
 def broadcast_incompatible_dims(x: Tensor[2, 3], y: Tensor[4, 5]) -> Tensor[4, 5]:
     """ERROR: Dimensions 2 and 4 are incompatible (neither is 1)"""
-    return x + y  # ERROR: Cannot broadcast shapes [2, 3] and [4, 5]
+    # E: Cannot broadcast tensor shapes:
+    #    Cannot broadcast dimension 3 with dimension 5 at position 1
+    return x + y
 
 
 # ============================================================================
@@ -204,7 +212,9 @@ def broadcast_different_symbolic[N, M](
     x: Tensor[N, 3], y: Tensor[M, 3]
 ) -> Tensor[N, 3]:
     """ERROR: Different symbolics N and M are not compatible for broadcasting"""
-    return x + y  # ERROR: Cannot broadcast dimension N with dimension M
+    # E: Cannot broadcast tensor shapes:
+    #    Cannot broadcast dimension N with dimension M at position 0
+    return x + y
 
 
 # ============================================================================
@@ -241,7 +251,9 @@ def broadcast_concrete_exceeds_suffix[*Ts](
     x: Tensor[5, 10, 20], y: Tensor[*Ts, 20]
 ) -> Tensor[5, 10, 20]:
     """ERROR: Leftover concrete dims can't align with TypeVarTuple middle"""
-    return x + y  # ERROR: Cannot broadcast concrete dims with variadic shape
+    # E: Cannot broadcast tensor shapes:
+    #    Cannot broadcast concrete dims with variadic shape
+    return x + y
 
 
 # ============================================================================
@@ -275,7 +287,9 @@ def broadcast_different_tvt[*Ts, *Us](
     x: Tensor[*Ts, 3], y: Tensor[*Us, 3]
 ) -> Tensor[*Ts, 3]:
     """ERROR: Different TypeVarTuples degrade to shapeless batch dims"""
-    return x + y  # ERROR: result is Tensor[*tuple[Unknown, ...], 3], not Tensor[*Ts, 3]
+    # E: Returned type `Tensor[*tuple[Unknown, ...], 3]` is not assignable
+    #    to declared return type `Tensor[*Ts, 3]`
+    return x + y
 
 
 def broadcast_different_tvt_any_batch[*Ts, *Us](

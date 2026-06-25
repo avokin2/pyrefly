@@ -43,6 +43,8 @@ jobs:
     - run: cargo clippy --release
     - run: cargo build --release
     - run: cargo test --release
+    - name: Run tensor shape tests
+      run: python tensor-shapes/torch/test/run_pyrefly.py --release
     - name: Run Scrut tests
       env:
         PYREFLY: ${{ github.workspace }}/target/release/pyrefly
@@ -50,8 +52,5 @@ jobs:
         JQ: jq
         TEST_PY: ${{ github.workspace }}/test.py
         PYREFLY_PY: ${{ github.workspace }}/pyrefly/python
-        TENSOR_SHAPES_ROOT: ${{ github.workspace }}/tensor-shapes
-        TENSOR_TEST_ROOT: ${{ github.workspace }}/tensor-shapes/torch/test
-        JAXTYPING_TEST_ROOT: ${{ github.workspace }}/tensor-shapes/torch/test
-      run: env -u GITHUB_ACTIONS scrut test test tensor-shapes/torch/test
+      run: env -u GITHUB_ACTIONS scrut test test
       if: ${{ matrix.os != 'windows-latest' }}

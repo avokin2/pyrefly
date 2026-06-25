@@ -17,7 +17,7 @@ def identity_regular[T](x: T) -> T:
 
 
 result1 = identity_regular(5)
-reveal_type(result1)  # Returns: int ✅
+reveal_type(result1)  # E: revealed type: int
 
 
 # Test 2: Generic function with Tensor using Dim
@@ -29,8 +29,9 @@ import torch
 
 x_concrete: Tensor[2, 3] = torch.randn(2, 3)
 result2 = identity_tensor(x_concrete)
-reveal_type(result2)  # Returns: Tensor[N, 3] or Tensor[2, 3] ??
+reveal_type(result2)  # E: revealed type: Tensor[2, 3]
 
 # Test what assignment works
 correct_assignment: Tensor[2, 3] = result2
-wrong_assignment: Tensor[100, 3] = result2  # Should ERROR if result2 is Tensor[2, 3]
+# E: `Tensor[2, 3]` is not assignable to `Tensor[100, 3]`
+wrong_assignment: Tensor[100, 3] = result2  # Should error if result2 is Tensor[2, 3]

@@ -195,8 +195,3 @@ After adding stubs, DSL functions, or ported models, run the test suite:
 ```bash
 python3 test.py
 ```
-
-TODO(stroxler): At the moment we don't have automated tests for the actual
-stubs in `tensor-shapes` that run in github CI - the tests are buck-only
-and will run when we import the code. We are actively working to improve
-this infrastructure.

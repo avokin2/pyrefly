@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 
 def test_multiple_variadics(
+    # E: Tensor shape can have at most one variadic dimension
     x: Shaped[Tensor, "*batch ... 3"],
 ) -> None:
     pass

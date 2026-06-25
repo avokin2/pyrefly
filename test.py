@@ -155,36 +155,39 @@ class CargoExecutor(Executor):
     def test(self) -> None:
         run(["cargo", "build"])
         run(["cargo", "test"])
-        script_dir = SCRIPT_PATH.absolute()
+        # The runner resolves the debug pyrefly itself, so we don't pass `--pyrefly`.
+        run([sys.executable, "tensor-shapes/torch/test/run_pyrefly.py"])
         scrut_path = shutil.which("scrut")
-        jq_path = shutil.which("jq")
-        if scrut_path is not None:
-            run(
-                [scrut_path, "test", "test", "tensor-shapes/torch/test"],
-                env={
-                    "PYREFLY": str(script_dir / "target" / "debug" / "pyrefly"),
-                    "TYPESHED_ROOT": str(
-                        script_dir / "crates" / "pyrefly_bundled" / "third_party"
-                    ),
-                    "JQ": jq_path if jq_path else "",
-                    "TEST_PY": str(script_dir / "test.py"),
-                    "PYREFLY_PY": str(script_dir / "pyrefly" / "python"),
-                    "TENSOR_SHAPES_ROOT": str(script_dir / "tensor-shapes"),
-                    "TENSOR_TEST_ROOT": str(
-                        script_dir / "tensor-shapes" / "torch" / "test"
-                    ),
-                    "JAXTYPING_TEST_ROOT": str(
-                        script_dir / "tensor-shapes" / "torch" / "test"
-                    ),
-                    "PATH": os.environ.get("PATH", ""),
-                },
-            )
-        else:
+        if scrut_path is None:
             print(
                 Colors.WARNING.value
                 + "Scrut is not installed, skipping scrut tests."
                 + Colors.ENDC.value
             )
+            return
+        script_dir = SCRIPT_PATH.absolute()
+        cargo_target_dir = Path(
+            os.environ.get("CARGO_TARGET_DIR", script_dir / "target")
+        )
+        pyrefly = (
+            cargo_target_dir
+            / "debug"
+            / ("pyrefly.exe" if os.name == "nt" else "pyrefly")
+        )
+        jq_path = shutil.which("jq")
+        run(
+            [scrut_path, "test", "test"],
+            env={
+                "PYREFLY": str(pyrefly),
+                "TYPESHED_ROOT": str(
+                    script_dir / "crates" / "pyrefly_bundled" / "third_party"
+                ),
+                "JQ": jq_path if jq_path else "",
+                "TEST_PY": str(script_dir / "test.py"),
+                "PYREFLY_PY": str(script_dir / "pyrefly" / "python"),
+                "PATH": os.environ.get("PATH", ""),
+            },
+        )
 
     def conformance(self) -> None:
         cargo_target_dir = os.environ.get("CARGO_TARGET_DIR", "target")

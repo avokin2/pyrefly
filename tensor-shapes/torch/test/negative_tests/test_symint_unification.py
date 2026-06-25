@@ -20,9 +20,9 @@ def identity_symint[X](x: Dim[X]) -> Dim[X]:
 
 def test_top_level_unification[A, B](a: Dim[A], b: Dim[B]):
     expr = a * b  # Dim[A * B]
-    reveal_type(expr)  # Should be Dim[A * B]
+    reveal_type(expr)  # E: revealed type: Dim[(A * B)]
     result = identity_symint(expr)
-    reveal_type(result)  # Should be Dim[A * B] if X is unified
+    reveal_type(result)  # E: revealed type: Dim[(A * B)]
     # X should be unified with A * B, so result should be Dim[A * B]
     assert_type(result, Dim[A * B])
 
@@ -37,6 +37,7 @@ def half_symint[X](x: Dim[X // 2]) -> Dim[X]:
 def test_nested_unification_fails[A, B](a: Dim[A], b: Dim[B]):
     expr = (a * b) // 2  # Dim[(A * B) // 2]
     # This should fail - X is in a nested position and cannot be inferred
+    # E: Type variable cannot be inferred from a nested position
     half_symint(expr)
 
 
@@ -50,7 +51,7 @@ def test_nested_with_prior_binding[N](n: Dim[N]):
     half_n = n // 2  # Dim[N // 2]
     # First arg binds X = N, second arg checks N // 2 = N // 2 (should pass)
     result = two_args(n, half_n)
-    reveal_type(result)  # Should be Dim[N]
+    reveal_type(result)  # E: revealed type: Dim[N]
     assert_type(result, Dim[N])
 
 
@@ -61,5 +62,5 @@ def test_nested_with_simplification[A](a: Dim[A]):
     # X = A + A from first arg
     # Second arg: X // 2 = (A + A) // 2 = A (after simplification)
     result = two_args(double_a, a)
-    reveal_type(result)  # Should be Dim[A + A]
+    reveal_type(result)  # E: revealed type: Dim[(2 * A)]
     assert_type(result, Dim[A + A])

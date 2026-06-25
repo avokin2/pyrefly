@@ -9,16 +9,19 @@ from jaxtyping import Shaped
 from torch import Tensor
 
 
+# E: jaxtyping annotations require exactly 2 arguments
 def too_few_args(x: Shaped[Tensor]) -> None:
     """Jaxtyping annotations require exactly 2 arguments."""
     pass
 
 
+# E: jaxtyping annotations require exactly 2 arguments
 def too_many_args(x: Shaped[Tensor, "3", "extra"]) -> None:  # noqa: F821
     """Jaxtyping annotations require exactly 2 arguments."""
     pass
 
 
+# E: Second argument to jaxtyping annotation must be a string literal
 def non_string_second_arg(x: Shaped[Tensor, 42]) -> None:
     """Second argument must be a string literal."""
     pass

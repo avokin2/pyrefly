@@ -15,9 +15,9 @@ if TYPE_CHECKING:
     from shape_extensions import Dim
 
 symint_implicit_any: Dim = 4  # OK: int assignable to bare Dim
-reveal_type(symint_implicit_any)  # Dim
+reveal_type(symint_implicit_any)  # E: revealed type: Dim
 symint_explicit_any: Dim[Any] = 4  # OK: Any accepts int
-reveal_type(symint_explicit_any)  # Dim[Any]
+reveal_type(symint_explicit_any)  # E: revealed type: Dim[Any]
 
 
 def accept_and_return_symint[N](s: Dim[N]) -> Dim[N]:
@@ -29,8 +29,8 @@ def test_accept_and_return_symint():
     assert_type(s, Dim[4])  # Symint[4]
     n: int = 4
     s_n = accept_and_return_symint(n)  # OK: N binds to Any
-    reveal_type(s_n)  # Dim
+    reveal_type(s_n)  # E: revealed type: Dim
     s_implicit_any = accept_and_return_symint(symint_implicit_any)  # OK
-    reveal_type(s_implicit_any)  # Dim
+    reveal_type(s_implicit_any)  # E: revealed type: Dim
     s_explicit_any = accept_and_return_symint(symint_explicit_any)  # OK
-    reveal_type(s_explicit_any)  # Dim[Any]
+    reveal_type(s_explicit_any)  # E: revealed type: Dim[Any]

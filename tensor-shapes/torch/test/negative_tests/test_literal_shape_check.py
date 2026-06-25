@@ -16,9 +16,11 @@ if TYPE_CHECKING:
 def test_literal_shape_mismatch() -> Tensor[4, 3]:
     """This should definitely error - literal shape mismatch"""
     x: Tensor[2, 3] = torch.randn(2, 3)
-    reveal_type(x)
+    reveal_type(x)  # E: revealed type: Tensor[2, 3]
 
-    # This should ERROR
+    # This should error
+    # E: Returned type `Tensor[2, 3]` is not assignable
+    #    to declared return type `Tensor[4, 3]`
     return x  # Tensor[2, 3] not assignable to Tensor[4, 3]
 
 

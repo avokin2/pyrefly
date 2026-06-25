@@ -16,14 +16,14 @@ if TYPE_CHECKING:
 def test_item_on_1d_tensor():
     """item() should fail on 1D tensor"""
     x: Tensor[10] = torch.randn(10)
-    # This should ERROR because item() requires 0D tensor
+    # This should error because item() requires 0D tensor
+    # E: item() only works on 0-dimensional tensors, got 1D tensor
     x.item()
-    # Expected error: "item() only works on 0-dimensional tensors, got 1D tensor"
 
 
 def test_item_on_2d_tensor():
     """item() should fail on 2D tensor"""
     x: Tensor[5, 7] = torch.randn(5, 7)
-    # This should ERROR
+    # This should error
+    # E: item() only works on 0-dimensional tensors, got 2D tensor
     x.item()
-    # Expected error: "item() only works on 0-dimensional tensors, got 2D tensor"

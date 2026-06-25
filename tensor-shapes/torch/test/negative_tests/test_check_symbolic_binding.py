@@ -23,7 +23,7 @@ def test_symbolic_identity_correct() -> Tensor[2, 3]:
     """This should work - expected type matches"""
     x_concrete: Tensor[2, 3] = torch.randn(2, 3)
     result = accepts_symbolic_returns_symbolic(x_concrete)
-    reveal_type(result)
+    reveal_type(result)  # E: revealed type: Tensor[2, 3]
     return result  # Should be OK
 
 
@@ -31,43 +31,53 @@ def test_symbolic_identity_wrong() -> Tensor[4, 3]:
     """This should ERROR - expected type doesn't match"""
     x_concrete: Tensor[2, 3] = torch.randn(2, 3)
     result = accepts_symbolic_returns_symbolic(x_concrete)
-    reveal_type(result)
-    return result  # Should ERROR: Tensor[2, 3] not assignable to Tensor[4, 3]
+    reveal_type(result)  # E: revealed type: Tensor[2, 3]
+    # E: Returned type `Tensor[2, 3]` is not assignable
+    #    to declared return type `Tensor[4, 3]`
+    return result  # Should error: Tensor[2, 3] not assignable to Tensor[4, 3]
 
 
 def numel_returns_bad_explicit_symint[N, M](x: Tensor[N, M]) -> Dim[N + M]:
     s = x.numel()
-    reveal_type(s)
+    reveal_type(s)  # E: revealed type: Dim[(N * M)]
+    # E: Returned type `Dim[(N * M)]` is not assignable
+    #    to declared return type `Dim[(N + M)]`
     return s
 
 
 def view_returns_bad_explicit_tensor[N, M](x: Tensor[N, M]) -> Tensor[N + M]:
     v = x.view(-1)
-    reveal_type(v)
+    reveal_type(v)  # E: revealed type: Tensor[(N * M)]
+    # E: Returned type `Tensor[(N * M)]` is not assignable
+    #    to declared return type `Tensor[(N + M)]`
     return v
 
 
 def numel_returns_bad_implicit_symint[N, M, K](x: Tensor[N, M]) -> Dim[K]:
     s = x.numel()
-    reveal_type(s)
+    reveal_type(s)  # E: revealed type: Dim[(N * M)]
+    # E: Returned type `Dim[(N * M)]` is not assignable
+    #    to declared return type `Dim[K]`
     return s
 
 
 def view_returns_bad_implicit_tensor[N, M, K](x: Tensor[N, M]) -> Tensor[K]:
     v = x.view(-1)
-    reveal_type(v)
+    reveal_type(v)  # E: revealed type: Tensor[(N * M)]
+    # E: Returned type `Tensor[(N * M)]` is not assignable
+    #    to declared return type `Tensor[K]`
     return v
 
 
 def test_numel_returns_bad_implicit_symint() -> Dim[11]:
     n = numel_returns_bad_implicit_symint(torch.randn(3, 4))
-    reveal_type(n)
+    reveal_type(n)  # E: revealed type: Dim
     # Should infer: Literal[12] (3*4=12)
     return n
 
 
 def test_view_returns_bad_implicit_tensor() -> Tensor[11]:
     t = view_returns_bad_implicit_tensor(torch.randn(3, 4))
-    reveal_type(t)
+    reveal_type(t)  # E: revealed type: Tensor[Unknown]
     # Should infer: Literal[12] (3*4=12)
     return t

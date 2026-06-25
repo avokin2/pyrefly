@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 SUITES = (
+    "torch-examples",
     "torch-positive",
     "torch-negative",
     "jaxtyping-positive",
@@ -40,38 +41,47 @@ def resolve_pyrefly(pyrefly: Path) -> Path:
     return pyrefly.resolve()
 
 
-def files(pattern: str, root: Path) -> list[str]:
-    return [str(path.relative_to(root)) for path in sorted(root.glob(pattern))]
+def files(pattern: str, torch_root: Path) -> list[str]:
+    return [
+        str(path.relative_to(torch_root)) for path in sorted(torch_root.glob(pattern))
+    ]
 
 
 def run_check(
     *,
     pyrefly: Path,
-    test_root: Path,
+    torch_root: Path,
     tensor_shapes_root: Path,
     suite: str,
     nocapture: bool,
 ) -> int:
-    jaxtyping_root = test_root / "jaxtyping"
-    if suite == "torch-positive":
+    jaxtyping_root = torch_root / "test" / "jaxtyping"
+    if suite == "torch-examples":
         python_version = "3.13"
         search_paths = [tensor_shapes_root]
-        check_files = files("test_*.py", test_root)
+        check_files = files("examples/*.py", torch_root) + files(
+            "examples/runtime/*.py", torch_root
+        )
+        expectations = False
+    elif suite == "torch-positive":
+        python_version = "3.13"
+        search_paths = [tensor_shapes_root]
+        check_files = files("test/test_*.py", torch_root)
         expectations = False
     elif suite == "torch-negative":
         python_version = "3.13"
         search_paths = [tensor_shapes_root]
-        check_files = files("negative_tests/test_*.py", test_root)
+        check_files = files("test/negative_tests/test_*.py", torch_root)
         expectations = True
     elif suite == "jaxtyping-positive":
         python_version = "3.12"
         search_paths = [jaxtyping_root / "fixtures", tensor_shapes_root]
-        check_files = files("jaxtyping/test_*.py", test_root)
+        check_files = files("test/jaxtyping/test_*.py", torch_root)
         expectations = False
     elif suite == "jaxtyping-negative":
         python_version = "3.12"
         search_paths = [jaxtyping_root / "fixtures", tensor_shapes_root]
-        check_files = files("jaxtyping/negative_tests/test_*.py", test_root)
+        check_files = files("test/jaxtyping/negative_tests/test_*.py", torch_root)
         expectations = True
     else:
         raise ValueError(f"unknown suite: {suite}")
@@ -95,11 +105,11 @@ def run_check(
 
     if nocapture:
         print("+ " + " ".join(command), flush=True)
-        return subprocess.run(command, cwd=test_root).returncode
+        return subprocess.run(command, cwd=torch_root).returncode
 
     result = subprocess.run(
         command,
-        cwd=test_root,
+        cwd=torch_root,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -114,8 +124,8 @@ def run_check(
 
 
 def main() -> int:
-    test_root_default = Path(__file__).resolve().parent
-    repo_root_default = test_root_default.parent.parent.parent
+    torch_root_default = Path(__file__).resolve().parent
+    repo_root_default = torch_root_default.parent.parent
     parser = argparse.ArgumentParser()
     # Default deferred until after parsing so `--release` can pick the profile.
     parser.add_argument("--pyrefly", type=Path, default=None)
@@ -124,7 +134,7 @@ def main() -> int:
         action="store_true",
         help="resolve the default pyrefly from target/release instead of target/debug",
     )
-    parser.add_argument("--test-root", type=Path, default=test_root_default)
+    parser.add_argument("--torch-root", type=Path, default=torch_root_default)
     parser.add_argument(
         "--tensor-shapes-root",
         type=Path,
@@ -162,7 +172,7 @@ def main() -> int:
     for suite in suites:
         result = run_check(
             pyrefly=pyrefly,
-            test_root=args.test_root.resolve(),
+            torch_root=args.torch_root.resolve(),
             tensor_shapes_root=args.tensor_shapes_root.resolve(),
             suite=suite,
             nocapture=args.nocapture,

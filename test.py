@@ -156,7 +156,7 @@ class CargoExecutor(Executor):
         run(["cargo", "build"])
         run(["cargo", "test"])
         # The runner resolves the debug pyrefly itself, so we don't pass `--pyrefly`.
-        run([sys.executable, "tensor-shapes/torch/test/run_pyrefly.py"])
+        run([sys.executable, "tensor-shapes/torch/run_pyrefly.py"])
         scrut_path = shutil.which("scrut")
         if scrut_path is None:
             print(

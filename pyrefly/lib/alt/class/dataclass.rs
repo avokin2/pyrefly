@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use pyrefly_python::dunder;
+use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::short_identifier::ShortIdentifier;
 use pyrefly_types::typed_dict::AnonymousTypedDictInner;
 use pyrefly_types::typed_dict::TypedDict;
@@ -38,6 +39,7 @@ use crate::alt::types::class_metadata::DataclassMetadata;
 use crate::alt::types::pydantic::PydanticModelKind;
 use crate::alt::unwrap::HintRef;
 use crate::binding::binding::Key;
+use crate::binding::binding::KeyExport;
 use crate::binding::pydantic::GE;
 use crate::binding::pydantic::GT;
 use crate::binding::pydantic::LE;
@@ -619,10 +621,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         )
     }
 
-    /// Reject a non-attrs class argument to `attr.fields` / `attr.fields_dict`, matching attrs'
-    /// runtime `NotAnAttrsClassError`. The stub's declared return is kept (`fields` is `Any`, since
-    /// its result exposes fields by name which a tuple can't model; `fields_dict` is already a
-    /// precise `dict`).
+    /// `attr.fields(C)` / `attr.fields_dict(C)`: return a field-aware type and reject a non-attrs
+    /// class argument (matching attrs' runtime `NotAnAttrsClassError`). `fields_dict` returns an
+    /// anonymous `TypedDict {name: Attribute[t]}`; `fields` keeps the stub's declared return for now.
     pub fn call_attrs_fields(
         &self,
         func_name: &Name,
@@ -637,22 +638,30 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         if let [CallArg::Arg(obj_arg)] = args
             && kws.is_empty()
         {
-            let cls = match obj_arg.infer(self, errors) {
-                Type::ClassDef(cls) => Some(cls),
+            // Keep the `ClassType` when present so a generic `type[C[int]]` substitutes its targs.
+            let (cls, class_type) = match obj_arg.infer(self, errors) {
+                Type::ClassDef(cls) => (Some(cls), None),
                 Type::Type(inner) => match *inner {
-                    Type::ClassType(cls) => Some(cls.class_object().clone()),
-                    _ => None,
+                    Type::ClassType(c) => (Some(c.class_object().clone()), Some(c)),
+                    _ => (None, None),
                 },
-                _ => None,
+                _ => (None, None),
             };
-            // `type[AttrsInstance]` (a Protocol) is the canonical "any attrs class" annotation, so
-            // accept Protocols; non-class arguments are left to the stub.
             if let Some(cls) = cls {
                 let metadata = self.get_metadata_for_class(&cls);
-                let is_attrs = metadata
-                    .dataclass_metadata()
-                    .is_some_and(|dm| matches!(dm.kind, DataclassKind::Attrs { .. }));
-                if !is_attrs && !metadata.is_protocol() {
+                let dataclass = metadata.dataclass_metadata();
+                if let Some(dataclass) = dataclass
+                    && matches!(dataclass.kind, DataclassKind::Attrs { .. })
+                {
+                    if func_name.as_str() == "fields_dict"
+                        && let Some(td) =
+                            self.attrs_fields_dict_type(&cls, dataclass, class_type.as_ref())
+                    {
+                        return td;
+                    }
+                } else if !metadata.is_protocol() {
+                    // `type[AttrsInstance]` (a Protocol) is the canonical "any attrs class"
+                    // annotation, so accept Protocols; non-class arguments are left to the stub.
                     self.error(
                         errors,
                         arg_range,
@@ -672,6 +681,66 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             hint,
             errors,
         )
+    }
+
+    /// `attr.fields_dict(C)` returns an ordered mapping of field name to its `Attribute[T]`. Model it
+    /// as an anonymous `TypedDict` (one entry per field), bailing to the stub's `dict` for very wide
+    /// classes. Returns `None` if the `Attribute` class is unavailable from the stubs.
+    fn attrs_fields_dict_type(
+        &self,
+        cls: &Class,
+        dataclass: &DataclassMetadata,
+        class_type: Option<&ClassType>,
+    ) -> Option<Type> {
+        const MAX_FIELDS: usize = 20;
+        let attribute_class = self.attrs_attribute_class()?;
+        let kw_only = self.compute_kw_only_fields_by_class(cls);
+        let raw_fields = self.iter_fields(cls, dataclass, false, &kw_only);
+        if raw_fields.len() > MAX_FIELDS {
+            return None;
+        }
+        let sub = class_type.map(|c| c.targs().substitution());
+        let swallow = self.error_swallower();
+        let fields = raw_fields
+            .into_iter()
+            .map(|(name, field, _)| {
+                let ty = match &sub {
+                    Some(sub) => sub.substitute_into(field.ty()),
+                    None => field.ty(),
+                };
+                let attr_ty =
+                    self.specialize(&attribute_class, vec![ty], TextRange::default(), &swallow);
+                (
+                    name,
+                    TypedDictField {
+                        ty: attr_ty,
+                        required: true,
+                        read_only_reason: None,
+                    },
+                )
+            })
+            .collect();
+        Some(
+            self.heap
+                .mk_typed_dict(TypedDict::Anonymous(Box::new(AnonymousTypedDictInner {
+                    fields,
+                }))),
+        )
+    }
+
+    /// Resolve the `attr.Attribute` / `attrs.Attribute` class from the stubs, if available.
+    fn attrs_attribute_class(&self) -> Option<Class> {
+        let name = Name::new_static("Attribute");
+        for module in [ModuleName::attr(), ModuleName::attrs()] {
+            if self.exports.export_exists(module, &name)
+                && let Type::ClassDef(cls) = self
+                    .get_from_export(module, None, &KeyExport(name.clone()))
+                    .as_ref()
+            {
+                return Some(cls.clone());
+            }
+        }
+        None
     }
 
     fn get_dataclass_replace(

@@ -943,20 +943,23 @@ def f(cls: type[C]) -> None:
 "#,
 );
 
-// ATTR.FIELDS_DICT: same validation as `fields`, but its `dict[str, Attribute[Any]]` return is
-// already precise in the stub and is preserved.
+// ATTR.FIELDS_DICT: returns an ordered name -> `Attribute[T]` mapping, modeled as an anonymous
+// TypedDict so each field recovers its precise `Attribute[t]` on subscript.
 
 attrs_testcase!(
     test_attrs_fields_dict_returns_dict,
     r#"
-from typing import reveal_type
+from typing import assert_type
 import attr
 
 @attr.define
 class C:
     x: int
+    y: str
 
-reveal_type(attr.fields_dict(C))  # E: revealed type: dict[str, Attribute[Any]]
+d = attr.fields_dict(C)
+assert_type(d["x"], attr.Attribute[int])
+assert_type(d["y"], attr.Attribute[str])
 "#,
 );
 
@@ -969,5 +972,42 @@ class NotAttrs:
     x: int
 
 attr.fields_dict(NotAttrs)  # E: `fields_dict()` is not an attrs class
+"#,
+);
+
+// Inherited fields appear, and a generic class substitutes its type argument.
+attrs_testcase!(
+    test_attrs_fields_dict_inheritance_generic,
+    r#"
+from typing import assert_type
+import attr
+
+@attr.define
+class Base[T]:
+    x: T
+
+@attr.define
+class Sub(Base[int]):
+    y: str
+
+d = attr.fields_dict(Sub)
+assert_type(d["x"], attr.Attribute[int])
+assert_type(d["y"], attr.Attribute[str])
+"#,
+);
+
+// Recognition keys off the function's origin, not the import style: a `from attr import` works.
+attrs_testcase!(
+    test_attrs_fields_dict_from_import,
+    r#"
+from attr import define, fields_dict
+from typing import assert_type
+import attr
+
+@define
+class C:
+    x: int
+
+assert_type(fields_dict(C)["x"], attr.Attribute[int])
 "#,
 );

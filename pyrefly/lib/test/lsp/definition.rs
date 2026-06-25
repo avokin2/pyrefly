@@ -3442,6 +3442,59 @@ y = Targeting.INTERESTS
     );
 }
 
+/// When clicking on a filename component in a non-Python module import
+/// (e.g. `TranslationCheckConfig` in `from pkg.TranslationCheckConfig.thrift import XYZ`),
+/// go-to-definition should navigate to the file, not fail because the truncated
+/// module name `pkg.TranslationCheckConfig` doesn't resolve on its own.
+#[test]
+fn non_python_module_import_filename_component_test() {
+    let thrift_content = "struct Config {\n  1: string name\n}\n";
+    let main_code = r#"
+from translation.TranslationCheckConfig.thrift import Config
+#                 ^                      ^
+"#;
+    let positions = extract_cursors_for_test(main_code);
+    let mut test_env = TestEnv::new().with_extra_file_extensions(vec!["thrift".to_owned()]);
+    test_env.add_with_path(
+        "translation.TranslationCheckConfig.thrift",
+        "translation/TranslationCheckConfig.thrift",
+        thrift_content,
+    );
+    test_env.add("main", main_code);
+    let (state, handle) = test_env.to_state();
+    let main_handle = handle("main");
+
+    // Clicking on `TranslationCheckConfig`
+    let defs = state
+        .transaction()
+        .goto_definition(&main_handle, positions[0])
+        .expect("go-to-definition on filename component should navigate to the module file");
+    assert!(
+        defs[0]
+            .module
+            .path()
+            .to_string()
+            .contains("TranslationCheckConfig.thrift"),
+        "should navigate to the .thrift file, got: {}",
+        defs[0].module.path(),
+    );
+
+    // Clicking on `thrift` (the extension component) should also work
+    let defs = state
+        .transaction()
+        .goto_definition(&main_handle, positions[1])
+        .expect("go-to-definition on extension component should navigate to the module file");
+    assert!(
+        defs[0]
+            .module
+            .path()
+            .to_string()
+            .contains("TranslationCheckConfig.thrift"),
+        "should navigate to the .thrift file, got: {}",
+        defs[0].module.path(),
+    );
+}
+
 /// Go-to-definition on a __files__ directory import should fall back to
 /// the parent module when the virtual __files__ module doesn't exist on disk.
 #[test]

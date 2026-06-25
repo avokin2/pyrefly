@@ -14,6 +14,7 @@ use pyrefly_types::types::Type;
 use pyrefly_util::telemetry::EmptyResponseReason;
 use ruff_python_ast::AnyNodeRef;
 use ruff_python_ast::Identifier;
+use ruff_python_ast::name::Name;
 use ruff_text_size::Ranged as _;
 use ruff_text_size::TextRange;
 use ruff_text_size::TextSize;
@@ -286,6 +287,34 @@ impl Transaction<'_> {
         } else {
             Ok(vec1![item])
         }
+    }
+
+    /// For extra-extension modules (e.g. .thrift, .cinc), the file
+    /// extension is part of the module name. Clicking on a filename
+    /// component like `TranslationCheckConfig` in
+    /// `from pkg.TranslationCheckConfig.thrift import XYZ` truncates
+    /// to `pkg.TranslationCheckConfig`, which doesn't resolve. Try
+    /// extending with subsequent components until a module is found.
+    pub(crate) fn fallback_find_definition_module_name_with_suffix(
+        &self,
+        handle: &Handle,
+        preference: FindPreference,
+        components: &[Name],
+        target_idx: usize,
+    ) -> Option<FindDefinitionItemWithDocstring> {
+        if self.config_has_extra_extensions(handle) {
+            // Start at target_idx + 2: components[..=target_idx] was
+            // already tried above, so the first new slice is [..target_idx+2].
+            for end in (target_idx + 2)..=components.len() {
+                let extended = ModuleName::from_parts(&components[..end]);
+                if let Ok(Some(item)) =
+                    self.find_definition_for_imported_module(handle, extended, preference)
+                {
+                    return Some(item);
+                }
+            }
+        }
+        None
     }
 }
 

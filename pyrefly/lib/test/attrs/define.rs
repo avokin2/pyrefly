@@ -375,6 +375,22 @@ C(1)   # E: Expected 0 positional arguments
 "#,
 );
 
+// With `init=False`, attrs still synthesizes the field initializer as `__attrs_init__`, so a
+// hand-written `__init__` can delegate to it.
+attrs_testcase!(
+    test_attrs_define_init_false_attrs_init,
+    r#"
+from typing import reveal_type
+from attrs import define
+
+@define(init=False)
+class C:
+    x: int
+
+reveal_type(C.__attrs_init__)  # E: revealed type: (self: C, x: int) -> None
+"#,
+);
+
 // Explicit `frozen=True` keyword on `@define`.
 attrs_testcase!(
     test_attrs_define_frozen_kwarg,

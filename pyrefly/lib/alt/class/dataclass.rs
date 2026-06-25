@@ -193,6 +193,20 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 )
             };
             fields.insert(dunder::INIT, init_method);
+        } else if matches!(dataclass.kind, DataclassKind::Attrs { .. }) {
+            // With `init=False`, attrs still synthesizes the field initializer but names it
+            // `__attrs_init__` so a hand-written `__init__` can delegate to it.
+            let init_method = self.get_dataclass_init(
+                cls,
+                dataclass,
+                dataclass.kws.strict,
+                &|ty| ty,
+                false,
+                ConverterMap::new(),
+                &kw_only_by_class,
+                errors,
+            );
+            fields.insert(Name::new_static("__attrs_init__"), init_method);
         }
         let dataclass_fields_type = self.stdlib.dict(
             self.heap.mk_class_type(self.stdlib.str().clone()),

@@ -855,3 +855,90 @@ class C:
 C(1) < C(2)  # OK: cmp=None falls back to the order default (True for classic `@attr.s`)
 "#,
 );
+
+// ATTR.FIELDS: the result stays `Any` (it exposes fields by name, which a tuple can't model); we
+// only reject non-attrs class arguments.
+
+// `Any` result supports both indexing and by-name access.
+attrs_testcase!(
+    test_attrs_fields_returns_any,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.define
+class C:
+    x: int
+    y: str
+
+reveal_type(attr.fields(C))     # E: revealed type: Any
+attr.fields(C).x
+attr.fields(C)[0]
+"#,
+);
+
+attrs_testcase!(
+    test_attrs_fields_non_attrs_class,
+    r#"
+import attr
+
+class NotAttrs:
+    x: int
+
+attr.fields(NotAttrs)  # E: is not an attrs class
+"#,
+);
+
+// A dataclass has dataclass metadata of a non-attrs `kind` (distinct path from the plain class).
+attrs_testcase!(
+    test_attrs_fields_dataclass_rejected,
+    r#"
+import attr
+from dataclasses import dataclass
+
+@dataclass
+class D:
+    x: int
+
+attr.fields(D)  # E: is not an attrs class
+"#,
+);
+
+// `type[AttrsInstance]` (the canonical "any attrs class" annotation) must be accepted.
+attrs_testcase!(
+    test_attrs_fields_attrs_instance_param,
+    r#"
+import attr
+from attr import AttrsInstance
+
+def f(cls: type[AttrsInstance]) -> None:
+    attr.fields(cls)
+"#,
+);
+
+// `attrs.has` narrows to `type[AttrsInstance]` via `TypeGuard`.
+attrs_testcase!(
+    test_attrs_fields_has_narrowing,
+    r#"
+import attrs
+
+def f(cls: type) -> None:
+    if not attrs.has(cls):
+        return
+    attrs.fields(cls)
+"#,
+);
+
+attrs_testcase!(
+    test_attrs_fields_type_value,
+    r#"
+import attr
+
+@attr.define
+class C:
+    x: int
+
+def f(cls: type[C]) -> None:
+    attr.fields(cls)
+"#,
+);

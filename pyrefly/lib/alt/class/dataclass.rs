@@ -619,6 +619,59 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         )
     }
 
+    /// Reject a non-attrs class argument to `attr.fields`, matching attrs' runtime
+    /// `NotAnAttrsClassError`. The return stays the stub's `Any`: the result exposes fields by name
+    /// (`fields(C).x`), which a plain tuple type can't model.
+    pub fn call_attrs_fields(
+        &self,
+        fields_ty: &Type,
+        args: &[CallArg],
+        kws: &[CallKeyword],
+        callee_range: TextRange,
+        arg_range: TextRange,
+        hint: Option<HintRef>,
+        errors: &ErrorCollector,
+    ) -> Type {
+        if let [CallArg::Arg(obj_arg)] = args
+            && kws.is_empty()
+        {
+            let cls = match obj_arg.infer(self, errors) {
+                Type::ClassDef(cls) => Some(cls),
+                Type::Type(inner) => match *inner {
+                    Type::ClassType(cls) => Some(cls.class_object().clone()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            // `type[AttrsInstance]` (a Protocol) is the canonical "any attrs class" annotation, so
+            // accept Protocols; non-class arguments are left to the stub.
+            if let Some(cls) = cls {
+                let metadata = self.get_metadata_for_class(&cls);
+                let is_attrs = metadata
+                    .dataclass_metadata()
+                    .is_some_and(|dm| matches!(dm.kind, DataclassKind::Attrs { .. }));
+                if !is_attrs && !metadata.is_protocol() {
+                    self.error(
+                        errors,
+                        arg_range,
+                        ErrorKind::BadArgumentType,
+                        "Argument to `fields()` is not an attrs class".to_owned(),
+                    );
+                    return self.heap.mk_any_explicit();
+                }
+            }
+        }
+        self.freeform_call_infer(
+            fields_ty.clone(),
+            args,
+            kws,
+            callee_range,
+            arg_range,
+            hint,
+            errors,
+        )
+    }
+
     fn get_dataclass_replace(
         &self,
         cls: &Class,

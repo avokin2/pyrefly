@@ -14,6 +14,7 @@ use pyrefly_types::typed_dict::TypedDict;
 use pyrefly_types::typed_dict::TypedDictField;
 use pyrefly_util::prelude::SliceExt;
 use ruff_python_ast::Arguments;
+use ruff_python_ast::Expr;
 use ruff_python_ast::Expr::EllipsisLiteral;
 use ruff_python_ast::name::Name;
 use ruff_text_size::Ranged;
@@ -49,6 +50,7 @@ use crate::error::context::TypeCheckKind;
 use crate::types::callable::Callable;
 use crate::types::callable::FuncMetadata;
 use crate::types::callable::Function;
+use crate::types::callable::FunctionKind;
 use crate::types::callable::Param;
 use crate::types::callable::ParamList;
 use crate::types::callable::Params;
@@ -61,6 +63,7 @@ use crate::types::keywords::DataclassFieldKeywords;
 use crate::types::keywords::DataclassKeywords;
 use crate::types::keywords::TypeMap;
 use crate::types::literal::Lit;
+use crate::types::types::CalleeKind;
 use crate::types::types::Type;
 
 /// Suppresses the assignment check against a field's declared type. Required-ness instead uses
@@ -844,10 +847,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
         // Read the converter from an explicit `converter=` argument only, not the specifier
         // signature (which always declares one) — else every plain field's param goes Unknown.
-        let converter_param = map
-            .0
-            .get(&DataclassFieldKeywords::CONVERTER)
-            .map(|converter| self.get_converter_param(converter));
+        let converter_param = self
+            .attrs_converters_optional_param(args, errors)
+            .or_else(|| {
+                map.0
+                    .get(&DataclassFieldKeywords::CONVERTER)
+                    .map(|converter| self.get_converter_param(converter))
+            });
         // Note that we intentionally don't try to fill in `default`, since we can't distinguish
         // between a real default and something like `dataclasses.MISSING`.
         if init.is_none() || kw_only.is_none() || alias.is_none() {
@@ -997,6 +1003,33 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 ty.clone()
             }
         }))
+    }
+
+    /// `attr.converters.optional(c)` wraps an inner converter so the field also accepts `None`.
+    /// Returns `<c's input> | None` when `converter=` is such a call, else `None` so the caller
+    /// falls back to plain converter handling.
+    fn attrs_converters_optional_param(
+        &self,
+        args: &Arguments,
+        errors: &ErrorCollector,
+    ) -> Option<Type> {
+        let kw = args.keywords.iter().find(|kw| {
+            kw.arg
+                .as_ref()
+                .is_some_and(|n| n.id == DataclassFieldKeywords::CONVERTER)
+        })?;
+        let Expr::Call(call) = &kw.value else {
+            return None;
+        };
+        if !matches!(
+            self.expr_infer(&call.func, errors).callee_kind(),
+            Some(CalleeKind::Function(FunctionKind::AttrsConvertersOptional))
+        ) {
+            return None;
+        }
+        let inner = call.arguments.args.first()?;
+        let inner_ty = self.expr_infer(inner, errors);
+        Some(self.union(self.get_converter_param(&inner_ty), self.heap.mk_none()))
     }
 
     fn get_converter_param(&self, converter: &Type) -> Type {

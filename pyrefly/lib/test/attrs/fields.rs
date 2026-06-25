@@ -168,6 +168,23 @@ C(5)  # E: not assignable to parameter `xs` with type `Iterable[Unknown]`
 "#,
 );
 
+// `attr.converters.optional(c)` makes the `__init__` param the inner converter's input type
+// unioned with `None`.
+attrs_testcase!(
+    test_attrs_field_converters_optional,
+    r#"
+from attrs import define, field
+import attr
+
+@define
+class C:
+    x: int = field(converter=attr.converters.optional(int))
+
+C(None)     # OK: optional converter accepts None
+C([1, 2])   # E: not assignable to parameter `x`
+"#,
+);
+
 // A `factory=` field is optional in `__init__`, but its param keeps the declared
 // annotation type so construction args are still type-checked.
 attrs_testcase!(

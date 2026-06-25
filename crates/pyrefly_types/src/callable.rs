@@ -890,6 +890,9 @@ pub enum FunctionKind {
     NumbaJit,
     /// `numba.njit()`
     NumbaNjit,
+    /// `attr.converters.optional` / `attrs.converters.optional`, which wraps an
+    /// inner converter so the field also accepts `None`.
+    AttrsConvertersOptional,
     /// A function whose return type is computed by a shape DSL definition.
     /// The `FuncId` provides identity (module, class, name) for display and
     /// lookup; the `ShapeDslFunction` carries the parsed DSL IR.
@@ -1250,6 +1253,9 @@ impl FunctionKind {
             ("typing" | "typing_extensions", None, "disjoint_base") => Self::DisjointBase,
             ("numba.core.decorators", None, "jit") => Self::NumbaJit,
             ("numba.core.decorators", None, "njit") => Self::NumbaNjit,
+            ("attr.converters" | "attrs.converters", None, "optional") => {
+                Self::AttrsConvertersOptional
+            }
             ("shape_extensions", None, "uses_shape_dsl") => Self::UsesShapeDsl,
             ("shape_extensions", None, "defines_assert_shape") => Self::DefinesAssertShape,
             _ => Self::Def(Arc::new(FuncId {
@@ -1287,6 +1293,7 @@ impl FunctionKind {
             Self::DisjointBase => ModuleName::typing(),
             Self::NumbaJit => ModuleName::from_str("numba"),
             Self::NumbaNjit => ModuleName::from_str("numba"),
+            Self::AttrsConvertersOptional => ModuleName::from_str("attr.converters"),
             Self::Def(func_id) => func_id.module.name().dupe(),
             Self::ShapeDsl(id, _, _) => id.module.name().dupe(),
             Self::UsesShapeDsl => ModuleName::from_str("shape_extensions"),
@@ -1319,6 +1326,7 @@ impl FunctionKind {
             Self::DisjointBase => Cow::Owned(Name::new_static("disjoint_base")),
             Self::NumbaJit => Cow::Owned(Name::new_static("jit")),
             Self::NumbaNjit => Cow::Owned(Name::new_static("njit")),
+            Self::AttrsConvertersOptional => Cow::Owned(Name::new_static("optional")),
             Self::Def(func_id) => Cow::Borrowed(&func_id.name),
             Self::ShapeDsl(id, _, _) => Cow::Borrowed(&id.name),
             Self::UsesShapeDsl => Cow::Owned(Name::new_static("uses_shape_dsl")),
@@ -1346,6 +1354,7 @@ impl FunctionKind {
             Self::RuntimeCheckable => None,
             Self::NumbaJit => None,
             Self::NumbaNjit => None,
+            Self::AttrsConvertersOptional => None,
             Self::CallbackProtocol(cls) => Some(cls.class_object().dupe()),
             Self::AbstractMethod => None,
             Self::NoTypeCheck => None,

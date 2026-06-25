@@ -55,5 +55,5 @@ tempfile = "3.27.0"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 watchman_client = "0.9.0"
 
-[lints]
-rust = { unexpected_cfgs = { check-cfg = ["cfg(fbcode_build)"], level = "warn" } }
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fbcode_build)"]}

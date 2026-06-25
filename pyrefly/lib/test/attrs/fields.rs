@@ -83,6 +83,91 @@ assert_type(c.x, int)
 "#,
 );
 
+// A generic-class converter (`list[int]`) applies its type arguments: the `__init__` param
+// takes the parameterized constructor's input type, not `Any`.
+attrs_testcase!(
+    test_attrs_field_generic_class_converter,
+    r#"
+from typing import assert_type
+from attrs import define, field
+
+@define
+class C:
+    xs: list[int] = field(converter=list[int])
+
+assert_type(C([1, 2, 3]).xs, list[int])
+C(5)  # E: not assignable to parameter `xs`
+"#,
+);
+
+// The element type of a builtin generic converter is enforced: `list[int]` accepts `Iterable[int]`,
+// so a `list[str]` argument is rejected.
+attrs_testcase!(
+    test_attrs_field_generic_converter_wrong_element,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    xs: list[int] = field(converter=list[int])
+
+C(["a"])  # E: not assignable to parameter `xs` with type `Iterable[int]`
+"#,
+);
+
+// A user-defined generic converter applies its type argument directly: `Box[int]`'s `__init__`
+// parameter `T` becomes `int`, while the stored attribute keeps the declared `Box[int]`.
+attrs_testcase!(
+    test_attrs_field_user_generic_converter,
+    r#"
+from typing import assert_type
+from attrs import define, field
+
+class Box[T]:
+    def __init__(self, x: T) -> None: ...
+
+@define
+class C:
+    b: Box[int] = field(converter=Box[int])
+
+assert_type(C(5).b, Box[int])
+C("x")  # E: not assignable to parameter `b` with type `int`
+"#,
+);
+
+// The type argument is substituted into nested positions of the converter's parameter: `Sink[int]`,
+// whose `__init__` takes `list[T]`, yields an `__init__` parameter of `list[int]`.
+attrs_testcase!(
+    test_attrs_field_generic_converter_nested_typevar,
+    r#"
+from attrs import define, field
+
+class Sink[T]:
+    def __init__(self, xs: list[T]) -> None: ...
+
+@define
+class C:
+    s: Sink[int] = field(converter=Sink[int])
+
+C(5)  # E: not assignable to parameter `s` with type `list[int]`
+"#,
+);
+
+// A bare (unsubscripted) generic converter still works via the class-object path: `list` promotes
+// to `list[Unknown]`, so the `__init__` parameter is `Iterable[Unknown]`.
+attrs_testcase!(
+    test_attrs_field_bare_generic_converter,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    xs: list[int] = field(converter=list)
+
+C(5)  # E: not assignable to parameter `xs` with type `Iterable[Unknown]`
+"#,
+);
+
 // A `factory=` field is optional in `__init__`, but its param keeps the declared
 // annotation type so construction args are still type-checked.
 attrs_testcase!(

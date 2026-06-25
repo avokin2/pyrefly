@@ -966,21 +966,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     }
 
     fn constructor_to_callable_distributed(&self, ty: &Type) -> Option<Type> {
-        if let Type::ClassDef(cls) = ty
-            && let Type::ClassType(instance) = self.promote_silently(cls)
-        {
-            let callable = self.constructor_to_callable(&instance);
-            Some(self.distribute_over_union(&callable, |ty| {
-                if let Type::BoundMethod(m) = ty {
-                    self.bind_boundmethod(m, &mut |a, b| self.is_subset_eq(a, b))
-                        .unwrap_or_else(|| ty.clone())
-                } else {
-                    ty.clone()
-                }
-            }))
-        } else {
-            None
-        }
+        let instance = match ty {
+            Type::ClassDef(cls) => self.promote_silently(cls),
+            Type::Type(inner) => (**inner).clone(),
+            _ => return None,
+        };
+        let Type::ClassType(instance) = instance else {
+            return None;
+        };
+        let callable = self.constructor_to_callable(&instance);
+        Some(self.distribute_over_union(&callable, |ty| {
+            if let Type::BoundMethod(m) = ty {
+                self.bind_boundmethod(m, &mut |a, b| self.is_subset_eq(a, b))
+                    .unwrap_or_else(|| ty.clone())
+            } else {
+                ty.clone()
+            }
+        }))
     }
 
     fn get_converter_param(&self, converter: &Type) -> Type {

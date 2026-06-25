@@ -232,6 +232,11 @@ class BaseModel:
     }
 
     #[test]
+    fn test_stubgen_class_vars() {
+        assert_stubgen_snapshot("class_vars");
+    }
+
+    #[test]
     fn test_stubgen_typevar() {
         assert_stubgen_snapshot("typevar");
     }

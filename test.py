@@ -47,6 +47,7 @@ class TestFlags:
     run_fmt: bool
     run_lint: bool
     run_test: bool
+    run_tensor_shapes: bool
     run_conformance: bool
     run_jsonschema: bool
 
@@ -117,6 +118,10 @@ class Executor(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
+    def tensor_shapes(self) -> None:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
     def conformance(self) -> None:
         raise NotImplementedError()
 
@@ -155,8 +160,6 @@ class CargoExecutor(Executor):
     def test(self) -> None:
         run(["cargo", "build"])
         run(["cargo", "test"])
-        # The runner resolves the debug pyrefly itself, so we don't pass `--pyrefly`.
-        run([sys.executable, "tensor-shapes/torch/run_pyrefly.py"])
         scrut_path = shutil.which("scrut")
         if scrut_path is None:
             print(
@@ -188,6 +191,11 @@ class CargoExecutor(Executor):
                 "PATH": os.environ.get("PATH", ""),
             },
         )
+
+    def tensor_shapes(self) -> None:
+        run(["cargo", "build"])
+        # The runner resolves the debug pyrefly itself, so we don't pass `--pyrefly`.
+        run([sys.executable, "tensor-shapes/torch/run_pyrefly.py"])
 
     def conformance(self) -> None:
         cargo_target_dir = os.environ.get("CARGO_TARGET_DIR", "target")
@@ -238,12 +246,32 @@ class BuckExecutor(Executor):
         )
         tests = [line.strip() for line in res.stdout.splitlines()] + [
             "test/...",
-            "tensor-shapes/...",
         ]
         run(
             ["buck2", "test"]
             + tests
             + ["--", "--run-disabled", "--return-zero-on-skips"]
+        )
+
+    def tensor_shapes(self) -> None:
+        if "SANDCASTLE_NONCE" in os.environ:
+            print(
+                "Skipping tensor shape tests on CI because they're already scheduled."
+            )
+            return
+        run(
+            [
+                "buck2",
+                "test",
+                "tensor-shapes/torch/examples:torch_examples_test",
+                "tensor-shapes/torch/test:tensor_shapes_all_test",
+                "tensor-shapes/torch/test:tensor_shapes_error_test",
+                "tensor-shapes/torch/test:tensor_shapes_jaxtyping_test",
+                "tensor-shapes/torch/test:tensor_shapes_jaxtyping_error_test",
+                "--",
+                "--run-disabled",
+                "--return-zero-on-skips",
+            ]
         )
 
     def conformance(self) -> None:
@@ -283,6 +311,11 @@ def run_tests(executor: Executor, test_flags: TestFlags) -> None:
         print_running("tests")
         with timing():
             executor.test()
+
+    if test_flags.run_tensor_shapes:
+        print_running("tensor shape tests")
+        with timing():
+            executor.tensor_shapes()
 
     if test_flags.run_conformance:
         print_running("conformance tests")
@@ -339,6 +372,12 @@ def invoke_main() -> None:
         help="Whether to run testing or not",
     )
     parser.add_argument(
+        "--tensor-shapes",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Whether to run tensor shape tests or not",
+    )
+    parser.add_argument(
         "--conformance",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -358,6 +397,7 @@ def invoke_main() -> None:
                 run_fmt=args.fmt,
                 run_lint=args.lint,
                 run_test=args.test,
+                run_tensor_shapes=args.tensor_shapes,
                 run_conformance=args.conformance,
                 run_jsonschema=args.jsonschema,
             ),

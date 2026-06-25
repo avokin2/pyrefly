@@ -5,7 +5,7 @@
 
 """Compare regular generics vs Tensor+Dim generics"""
 
-from typing import reveal_type, TYPE_CHECKING
+from typing import assert_type, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -17,7 +17,7 @@ def identity_regular[T](x: T) -> T:
 
 
 result1 = identity_regular(5)
-reveal_type(result1)  # E: revealed type: int
+assert_type(result1, int)
 
 
 # Test 2: Generic function with Tensor using Dim
@@ -29,7 +29,7 @@ import torch
 
 x_concrete: Tensor[2, 3] = torch.randn(2, 3)
 result2 = identity_tensor(x_concrete)
-reveal_type(result2)  # E: revealed type: Tensor[2, 3]
+assert_type(result2, Tensor[2, 3])
 
 # Test what assignment works
 correct_assignment: Tensor[2, 3] = result2

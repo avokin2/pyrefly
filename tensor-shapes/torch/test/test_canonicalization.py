@@ -14,7 +14,7 @@ Each test documents:
 2. What types are structurally compatible (via assignment to expected type)
 """
 
-from typing import assert_type, reveal_type, TYPE_CHECKING
+from typing import assert_type, TYPE_CHECKING
 
 import torch
 
@@ -26,7 +26,6 @@ def test_combine_like_terms[N, M](x: Tensor[N, M]) -> Tensor[M * N]:
     """Test that products are structurally commutative: N*M compatible with M*N"""
     # Flatten produces N*M (left-associative)
     result = x.flatten(0, 1)
-    reveal_type(result)
     # Assert the actual inferred type
     assert_type(result, Tensor[N * M])
     # Show structural compatibility with commuted order
@@ -40,10 +39,9 @@ def test_division_flattening[N, M, K](
     """Test that symbolic slicing preserves dimension expressions"""
     # Flatten first two dims: N*M
     flattened = x.flatten(0, 1)
-    reveal_type(flattened)
+    assert_type(flattened, Tensor[N * M, K])
     # Slice with symbolic bound
     result = flattened[: flattened.size(0) // 2, :]
-    reveal_type(result)
     # Assert the actual inferred type
     assert_type(result, Tensor[(N * M) // 2, K])
     return result
@@ -54,7 +52,6 @@ def test_product_ordering[N, M, K](
 ) -> Tensor[M * N * K]:
     """Test that products are structurally commutative: N*M*K compatible with other orderings"""
     result = x.flatten(0, 2)
-    reveal_type(result)
     # Assert the actual inferred type (left-associative: ((N * M) * K))
     assert_type(result, Tensor[N * M * K])
     # Show structural compatibility with different orderings
@@ -69,7 +66,6 @@ def test_flatten_compatibility[B, C, H, W](
 ) -> Tensor[W * H * C * B]:
     """Test that flatten produces correct product"""
     flattened = images.flatten()
-    reveal_type(flattened)
     # Assert the actual inferred type (left-associative)
     assert_type(flattened, Tensor[B * C * H * W])
     # Show structural compatibility with reversed order
@@ -81,7 +77,6 @@ def test_literal_evaluation[N](x: Tensor[N, 10]) -> Tensor[N * 10]:
     """Test that literal expressions evaluate correctly"""
     # Flatten creates N*10
     result = x.flatten(0, 1)
-    reveal_type(result)
     assert_type(result, Tensor[N * 10])
     return result
 
@@ -113,10 +108,6 @@ def test_multi_dim_flatten[A, B, C, D, E](
     r1 = x.flatten(0, 2)  # A*B*C, D, E
     r2 = x.flatten(0, 4)  # A*B*C*D*E
     r3 = x.flatten(1, 3)  # A, B*C*D, E
-
-    reveal_type(r1)
-    reveal_type(r2)
-    reveal_type(r3)
 
     # Assert the actual inferred types (left-associative)
     assert_type(r1, Tensor[A * B * C, D, E])
@@ -160,7 +151,7 @@ def test_pow_product_grouping[I](
 ) -> Tensor[2**I]:
     """2 * 2**I = 2**(I+1) and 2**(I+1) canonically equals... 2**(I+1).
     But we test that 2 * 2**(I-1) = 2**I via product grouping."""
-    reveal_type(x)
+    assert_type(x, Tensor[2**I])
     return x
 
 

@@ -5,7 +5,7 @@
 
 """Test if Dim type variables work correctly in non-Tensor contexts"""
 
-from typing import Generic, reveal_type
+from typing import Any, assert_type, Generic
 
 
 # Test 1: Dim type variable in a regular generic class
@@ -21,7 +21,7 @@ def process_container[N](c: MyContainer[N]) -> MyContainer[N]:
 # E: Expected a type form, got instance of `Literal[5]`
 container: MyContainer[5] = MyContainer(42)
 result = process_container(container)
-reveal_type(result)  # E: revealed type: MyContainer[Unknown]
+assert_type(result, MyContainer[Any])
 
 
 # Test 2: Dim type variable as a regular parameter (not in subscript)
@@ -31,4 +31,4 @@ def identity_dim[N](x: int) -> int:
 
 
 result2 = identity_dim(42)
-reveal_type(result2)  # E: revealed type: int
+assert_type(result2, int)

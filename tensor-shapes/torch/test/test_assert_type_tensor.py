@@ -5,7 +5,7 @@
 
 """Test that assert_type works with Tensor types for automated type checking"""
 
-from typing import Any, assert_type, reveal_type, TYPE_CHECKING
+from typing import Any, assert_type, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
@@ -62,11 +62,11 @@ y2 = model(x2)
 assert_type(y2, Tensor[16, 10])
 
 x3 = torch.randn(16, 5)
-reveal_type(x3)  # should be Tensor[16, 5]
+assert_type(x3, Tensor[16, 5])
 x4: Tensor = x3
-reveal_type(x4)  # should be Tensor
+assert_type(x4, Tensor)
 x5: Tensor[16, Any] = x4
-reveal_type(x5)  # should be Tensor[16, Any]
+assert_type(x5, Tensor[16, Any])
 
 """
 x6: Tensor[17, Any] = x5

@@ -9,15 +9,15 @@ This test documents that int literals can be assigned to Dim types,
 including bare Dim, Dim[Any], or passed to functions with type parameters.
 """
 
-from typing import Any, assert_type, reveal_type, TYPE_CHECKING
+from typing import Any, assert_type, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from shape_extensions import Dim
 
 symint_implicit_any: Dim = 4
-reveal_type(symint_implicit_any)  # E: revealed type: Dim
+assert_type(symint_implicit_any, Dim)
 symint_explicit_any: Dim[Any] = 4
-reveal_type(symint_explicit_any)  # E: revealed type: Dim[Any]
+assert_type(symint_explicit_any, Dim[Any])
 
 
 def accept_and_return_symint[N](s: Dim[N]) -> Dim[N]:
@@ -29,8 +29,8 @@ def test_accept_and_return_symint():
     assert_type(s, Dim[4])
     n: int = 4
     s_n = accept_and_return_symint(n)
-    reveal_type(s_n)  # E: revealed type: Dim
+    assert_type(s_n, Dim)
     s_implicit_any = accept_and_return_symint(symint_implicit_any)
-    reveal_type(s_implicit_any)  # E: revealed type: Dim
+    assert_type(s_implicit_any, Dim)
     s_explicit_any = accept_and_return_symint(symint_explicit_any)
-    reveal_type(s_explicit_any)  # E: revealed type: Dim[Any]
+    assert_type(s_explicit_any, Dim[Any])

@@ -5,7 +5,7 @@
 
 """Test if type checking works with literal tensor types"""
 
-from typing import reveal_type, TYPE_CHECKING
+from typing import assert_type, TYPE_CHECKING
 
 import torch
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 def test_literal_shape_mismatch() -> Tensor[4, 3]:
     """Literal shape mismatch is rejected."""
     x: Tensor[2, 3] = torch.randn(2, 3)
-    reveal_type(x)  # E: revealed type: Tensor[2, 3]
+    assert_type(x, Tensor[2, 3])
 
     # E: Returned type `Tensor[2, 3]` is not assignable
     #    to declared return type `Tensor[4, 3]`

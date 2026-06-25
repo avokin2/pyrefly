@@ -5,11 +5,12 @@
 
 """Test .view() and .reshape() with symbolic dimensions"""
 
-from typing import assert_type, reveal_type, TYPE_CHECKING
+from typing import assert_type, TYPE_CHECKING
 
 import torch
 
 if TYPE_CHECKING:
+    from shape_extensions import Dim
     from torch import Tensor
 
 
@@ -41,8 +42,8 @@ def test_view_symbolic[N, M](x: Tensor[N, M]) -> Tensor[2, N // 2, M]:
     # Get both dimensions from input - these return Dim[N] and Dim[M]
     n = x.size(0)
     m = x.size(1)
-    reveal_type(n // 2)
-    reveal_type(m)
+    assert_type(n // 2, Dim[N // 2])
+    assert_type(m, Dim[M])
     # Reshape: split N into 2 and N//2, keep M
     # The meta-shape system tracks the symbolic dimensions
     return x.view(2, n // 2, m)

@@ -5,7 +5,7 @@
 
 """Test what type C[3 * N] produces"""
 
-from typing import assert_type, reveal_type, TYPE_CHECKING
+from typing import assert_type, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from shape_extensions import Dim
@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 def test_subscript[N](n: Dim[N]):
     # What type does Linear[N, 3 * N] produce?
-    reveal_type(Linear[N, (3 * N)])
+    assert_type(Linear[N, (3 * N)], type[Linear[N, (3 * N)]])
     x = Linear(n, 3 * n)
-    reveal_type(x)
     assert_type(x, Linear[N, (3 * N)])

@@ -7,12 +7,13 @@
 # Week 2-3: Systematic tests with TypeVar-based dimension variables
 # Using modern Python 3.12+ generic syntax: def f[N]
 
-from typing import assert_type, reveal_type
+from typing import assert_type
 
 import torch
 import torch.fft
 import torch.linalg
 import torch.nn.functional as F
+from shape_extensions import Dim
 from torch import Tensor
 
 # ==== Week 2: Symbolic Dimension Tests ====
@@ -983,7 +984,7 @@ def test_expand[N](x: Tensor[N, 1]):
     """Expand to target size"""
     # expand() with runtime values - checking what it actually returns
     n = x.size(0)
-    reveal_type(n)
+    assert_type(n, Dim[N])
     y = x.expand(n, 5)
     # Expands [N, 1] → [N, 5] (keeps dim 0, broadcasts dim 1)
     assert_type(y, Tensor[N, 5])
@@ -1040,7 +1041,6 @@ def test_adaptive_avg_pool2d[B](x: Tensor[B, 64, 56, 56]):
 def test_diag_embed[B, N](x: Tensor[B, N]):
     """Diag_embed creates matrix from vector"""
     y = torch.diag_embed(x)
-    reveal_type(y)
     # Creates diagonal matrix: [B, N] → [B, N, N]
     assert_type(y, Tensor[B, N, N])
 

@@ -1462,9 +1462,7 @@ fn test_missing_source_with_config_diagnostic_has_errors() {
                     == Some(lsp_types::NumberOrString::String(
                         "missing-import".to_owned(),
                     ))
-                    && item
-                        .message
-                        .starts_with("Cannot find module `whatthepatch`")
+                    && matches!(&item.message, lsp_types::DiagnosticMessage::String(s) if s.starts_with("Cannot find module `whatthepatch`"))
                     && item.range.start.line == 5
                     && item.range.start.character == 7
                     && item.range.end.line == 5

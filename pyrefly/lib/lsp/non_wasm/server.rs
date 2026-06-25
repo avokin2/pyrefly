@@ -87,9 +87,10 @@ use lsp_types::InlayHintLabel;
 use lsp_types::InlayHintLabelPart;
 use lsp_types::InlayHintParams;
 use lsp_types::Location;
-use lsp_types::NotebookCellSelector;
+use lsp_types::NotebookCellLanguage;
+use lsp_types::NotebookDocumentFilterWithCells;
+use lsp_types::NotebookDocumentSyncFilter;
 use lsp_types::NotebookDocumentSyncOptions;
-use lsp_types::NotebookSelector;
 use lsp_types::NumberOrString;
 use lsp_types::OneOf;
 use lsp_types::Position;
@@ -1361,15 +1362,18 @@ pub fn capabilities(
                 }),
                 ..Default::default()
             }),
+            text_document_content: None,
         }),
         notebook_document_sync: if sync_notebooks {
             Some(OneOf::Left(NotebookDocumentSyncOptions {
-                notebook_selector: vec![NotebookSelector::ByCells {
-                    notebook: None,
-                    cells: vec![NotebookCellSelector {
-                        language: "python".into(),
-                    }],
-                }],
+                notebook_selector: vec![NotebookDocumentSyncFilter::WithCells(
+                    NotebookDocumentFilterWithCells {
+                        notebook: None,
+                        cells: vec![NotebookCellLanguage {
+                            language: "python".into(),
+                        }],
+                    },
+                )],
                 save: None,
             }))
         } else {
@@ -5321,7 +5325,9 @@ impl Server {
                     range: lsp_range,
                     severity: Some(DiagnosticSeverity::HINT),
                     source: Some("Pyrefly".to_owned()),
-                    message: "This code is unreachable for the current configuration".to_owned(),
+                    message: "This code is unreachable for the current configuration"
+                        .to_owned()
+                        .into(),
                     code: Some(NumberOrString::String("unreachable-code".to_owned())),
                     code_description: None,
                     related_information: None,
@@ -5348,7 +5354,7 @@ impl Server {
                     range: lsp_range,
                     severity: Some(DiagnosticSeverity::HINT),
                     source: Some("Pyrefly".to_owned()),
-                    message: format!("Parameter `{}` is unused", unused.name.as_str()),
+                    message: format!("Parameter `{}` is unused", unused.name.as_str()).into(),
                     code: Some(NumberOrString::String("unused-parameter".to_owned())),
                     code_description: None,
                     related_information: None,
@@ -5372,7 +5378,7 @@ impl Server {
                     range: lsp_range,
                     severity: Some(DiagnosticSeverity::HINT),
                     source: Some("Pyrefly".to_owned()),
-                    message: format!("Import `{}` is unused", unused.name.as_str()),
+                    message: format!("Import `{}` is unused", unused.name.as_str()).into(),
                     code: Some(NumberOrString::String("unused-import".to_owned())),
                     code_description: None,
                     related_information: None,
@@ -5399,7 +5405,7 @@ impl Server {
                     range: lsp_range,
                     severity: Some(DiagnosticSeverity::HINT),
                     source: Some("Pyrefly".to_owned()),
-                    message: format!("Variable `{}` is unused", unused.name.as_str()),
+                    message: format!("Variable `{}` is unused", unused.name.as_str()).into(),
                     code: Some(NumberOrString::String("unused-variable".to_owned())),
                     code_description: None,
                     related_information: None,

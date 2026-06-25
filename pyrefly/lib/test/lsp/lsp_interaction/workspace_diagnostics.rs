@@ -609,7 +609,7 @@ fn test_did_close_no_stale_memory_path_errors() {
                             && params
                                 .diagnostics
                                 .iter()
-                                .any(|d| d.message.contains("memory path not found"))
+                                .any(|d| matches!(&d.message, lsp_types::DiagnosticMessage::String(s) if s.contains("memory path not found")))
                         {
                             return Some(Ok(true));
                         }

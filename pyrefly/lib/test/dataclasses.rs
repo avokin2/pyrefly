@@ -1972,9 +1972,27 @@ class B:
     b: str = "default"
 
 @dataclass
-class C(A, B):
+class C(A, B):  # E: Dataclass field `a` without a default may not follow dataclass field with a default
     c: float = field(kw_only=True)  # OK - kw_only
     d: bool  # E: Dataclass field `d` without a default may not follow dataclass field with a default
+    "#,
+);
+
+testcase!(
+    test_field_ordering_inherited_conflict_not_repeated_on_subclass,
+    r#"
+from dataclasses import dataclass
+@dataclass
+class HasDefault:
+    a: int = 0
+
+@dataclass
+class Origin(HasDefault):
+    b: int  # E: Dataclass field `b` without a default may not follow dataclass field with a default
+
+@dataclass
+class Sub(Origin):
+    pass
     "#,
 );
 

@@ -1100,6 +1100,36 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         positional_fields
     }
 
+    /// Whether class `c`'s own init layout orders the non-default, non-kw-only field `name` after a
+    /// defaulted field. `kw_only_by_class` must cover `c`'s fields (a subclass's map suffices, since
+    /// `c`'s fields are all defined in the subclass's ancestors).
+    fn init_field_after_default(
+        &self,
+        c: &Class,
+        name: &Name,
+        kw_only_by_class: &SmallMap<Class, SmallSet<Name>>,
+    ) -> bool {
+        let metadata = self.get_metadata_for_class(c);
+        let Some(dataclass) = metadata.dataclass_metadata() else {
+            return false;
+        };
+        let mut has_seen_default = false;
+        for (n, _field, flags) in self.iter_fields(c, dataclass, true, kw_only_by_class) {
+            if !flags.init || flags.is_kw_only() {
+                continue;
+            }
+            let has_default =
+                flags.default.is_some() || (flags.init_by_name && flags.init_by_alias.is_some());
+            if &n == name {
+                return !has_default && has_seen_default;
+            }
+            if has_default {
+                has_seen_default = true;
+            }
+        }
+        false
+    }
+
     /// Gets __init__ method for an `@dataclass`-decorated class.
     fn get_dataclass_init(
         &self,
@@ -1132,20 +1162,38 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     || (field_flags.init_by_name && field_flags.init_by_alias.is_some());
                 let is_kw_only = field_flags.is_kw_only();
                 if !is_kw_only {
-                    if !has_default
-                        && has_seen_default
-                        && let Some(range) = self
+                    if !has_default && has_seen_default {
+                        // `Some` only when the field is declared in this class's own body;
+                        // `None` when it is inherited from a base.
+                        let own_decl_range = self
                             .get_class_fields(cls)
-                            .and_then(|f| f.field_decl_range(&name))
-                    {
-                        self.error(
-                            errors,
-                            range,
-                            ErrorKind::BadClassDefinition,
-                            format!(
-                                "Dataclass field `{name}` without a default may not follow dataclass field with a default"
-                            ),
-                        );
+                            .and_then(|f| f.field_decl_range(&name));
+                        // Report at the class where the conflict first appears: if the field is
+                        // declared in this class, report here; if it is inherited, report only when
+                        // no base already reports it (else every subclass would repeat the error).
+                        let reported_by_base = own_decl_range.is_none()
+                            && self
+                                .get_mro_for_class(cls)
+                                .ancestors_no_object()
+                                .iter()
+                                .any(|base| {
+                                    base.class_object() != cls
+                                        && self.init_field_after_default(
+                                            base.class_object(),
+                                            &name,
+                                            kw_only_by_class,
+                                        )
+                                });
+                        if !reported_by_base {
+                            self.error(
+                                errors,
+                                own_decl_range.unwrap_or_else(|| cls.range()),
+                                ErrorKind::BadClassDefinition,
+                                format!(
+                                    "Dataclass field `{name}` without a default may not follow dataclass field with a default"
+                                ),
+                            );
+                        }
                     }
                     if has_default {
                         has_seen_default = true;

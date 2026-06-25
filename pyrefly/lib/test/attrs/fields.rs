@@ -313,6 +313,66 @@ class C:
 "#,
 );
 
+// A non-default field inherited from one base, ordered after a defaulted field from another,
+// is a merge-induced ordering error reported at the subclass definition.
+attrs_testcase!(
+    test_attrs_inherited_nondefault_after_default,
+    r#"
+from attrs import define, field
+
+@define
+class Base:
+    a: int = field(default=5)
+
+@define
+class Mixin:
+    b: int = field()
+
+@define
+class Sub(Mixin, Base):  # E: without a default may not follow
+    pass
+"#,
+);
+
+// A conflict contained within a single base is reported once (on that base); a subclass that
+// merely inherits it does NOT re-report it.
+attrs_testcase!(
+    test_attrs_inherited_conflict_not_reported_on_subclass,
+    r#"
+from attrs import define, field
+
+@define
+class Base:
+    a: int = field(default=5)
+    b: int = field()  # E: without a default may not follow
+
+@define
+class Sub(Base):
+    pass
+"#,
+);
+
+// A required field declared in a class that *inherits* a defaulted field: the conflict
+// originates at — and is reported once at — that class; subclasses inheriting it stay silent.
+attrs_testcase!(
+    test_attrs_inherited_default_local_required_not_repeated,
+    r#"
+from attrs import define, field
+
+@define
+class HasDefault:
+    where: int = field(default=0)
+
+@define
+class Origin(HasDefault):
+    arg: int = field()  # E: without a default may not follow
+
+@define
+class Inheritor(Origin):
+    pass
+"#,
+);
+
 // Mixed class: NOTHING field required, real-default field optional, declared param types.
 attrs_testcase!(
     test_attrs_field_nothing_default_init_signature,

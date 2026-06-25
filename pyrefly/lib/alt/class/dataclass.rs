@@ -1216,9 +1216,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 };
 
                 if field_flags.init_by_name {
-                    // attrs strips leading underscores when naming a private field's init param.
-                    let stripped = name.as_str().trim_start_matches('_');
-                    let param_name = if matches!(dataclass.kind, DataclassKind::Attrs { .. })
+                    // attrs names a private field's init param by its Python-mangled name with
+                    // leading underscores stripped: `__y` in class `C` -> `_C__y` -> `C__y`;
+                    // `_x` -> `x`. Mangling applies to dunder-leading, non-dunder-trailing names.
+                    let is_attrs = matches!(dataclass.kind, DataclassKind::Attrs { .. });
+                    let class_name = cls.name().as_str().trim_start_matches('_');
+                    let mangled = if is_attrs
+                        && name.as_str().starts_with("__")
+                        && !name.as_str().ends_with("__")
+                        && !class_name.is_empty()
+                    {
+                        Some(format!("_{class_name}{name}"))
+                    } else {
+                        None
+                    };
+                    let effective = mangled.as_deref().unwrap_or_else(|| name.as_str());
+                    let stripped = effective.trim_start_matches('_');
+                    let param_name = if is_attrs
                         && !stripped.is_empty()
                         && stripped.len() != name.as_str().len()
                     {

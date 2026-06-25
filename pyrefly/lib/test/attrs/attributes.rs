@@ -189,12 +189,10 @@ Sub(a=1, b=2)
 "#,
 );
 
-// GAP: a dunder-leading field `__y` is Python name-mangled to `_C__y` before attrs strips
-// leading underscores, so real attrs names the param `C__y`. Pyrefly does not model
-// name-mangling and yields `y`.
+// A dunder-leading field `__y` is Python name-mangled to `_C__y` before attrs strips leading
+// underscores, so the init param is `C__y`.
 attrs_testcase!(
-    bug = "pyrefly does not model Python name-mangling: `__y` should map to param `C__y`, not `y`",
-    test_attrs_dunder_leading_name_mangling_gap,
+    test_attrs_dunder_leading_name_mangling,
     r#"
 from typing import reveal_type
 import attrs
@@ -203,7 +201,7 @@ import attrs
 class C:
     __y: int
 
-reveal_type(C.__init__)  # E: revealed type: (self: C, y: int) -> None
+reveal_type(C.__init__)  # E: revealed type: (self: C, C__y: int) -> None
 "#,
 );
 

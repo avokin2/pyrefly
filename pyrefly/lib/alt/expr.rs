@@ -3645,6 +3645,19 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
     }
 
+    /// Return whether a tuple-carrier shape contains an unbounded tuple segment.
+    fn has_unbounded_tuple_carrier(ty: &Type) -> bool {
+        match ty {
+            Type::Tuple(Tuple::Unbounded(_)) => true,
+            Type::Tuple(Tuple::Unpacked(unpacked)) => {
+                let (_, middle, _) = &**unpacked;
+                Self::has_unbounded_tuple_carrier(middle)
+            }
+            Type::Unpack(inner) => Self::has_unbounded_tuple_carrier(inner),
+            _ => false,
+        }
+    }
+
     /// Parse a shape argument list like `[2, 3]`, `[N + M, K]`, or `[2, *Shape, 4]`.
     ///
     /// Returns both the tensor shape and the flattened type arguments to feed to
@@ -3744,17 +3757,16 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 // scoped to the registered shape argument only -- it is purely
                 // syntax normalization for that slot, NOT general support for
                 // tuple literals in arbitrary type positions.
-                let shape_idx = self
-                    .get_class_tparams(cls)
+                let tparams = self.get_class_tparams(cls);
+                let shape_idx = tparams
                     .iter()
                     .position(|param| param == &shape_param)
                     .expect("shaped-array metadata should refer to a class type parameter");
-                // Map every argument by position. Arity is validated later by
-                // `specialize_nontypeddict_to_classtype`, so we do not assume the
-                // shape slot is present or that the argument count matches: extra
-                // args (e.g. `Array[2, 3, int]`) flow through as ordinary type
-                // arguments and surface as a normal arity error, not as compact
-                // tuple syntax.
+                // Map every argument by position. Missing or extra args still
+                // flow to ordinary specialization/arity diagnostics; shape-slot
+                // validation runs when the shape argument was supplied and the
+                // annotation does not have too many positional type arguments.
+                let validate_shape_slot = shape_idx < args.len() && args.len() <= tparams.len();
                 let class_targs = args
                     .iter()
                     .enumerate()
@@ -3772,7 +3784,28 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                                 None => Type::any_error(),
                             }
                         }
-                        _ => self.expr_untype(arg, TypeFormContext::TypeArgument, errors),
+                        _ => {
+                            let ty = self.expr_untype(arg, TypeFormContext::TypeArgument, errors);
+                            // An unbounded tuple (`tuple[int, ...]`, `tuple[Any, ...]`,
+                            // `tuple[object, ...]`) carries no concrete rank, so it
+                            // cannot serve as a shaped-array shape carrier. Reject it
+                            // here, where we still have the source range, instead of
+                            // silently projecting it to a shapeless array later.
+                            if validate_shape_slot
+                                && i == shape_idx
+                                && Self::has_unbounded_tuple_carrier(&ty)
+                            {
+                                self.error(
+                                    errors,
+                                    arg.range(),
+                                    ErrorKind::InvalidAnnotation,
+                                    "Unbounded tuple types cannot be used as shaped-array shape carriers".to_owned(),
+                                );
+                                Type::any_error()
+                            } else {
+                                ty
+                            }
+                        }
                     })
                     .collect();
                 let base_class =

@@ -333,24 +333,6 @@ class ShapeIsParamSpec[**Shape, DType]: ...
 );
 
 testcase!(
-    test_shaped_array_typevar_carrier_no_panic,
-    shaped_array_env(),
-    r#"
-from typing import Literal
-from shape_extensions import shaped_array
-
-@shaped_array(shape="Shape")
-class Array[Shape, DType]: ...
-
-def f[S](
-    x: Array[S, int],
-    y: Array[tuple[Literal[2], Literal[3]], int],
-    z: Array[tuple[int, ...], int],
-) -> None: ...
-"#,
-);
-
-testcase!(
     test_shaped_array_compact_tuple_carrier,
     shaped_array_env(),
     r#"
@@ -413,21 +395,64 @@ def f(
 );
 
 testcase!(
-    bug = "unbounded tuple shape carriers should be rejected but must not panic",
-    test_shaped_array_unbounded_tuple_carrier_no_panic,
+    test_shaped_array_unbounded_tuple_carrier_rejected,
     shaped_array_env(),
     r#"
-from typing import reveal_type
+from typing import Any, Literal, reveal_type
 from shape_extensions import shaped_array
 
 @shaped_array(shape="Shape")
 class Array[Shape, DType]: ...
 
-# Unbounded tuple carriers do not (yet) produce a source-aware error. They
-# project to an unknown-rank/shapeless tensor internally so that solving never
-# panics. The desired end state is a diagnostic rejecting this form.
-def f(x: Array[tuple[int, ...], int]) -> None:
-    reveal_type(x)  # E: revealed type: Array
+@shaped_array(shape="Shape")
+class DTypeFirstArray[DType, Shape]:
+    def dtype(self) -> DType: ...
+
+@shaped_array(shape="Shape")
+class ArrayWithDefault[Shape, DType = int]: ...
+
+# Unbounded tuple carriers have no concrete rank, so they cannot serve as a
+# shaped-array shape carrier. Each form is rejected at the shape argument with a
+# source-aware diagnostic; internally the slot degrades to an error type so that
+# solving never panics or cascades.
+def f_int(x: Array[tuple[int, ...], int]) -> None: ...  # E: Unbounded tuple types cannot be used as shaped-array shape carriers
+def f_any(x: Array[tuple[Any, ...], int]) -> None: ...  # E: Unbounded tuple types cannot be used as shaped-array shape carriers
+def f_object(x: Array[tuple[object, ...], int]) -> None: ...  # E: Unbounded tuple types cannot be used as shaped-array shape carriers
+def f_unpacked_middle(x: Array[tuple[Literal[2], *tuple[int, ...]], int]) -> None: ...  # E: Unbounded tuple types cannot be used as shaped-array shape carriers
+def f_nonfirst_shape(x: DTypeFirstArray[int, tuple[int, ...]]) -> None: ...  # E: Unbounded tuple types cannot be used as shaped-array shape carriers
+def f_defaulted_dtype(x: ArrayWithDefault[tuple[int, ...]]) -> None: ...  # E: Unbounded tuple types cannot be used as shaped-array shape carriers
+
+# The check is scoped to the registered shape slot. Unbounded tuple types remain
+# ordinary type arguments in non-shape positions.
+def non_shape_arg(x: DTypeFirstArray[tuple[int, ...], (2, 3)]) -> None:
+    reveal_type(x.dtype())  # E: revealed type: tuple[int, ...]
+
+# Wrong-arity annotations keep the ordinary arity diagnostic rather than adding
+# a shape-carrier diagnostic.
+def wrong_arity(x: Array[tuple[int, ...], int, str]) -> None: ...  # E: Expected 2 type arguments for `Array`, got 3
+"#,
+);
+
+testcase!(
+    test_shaped_array_fixed_tuple_carriers_still_accepted,
+    shaped_array_env(),
+    r#"
+from typing import Literal, reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+# Fixed PEP-484 tuple carriers remain valid: only unbounded tuples are rejected.
+def f(x: Array[tuple[Literal[2], Literal[3]], int]) -> None:
+    reveal_type(x)  # E: revealed type: Array[(2, 3), int]
+
+# Tuple-carrier shapes with a bounded variadic middle remain valid: only
+# rank-indefinite unbounded tuple middles are rejected.
+def with_typevartuple_middle[*Ts](x: Array[tuple[Literal[2], *Ts], int]) -> None: ...
+
+# Raw generic carriers (a bare type variable in the shape slot) remain valid.
+def g[S](x: Array[S, int]) -> None: ...
 "#,
 );
 

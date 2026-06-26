@@ -1011,3 +1011,107 @@ class C:
 assert_type(fields_dict(C)["x"], attr.Attribute[int])
 "#,
 );
+
+// ON_SETATTR
+//
+// `on_setattr=setters.frozen` makes attributes immutable (attrs raises FrozenAttributeError) without
+// the other effects of a fully `frozen` class (no __hash__ change, no frozen-inheritance rule).
+
+attrs_testcase!(
+    test_attrs_on_setattr_frozen_class_level,
+    r#"
+from attr import define, setters
+
+@define(on_setattr=setters.frozen)
+class C:
+    x: int
+    y: str
+
+c = C(1, "a")
+_ = c.x
+c.x = 2    # E: Cannot set field `x`
+c.y = "b"  # E: Cannot set field `y`
+"#,
+);
+
+attrs_testcase!(
+    test_attrs_on_setattr_no_op_writable,
+    r#"
+from attr import define, setters
+
+@define(on_setattr=setters.NO_OP)
+class C:
+    x: int
+
+C(1).x = 2  # OK
+"#,
+);
+
+// A per-field `on_setattr` overrides the class-level frozen-all default, so a field declared with
+// `setters.NO_OP` stays writable.
+attrs_testcase!(
+    test_attrs_field_on_setattr_overrides_class_frozen,
+    r#"
+from attr import define, field, setters
+
+@define(on_setattr=setters.frozen)
+class C:
+    x: int
+    y: int = field(on_setattr=setters.NO_OP)
+
+c = C(1, 2)
+c.x = 5  # E: Cannot set field `x`
+c.y = 5  # OK
+"#,
+);
+
+// `setters.frozen` inside a list of hooks still freezes the field (attrs runs them as a pipe).
+attrs_testcase!(
+    test_attrs_field_on_setattr_frozen_in_list,
+    r#"
+from attr import define, field, setters
+
+@define
+class C:
+    x: int = field(on_setattr=[setters.validate, setters.frozen])
+    y: int = field(on_setattr=[setters.validate])
+
+c = C(1, 2)
+c.x = 5  # E: Cannot set field `x`
+c.y = 5  # OK: no `frozen` hook
+"#,
+);
+
+// `setters.frozen` inside a `setters.pipe(...)` composition also freezes the field.
+attrs_testcase!(
+    test_attrs_field_on_setattr_frozen_in_pipe,
+    r#"
+from attr import define, field, setters
+
+@define
+class C:
+    x: int = field(on_setattr=setters.pipe(setters.validate, setters.frozen))
+
+C(1).x = 5  # E: Cannot set field `x`
+"#,
+);
+
+// `on_setattr=setters.frozen` is not full frozen-ness: a frozen-all subclass of a non-frozen base
+// must NOT raise the frozen/non-frozen inheritance error, but its own fields are still read-only.
+attrs_testcase!(
+    test_attrs_on_setattr_frozen_not_inheritance_error,
+    r#"
+from attr import define, setters
+
+@define
+class Base:
+    x: int
+
+@define(on_setattr=setters.frozen)
+class C(Base):
+    y: int
+
+c = C(1, 2)
+c.y = 3  # E: Cannot set field `y`
+"#,
+);

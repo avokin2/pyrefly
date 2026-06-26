@@ -42,6 +42,33 @@ pub(crate) fn is_attrs_nothing(ty: &Type) -> bool {
     class.has_qname("attr", "_Nothing") || class.has_qname("attrs", "_Nothing")
 }
 
+/// Recognizes `attr.setters.frozen` / `attrs.setters.frozen` (an `on_setattr` hook that makes an
+/// attribute read-only) by the function's definition identity, which is stable across re-exports.
+pub(crate) fn is_attrs_setters_frozen(ty: &Type) -> bool {
+    if let Type::Function(f) = ty
+        && let FunctionKind::Def(id) = &f.metadata.kind
+    {
+        id.name.as_str() == "frozen"
+            && matches!(id.module.name().as_str(), "attr.setters" | "attrs.setters")
+    } else {
+        false
+    }
+}
+
+/// Recognizes `attr.setters.pipe` / `attrs.setters.pipe`, the combinator that runs several
+/// `on_setattr` hooks in sequence. A `pipe(...)` containing `setters.frozen` still freezes the
+/// attribute, so we look through it at its arguments.
+pub(crate) fn is_attrs_setters_pipe(ty: &Type) -> bool {
+    if let Type::Function(f) = ty
+        && let FunctionKind::Def(id) = &f.metadata.kind
+    {
+        id.name.as_str() == "pipe"
+            && matches!(id.module.name().as_str(), "attr.setters" | "attrs.setters")
+    } else {
+        false
+    }
+}
+
 impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     pub(crate) fn is_attrs_class(
         &self,

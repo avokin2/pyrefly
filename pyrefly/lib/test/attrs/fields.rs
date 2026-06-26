@@ -1449,3 +1449,20 @@ class C:
     x: int = field(eq=str, order=True)
 "#,
 );
+
+// Per-field `on_setattr=setters.frozen` makes only that field read-only; siblings stay writable.
+attrs_testcase!(
+    test_attrs_field_on_setattr_frozen,
+    r#"
+from attr import define, field, setters
+
+@define
+class C:
+    x: int = field(on_setattr=setters.frozen)
+    y: int = field()
+
+c = C(1, 2)
+c.x = 5  # E: Cannot set field `x`
+c.y = 5  # OK
+"#,
+);

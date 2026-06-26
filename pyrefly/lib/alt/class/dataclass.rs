@@ -28,6 +28,8 @@ use crate::alt::answers_solver::AnswersSolver;
 use crate::alt::call::TargetWithTParams;
 use crate::alt::callable::CallArg;
 use crate::alt::callable::CallKeyword;
+use crate::alt::class::attrs::is_attrs_setters_frozen;
+use crate::alt::class::attrs::is_attrs_setters_pipe;
 use crate::alt::class::class_field::ClassField;
 use crate::alt::class::class_field::DataclassMember;
 use crate::alt::types::class_metadata::ClassMetadata;
@@ -832,6 +834,26 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         });
     }
 
+    /// Whether an attrs `on_setattr` argument makes the attribute read-only. Possible forms:
+    /// - a single hook like `setters.frozen`
+    /// - a list or tuple of hooks
+    /// - multiple hooks passed to `setters.pipe`
+    fn on_setattr_is_frozen(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::List(list) => list.elts.iter().any(|e| self.on_setattr_is_frozen(e)),
+            Expr::Tuple(tuple) => tuple.elts.iter().any(|e| self.on_setattr_is_frozen(e)),
+            Expr::Call(call)
+                if is_attrs_setters_pipe(&self.expr_infer(&call.func, &self.error_swallower())) =>
+            {
+                call.arguments
+                    .args
+                    .iter()
+                    .any(|e| self.on_setattr_is_frozen(e))
+            }
+            _ => is_attrs_setters_frozen(&self.expr_infer(expr, &self.error_swallower())),
+        }
+    }
+
     pub fn dataclass_field_keywords(
         &self,
         func: &Type,
@@ -876,6 +898,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
         let strict: Option<bool> = map.0.get(&STRICT).and_then(|v| v.as_bool());
 
+        // The raw expression of the argument for `on_setattr`.
+        let attrs_on_setattr_expr = args
+            .keywords
+            .iter()
+            .find(|kw| {
+                kw.arg
+                    .as_ref()
+                    .is_some_and(|n| n.id == DataclassFieldKeywords::ON_SETATTR)
+            })
+            .map(|kw| &kw.value);
+        let attrs_setattr_frozen = attrs_on_setattr_expr.map(|e| self.on_setattr_is_frozen(e));
+
         // Read the converter from an explicit `converter=` argument only, not the specifier
         // signature (which always declares one) — else every plain field's param goes Unknown.
         let converter_param = self
@@ -914,6 +948,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             le,
             strict,
             converter_param,
+            attrs_setattr_frozen,
         }
     }
 

@@ -967,11 +967,23 @@ fn extract_assign(
     for target in &assign.targets {
         if let Expr::Name(name_expr) = target {
             let name = name_expr.id.as_str();
-            if !should_include_name(name, ctx.config, in_class, ctx.dunder_all) {
+
+            // Preserve a static `__all__` literal verbatim so the stub keeps the
+            // module's re-export semantics (PEP 484): a name imported without a
+            // redundant `as` alias is re-exported only if listed in `__all__`.
+            // Dropping `__all__` would silently un-export such names. (#3924)
+            if !in_class && name == "__all__" {
+                if let Some(value) = dunder_all_value_text(&assign.value, ctx.module_info) {
+                    result.push(StubVariable {
+                        name: "__all__".to_owned(),
+                        annotation: None,
+                        value: Some(value),
+                    });
+                }
                 continue;
             }
 
-            if name == "__all__" {
+            if !should_include_name(name, ctx.config, in_class, ctx.dunder_all) {
                 continue;
             }
 
@@ -1008,6 +1020,15 @@ fn extract_assign(
     }
 
     result
+}
+
+/// Verbatim text of an `__all__` right-hand side when it's a static list or
+/// tuple literal; `None` for computed/dynamic forms we can't safely reproduce.
+fn dunder_all_value_text(value: &Expr, module_info: &Module) -> Option<String> {
+    match value {
+        Expr::List(_) | Expr::Tuple(_) => Some(expr_source_text(module_info, value.range())),
+        _ => None,
+    }
 }
 
 /// Returns `None` for complex expressions.

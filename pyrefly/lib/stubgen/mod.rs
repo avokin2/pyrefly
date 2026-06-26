@@ -257,6 +257,11 @@ class BaseModel:
     }
 
     #[test]
+    fn test_stubgen_dunder_all_reexport() {
+        assert_stubgen_snapshot("dunder_all_reexport");
+    }
+
+    #[test]
     fn test_stubgen_async_generator() {
         assert_stubgen_snapshot("async_generator");
     }

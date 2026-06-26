@@ -218,9 +218,9 @@ class Tensor[*Shape]:
     env
 }
 
-fn assert_shaped_array_shape(shape: &Quantified) {
-    assert_eq!(shape.name().as_str(), "Shape");
-    assert_eq!(shape.kind, QuantifiedKind::TypeVarTuple);
+fn assert_shaped_array_shape(shape: &Quantified, name: &str, kind: QuantifiedKind) {
+    assert_eq!(shape.name().as_str(), name);
+    assert_eq!(shape.kind, kind);
 }
 
 #[test]
@@ -252,9 +252,30 @@ class PlainArray[*Shape]: ...
         let shape = metadata
             .shaped_array_shape()
             .expect("shaped array shape should be present");
-        assert_shaped_array_shape(shape);
+        assert_shaped_array_shape(shape, "Shape", QuantifiedKind::TypeVarTuple);
     }
     assert!(!get_class_metadata("PlainArray", &main, &state).is_shaped_array());
+}
+
+#[test]
+fn test_shaped_array_typevar_shape_is_metadata() {
+    let mut env = shaped_array_env();
+    env.add(
+        "main",
+        r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class TupleCarrierArray[Shape, DType]: ...
+"#,
+    );
+    let (state, handle) = env.to_state();
+    let main = handle("main");
+    let metadata = get_class_metadata("TupleCarrierArray", &main, &state);
+    let shape = metadata
+        .shaped_array_shape()
+        .expect("shaped array shape should be present");
+    assert_shaped_array_shape(shape, "Shape", QuantifiedKind::TypeVar);
 }
 
 testcase!(
@@ -306,8 +327,26 @@ class DuplicateDecoratorAfterInvalid[*Shape]: ...
 @shaped_array(shape="Missing")  # E: Shape parameter `Missing` is not a type parameter of class `ShapeNotFound`
 class ShapeNotFound[*Shape]: ...
 
-@shaped_array(shape="DType")  # E: Shape parameter `DType` must be a `TypeVarTuple`, got `TypeVar`
-class ShapeNotTypeVarTuple[*Shape, DType]: ...
+@shaped_array(shape="Shape")  # E: Shape parameter `Shape` must be a `TypeVar` or `TypeVarTuple`, got `ParamSpec`
+class ShapeIsParamSpec[**Shape, DType]: ...
+"#,
+);
+
+testcase!(
+    test_shaped_array_typevar_carrier_no_panic,
+    shaped_array_env(),
+    r#"
+from typing import Literal
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def f[S](
+    x: Array[S, int],
+    y: Array[tuple[Literal[2], Literal[3]], int],
+    z: Array[tuple[int, ...], int],
+) -> None: ...
 "#,
 );
 

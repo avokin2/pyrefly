@@ -29,6 +29,7 @@ use pyrefly_types::shaped_array::index_shape_int;
 use pyrefly_types::shaped_array::index_shape_multi;
 use pyrefly_types::shaped_array::index_shape_slice;
 use pyrefly_types::shaped_array::index_shape_tensor;
+use pyrefly_types::shaped_array::tuple_carrier_to_shape;
 use pyrefly_types::typed_dict::AnonymousTypedDictInner;
 use pyrefly_types::typed_dict::ExtraItems;
 use pyrefly_types::typed_dict::TypedDict;
@@ -3129,10 +3130,30 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .as_slice()
             .get(shape_idx)
             .expect("class type should have an argument for each type parameter");
-        // Metadata only accepts a `TypeVarTuple` parameter, so the argument is
-        // stored as a tuple carrier. Project it back to an internal shape,
-        // normalizing malformed or unbounded carriers to shapeless.
-        ShapedArrayType::from_tuple_carrier_or_shapeless(cls.clone(), shape_arg)
+        // The shape parameter is either a `TypeVarTuple` (variadic-segment mode)
+        // or a regular `TypeVar` that carries the shape as a single tuple.
+        match shape_param.kind() {
+            QuantifiedKind::TypeVarTuple => {
+                // In TypeVarTuple mode the argument is always stored as a tuple
+                // carrier. Project it back to an internal shape, normalizing
+                // malformed or unbounded carriers to shapeless.
+                ShapedArrayType::from_tuple_carrier_or_shapeless(cls.clone(), shape_arg)
+            }
+            QuantifiedKind::TypeVar => {
+                // In TypeVar mode the argument is a single tuple carrier. If it
+                // projects to a concrete shape, use it. Otherwise (raw carriers
+                // like `S`, `Any`, or other unsolved generic forms) we cannot
+                // recover per-dimension information, so build a shapeless /
+                // unknown-rank array while preserving the original class args.
+                match tuple_carrier_to_shape(shape_arg) {
+                    Some(shape) => ShapedArrayType::new(cls.clone(), shape),
+                    None => ShapedArrayType::shapeless(cls.clone()),
+                }
+            }
+            QuantifiedKind::ParamSpec => {
+                unreachable!("shaped-array metadata validation rejects ParamSpec shape parameters")
+            }
+        }
     }
 
     /// Check if a class is a Dim class (shape_extensions.Dim)
@@ -3611,9 +3632,16 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
     /// Parse a registered shaped-array annotation.
     ///
-    /// The shape segment is determined by the class's registered `TypeVarTuple`
-    /// parameter, so `Array[DType, *Shape]` and `Array[*Shape, DType]` split
-    /// their subscripts differently.
+    /// There are two modes, determined by the kind of the registered shape
+    /// parameter:
+    ///
+    /// - **Variadic segment mode** (`TypeVarTuple`): the shape occupies a
+    ///   variable-length segment of the subscript, so `Array[DType, *Shape]` and
+    ///   `Array[*Shape, DType]` split their subscripts differently.
+    /// - **Single tuple-carrier parameter mode** (`TypeVar`): the shape is a
+    ///   single ordinary type argument carrying a tuple (e.g. NumPy's
+    ///   `ndarray[Shape, DType]`). We specialize the class normally and project
+    ///   the carrier into a shape via `shaped_array_classtype_to_shaped_array_type`.
     fn parse_registered_shaped_array_type(
         &self,
         cls: &Class,
@@ -3624,6 +3652,27 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let shape_param = self
             .shaped_array_shape_for_class(cls)
             .expect("registered shaped-array class should have shape metadata");
+
+        match shape_param.kind() {
+            QuantifiedKind::TypeVar => {
+                // Single tuple-carrier parameter mode: ordinary class specialization,
+                // then project the carrier into a shape.
+                let class_targs = args
+                    .iter()
+                    .map(|arg| self.expr_untype(arg, TypeFormContext::TypeArgument, errors))
+                    .collect();
+                let base_class =
+                    self.specialize_nontypeddict_to_classtype(cls, class_targs, range, errors);
+                return self
+                    .shaped_array_classtype_to_shaped_array_type(&base_class)
+                    .to_type();
+            }
+            QuantifiedKind::TypeVarTuple => {}
+            QuantifiedKind::ParamSpec => {
+                unreachable!("shaped-array metadata validation rejects ParamSpec shape parameters")
+            }
+        }
+
         let tparams = self.get_class_tparams(cls);
         let shape_idx = tparams
             .iter()

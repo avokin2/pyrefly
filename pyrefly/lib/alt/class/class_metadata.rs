@@ -128,10 +128,10 @@ impl BaseClassParseResult {
 
 /// The dataclass configuration derived from a `@dataclass_transform` decorator or an inherited
 /// transform base.
-struct TransformDataclass {
+pub(crate) struct TransformDataclass {
     keywords: DataclassKeywords,
     /// Callees recognized as field specifiers (PEP 681), e.g. `attrs.field`.
-    field_specifiers: Vec<CalleeKind>,
+    pub(crate) field_specifiers: Vec<CalleeKind>,
     /// attrs' `hash=`/`unsafe_hash=` argument; `None` for non-attrs classes or when unset.
     attrs_hash: Option<bool>,
 }
@@ -990,39 +990,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         dataclass_transform_metadata
     }
 
-    /// The default `auto_attribs` for an attrs decorator that doesn't set it, based on the decorator's name:
-    /// - `attr.s`/`attrs`/`attributes` -> `False`
-    /// - `@attr.dataclass` -> `True`.
-    /// - `define`/`frozen`/`mutable` -> `None`
-    ///   The behavior for None is: try `True` and falls back
-    ///   to `False` when a field is assigned `attr.ib()`/`field()` with no annotation.
-    fn attrs_default_auto_attribs(
-        &self,
-        cls: &Class,
-        decorator_range: TextRange,
-        order_default: bool,
-    ) -> bool {
-        let Some(idx) = self
-            .bindings()
-            .key_to_idx_hashed_opt(Hashed::new(&KeyDecorator(decorator_range)))
-        else {
-            // Can't recover the decorator name; fall back to the transform default.
-            return !order_default;
-        };
-        let binding = self.bindings().get::<KeyDecorator>(idx);
-        match binding.trailing_name.as_ref().map(Name::as_str) {
-            Some("s" | "attrs" | "attributes") => false,
-            Some("dataclass") => true,
-            Some("define" | "mutable" | "frozen") => !self.get_class_fields(cls).is_some_and(|f| {
-                f.class_body_fields()
-                    .any(|name| f.is_attrs_field_specifier(name) && !f.is_field_annotated(name))
-            }),
-            // Unknown decorator: attrs sets `order_default` only on its classic
-            // decorators, so it stands in for "classic" here.
-            _ => !order_default,
-        }
-    }
-
     fn dataclass_from_dataclass_transform(
         &self,
         cls: &Class,
@@ -1119,30 +1086,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             }
         }
         dataclass_from_dataclass_transform
-    }
-
-    fn field_specifiers_reference_attrs(field_specifiers: &[CalleeKind]) -> bool {
-        field_specifiers.iter().any(|callee| {
-            matches!(callee,
-                CalleeKind::Function(FunctionKind::Def(id))
-                    if id.module.name() == ModuleName::attr()
-                        || id.module.name() == ModuleName::attrs()
-            )
-        })
-    }
-
-    fn is_attrs_class(
-        &self,
-        dataclass_from_dataclass_transform: &Option<TransformDataclass>,
-        bases_with_metadata: &[(Class, Arc<ClassMetadata>)],
-    ) -> bool {
-        let has_attrs_field_specifiers = dataclass_from_dataclass_transform
-            .as_ref()
-            .is_some_and(|t| Self::field_specifiers_reference_attrs(&t.field_specifiers));
-        let has_attrs_base = bases_with_metadata
-            .iter()
-            .any(|(_, metadata)| metadata.is_attrs_class());
-        has_attrs_field_specifiers || has_attrs_base
     }
 
     /// Single annotation walk returning local

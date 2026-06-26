@@ -570,6 +570,186 @@ def index_preserves_dtype(concrete: Array[int, 2, 3]) -> Array[int, 3]:
 );
 
 testcase!(
+    test_shaped_array_tuple_carrier_binds_generic,
+    shaped_array_env(),
+    r#"
+from typing import Literal
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def use_shape[S](x: Array[S, int], shape: S) -> None: ...
+def get_shape[S](x: Array[S, int]) -> S: ...
+
+def f(
+    compact_2_3: Array[(2, 3), int],
+    pep484_2_3: Array[tuple[Literal[2], Literal[3]], int],
+) -> None:
+    shape_2_3: tuple[Literal[2], Literal[3]] = (2, 3)
+    shape_2_4: tuple[Literal[2], Literal[4]] = (2, 4)
+    use_shape(compact_2_3, shape_2_3)
+    use_shape(pep484_2_3, shape_2_3)
+    use_shape(compact_2_3, shape_2_4)  # E: Argument `tuple[Literal[2], Literal[4]]` is not assignable to parameter `shape` with type `tuple[Literal[2], Literal[3]]`
+    out: tuple[Literal[2], Literal[3]] = get_shape(compact_2_3)
+    bad: tuple[Literal[2], Literal[4]] = get_shape(compact_2_3)  # E: `tuple[Literal[2], Literal[3]]` is not assignable to `tuple[Literal[2], Literal[4]]`
+"#,
+);
+
+testcase!(
+    test_shaped_array_tuple_carrier_generic_return_reprojection,
+    shaped_array_env(),
+    r#"
+from typing import Literal, reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def make_array[S](shape: S) -> Array[S, float]: ...
+
+def f() -> None:
+    shape_2_3: tuple[Literal[2], Literal[3]] = (2, 3)
+    scalar_shape: tuple[()] = ()
+    reveal_type(make_array(shape_2_3))  # E: revealed type: Array[(2, 3), float]
+    reveal_type(make_array(scalar_shape))  # E: revealed type: Array[(), float]
+"#,
+);
+
+testcase!(
+    bug = "tuple literals passed to generic shape carriers are widened before return reprojection",
+    test_shaped_array_tuple_carrier_generic_return_literal_tuple_widens,
+    shaped_array_env(),
+    r#"
+from typing import reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def make_array[S](shape: S) -> Array[S, float]: ...
+
+def f() -> None:
+    reveal_type(make_array((2, 3)))  # E: revealed type: Array
+"#,
+);
+
+testcase!(
+    test_shaped_array_tuple_carrier_generic_identity_preserves_shape_and_dtype,
+    shaped_array_env(),
+    r#"
+from typing import reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]:
+    def dtype(self) -> DType: ...
+
+def identity[S, D](x: Array[S, D]) -> Array[S, D]: ...
+
+def f(x_2_3_int: Array[(2, 3), int]) -> None:
+    reveal_type(identity(x_2_3_int))  # E: revealed type: Array[(2, 3), int]
+    reveal_type(identity(x_2_3_int).dtype())  # E: revealed type: int
+"#,
+);
+
+testcase!(
+    test_shaped_array_tuple_carrier_generic_preserves_unpacked_prefix,
+    shaped_array_env(),
+    r#"
+from typing import Literal
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def get_shape[S](x: Array[S, int]) -> S: ...
+
+def f[*Ts](x: Array[tuple[Literal[2], *Ts], int]) -> None:
+    good: tuple[Literal[2], *Ts] = get_shape(x)
+    bad: tuple[Literal[3], *Ts] = get_shape(x)  # E: `tuple[Literal[2], *Ts]` is not assignable to `tuple[Literal[3], *Ts]`
+"#,
+);
+
+testcase!(
+    test_shaped_array_tuple_carrier_unpacked_middle_is_invariant,
+    shaped_array_env(),
+    r#"
+from typing import Literal
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def use_shape[S](x: Array[S, int], shape: S) -> None: ...
+
+def f[*Ts](
+    x: Array[tuple[Literal[2], *Ts], int],
+    shape_2: tuple[Literal[2], *Ts],
+    shape_3: tuple[Literal[3], *Ts],
+) -> None:
+    use_shape(x, shape_2)
+    use_shape(x, shape_3)  # E: Argument `tuple[Literal[3], *Ts]` is not assignable to parameter `shape` with type `tuple[Literal[2], *Ts]`
+"#,
+);
+
+testcase!(
+    test_shaped_array_tuple_carrier_does_not_erase_dtype,
+    shaped_array_env(),
+    r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def want_int(x: Array[(2, 3), int]) -> None: ...
+
+def f(x_str: Array[(2, 3), str]) -> None:
+    want_int(x_str)  # E: Argument `Array[(2, 3), str]` is not assignable to parameter `x` with type `Array[(2, 3), int]`
+"#,
+);
+
+testcase!(
+    test_shaped_array_tuple_carrier_closed_shapes_still_check_dimensions,
+    shaped_array_env(),
+    r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def want_2_4(x: Array[(2, 4), int]) -> None: ...
+
+def f(x_2_3: Array[(2, 3), int]) -> None:
+    want_2_4(x_2_3)  # E: Argument `Array[(2, 3), int]` is not assignable to parameter `x` with type `Array[(2, 4), int]`
+"#,
+);
+
+testcase!(
+    bug = "invalid closed carrier Array[tuple[str, str], int] is not yet rejected",
+    test_shaped_array_invalid_closed_carrier,
+    shaped_array_env(),
+    r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def want_2_3(x: Array[(2, 3), int]) -> None: ...
+def want_bad(x: Array[tuple[str, str], int]) -> None: ...
+
+# `tuple[str, str]` is not a valid shape carrier. It projects to a shapeless
+# array internally; a source-aware diagnostic rejecting this form is deferred.
+def f(x_bad: Array[tuple[str, str], int]) -> None:
+    want_2_3(x_bad)  # E: Argument `Array[tuple[Unknown, ...], int]` is not assignable to parameter `x` with type `Array[(2, 3), int]`
+    want_bad(x_bad)
+
+def g(x_2_3: Array[(2, 3), int]) -> None:
+    want_bad(x_2_3)  # E: Argument `Array[(2, 3), int]` is not assignable to parameter `x` with type `Array[tuple[Unknown, ...], int]`
+"#,
+);
+
+testcase!(
     test_undecorated_torch_tensor_stays_ordinary,
     shaped_array_env_with_plain_torch(),
     r#"

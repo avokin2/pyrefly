@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use pyrefly_build::handle::Handle;
+use pyrefly_python::ast::Ast;
 use pyrefly_python::module::Module;
 use pyrefly_python::short_identifier::ShortIdentifier;
 use pyrefly_python::sys_info::SysInfo;
@@ -295,9 +296,16 @@ fn extract_function(
         .as_ref()
         .map(|tp| source_text(ctx.module_info, tp.range()).to_owned());
 
+    // An `async def` that yields is an async generator: calling it returns an
+    // `AsyncGenerator`, not a coroutine. A stub drops the body (and its
+    // `yield`), so emitting `async def` would mistype the call as
+    // `Coroutine[..., AsyncGenerator[...]]`. Follow the typeshed convention and
+    // emit a plain `def` returning the async-generator type.
+    let is_async = func_def.is_async && !Ast::body_contains_yield(&func_def.body);
+
     Some(StubFunction {
         name: name.to_owned(),
-        is_async: func_def.is_async,
+        is_async,
         type_params,
         decorators,
         params,

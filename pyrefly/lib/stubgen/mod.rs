@@ -257,6 +257,11 @@ class BaseModel:
     }
 
     #[test]
+    fn test_stubgen_async_generator() {
+        assert_stubgen_snapshot("async_generator");
+    }
+
+    #[test]
     fn test_stubgen_docstrings() {
         let input = r#"
 def greet(name: str) -> str:

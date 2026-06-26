@@ -437,8 +437,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             let raw_hints = hint.types();
             let flattened_hints = self.flatten_alias_union_hints(raw_hints);
             let hints = flattened_hints.as_ref().map_or(raw_hints, |x| x);
-            if hints.len() <= MAX_DECOMPOSE_HINT_WIDTH {
+            let decomposable_width = hints.iter().filter(|h| !h.is_scalar()).count();
+            if decomposable_width <= MAX_DECOMPOSE_HINT_WIDTH {
                 for (hint, vs) in self.solver().partial_sort_by_vars(hints) {
+                    if hint.is_scalar() {
+                        continue;
+                    }
                     let mut ret = None;
                     match self.solver().with_snapshot(&vs, || {
                         let d = decompose(hint);

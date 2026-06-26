@@ -1142,6 +1142,11 @@ impl Type {
         self.lit_string_style().is_some()
     }
 
+    /// A scalar type cannot decompose into a container element type.
+    pub fn is_scalar(&self) -> bool {
+        matches!(self, Type::Literal(_) | Type::LiteralString(_) | Type::None)
+    }
+
     /// If this type is a literal string (either `LiteralString` or a `Literal` string value),
     /// return its `LitStyle`.
     pub fn lit_string_style(&self) -> Option<&LitStyle> {

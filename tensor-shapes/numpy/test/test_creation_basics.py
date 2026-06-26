@@ -39,3 +39,11 @@ def test_full_tuple_shape() -> None:
 
 def test_empty_tuple_shape() -> None:
     assert_shape(np.empty((6,)), (6,))
+
+
+def test_eye_square_shape() -> None:
+    assert_shape(np.eye(4), (4, 4))
+
+
+def test_identity_square_shape() -> None:
+    assert_shape(np.identity(5), (5, 5))

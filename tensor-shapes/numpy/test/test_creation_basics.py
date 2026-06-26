@@ -23,3 +23,19 @@ def test_full_1d_int_shape() -> None:
 
 def test_empty_1d_int_shape() -> None:
     assert_shape(np.empty(6), (6,))
+
+
+def test_zeros_tuple_shape() -> None:
+    assert_shape(np.zeros((3, 4)), (3, 4))
+
+
+def test_ones_tuple_shape() -> None:
+    assert_shape(np.ones((2, 5)), (2, 5))
+
+
+def test_full_tuple_shape() -> None:
+    assert_shape(np.full((3, 3), -1.0), (3, 3))
+
+
+def test_empty_tuple_shape() -> None:
+    assert_shape(np.empty((6,)), (6,))

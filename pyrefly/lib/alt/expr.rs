@@ -29,6 +29,7 @@ use pyrefly_types::shaped_array::index_shape_int;
 use pyrefly_types::shaped_array::index_shape_multi;
 use pyrefly_types::shaped_array::index_shape_slice;
 use pyrefly_types::shaped_array::index_shape_tensor;
+use pyrefly_types::shaped_array::shape_to_tuple_carrier;
 use pyrefly_types::shaped_array::tuple_carrier_to_shape;
 use pyrefly_types::typed_dict::AnonymousTypedDictInner;
 use pyrefly_types::typed_dict::ExtraItems;
@@ -3657,9 +3658,44 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             QuantifiedKind::TypeVar => {
                 // Single tuple-carrier parameter mode: ordinary class specialization,
                 // then project the carrier into a shape.
+                //
+                // The registered shape slot additionally accepts a compact
+                // tuple literal as an alternate surface form:
+                // `Array[(2, 3), DType]` normalizes to
+                // `Array[tuple[Literal[2], Literal[3]], DType]`. This rewrite is
+                // scoped to the registered shape argument only -- it is purely
+                // syntax normalization for that slot, NOT general support for
+                // tuple literals in arbitrary type positions.
+                let shape_idx = self
+                    .get_class_tparams(cls)
+                    .iter()
+                    .position(|param| param == &shape_param)
+                    .expect("shaped-array metadata should refer to a class type parameter");
+                // Map every argument by position. Arity is validated later by
+                // `specialize_nontypeddict_to_classtype`, so we do not assume the
+                // shape slot is present or that the argument count matches: extra
+                // args (e.g. `Array[2, 3, int]`) flow through as ordinary type
+                // arguments and surface as a normal arity error, not as compact
+                // tuple syntax.
                 let class_targs = args
                     .iter()
-                    .map(|arg| self.expr_untype(arg, TypeFormContext::TypeArgument, errors))
+                    .enumerate()
+                    .map(|(i, arg)| match arg {
+                        Expr::Tuple(tuple) if i == shape_idx => {
+                            // Compact carrier: parse the elements with the shared
+                            // dimension parser (which emits precise per-element
+                            // diagnostics), then rebuild the equivalent tuple
+                            // carrier. On a bad dimension the error is already
+                            // reported, so this slot degrades to an error type.
+                            match self.parse_dimension_list(&tuple.elts, errors) {
+                                Some(dims) => {
+                                    shape_to_tuple_carrier(&ShapedArrayShape::from_types(dims))
+                                }
+                                None => Type::any_error(),
+                            }
+                        }
+                        _ => self.expr_untype(arg, TypeFormContext::TypeArgument, errors),
+                    })
                     .collect();
                 let base_class =
                     self.specialize_nontypeddict_to_classtype(cls, class_targs, range, errors);

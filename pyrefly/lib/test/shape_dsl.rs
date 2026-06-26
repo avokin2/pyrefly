@@ -351,6 +351,79 @@ def f[S](
 );
 
 testcase!(
+    test_shaped_array_compact_tuple_carrier,
+    shaped_array_env(),
+    r#"
+from typing import Literal, reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]:
+    def dtype(self) -> DType: ...
+
+@shaped_array(shape="Shape")
+class DTypeFirstArray[DType, Shape]: ...
+
+def f(
+    compact: Array[(2, 3), int],
+    pep484: Array[tuple[Literal[2], Literal[3]], int],
+    scalar: Array[(), int],
+    dtype_first: DTypeFirstArray[int, (2, 3)],
+) -> None:
+    # Compact and PEP-484 forms reveal identically.
+    reveal_type(compact)  # E: revealed type: Array[2, 3]
+    reveal_type(pep484)  # E: revealed type: Array[2, 3]
+    reveal_type(scalar)  # E: revealed type: Array[()]
+    reveal_type(dtype_first)  # E: revealed type: DTypeFirstArray[2, 3]
+    reveal_type(compact.dtype())  # E: revealed type: int
+"#,
+);
+
+testcase!(
+    test_shaped_array_compact_tuple_arity_error,
+    shaped_array_env(),
+    r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+# Extra args are an ordinary arity error, not compact tuple syntax.
+def f(bad: Array[2, 3, int]) -> None: ...  # E: Expected a type form, got instance of `Literal[2]`  # E: Expected a type form, got instance of `Literal[3]`  # E: Expected 2 type arguments for `Array`, got 3
+"#,
+);
+
+testcase!(
+    test_shaped_array_compact_tuple_invalid_dim,
+    shaped_array_env(),
+    r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+# Invalid compact dims get a dimension parser error at the bad element. The
+# string is parsed as a forward reference before reaching the dimension parser,
+# so the diagnostics are about the unresolved name / non-integer dimension --
+# both pointing at the bad element, not a generic invalid type argument.
+def f(bad: Array[("rows", 3), int]) -> None: ...  # E: Could not find name `rows`  # E: Tensor shape dimensions must be integer literals or type variables, got `Unknown`
+"#,
+);
+
+testcase!(
+    test_shaped_array_compact_tuple_rejects_starred_dim,
+    shaped_array_env(),
+    r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def f(bad: Array[(2, *tuple[int, ...]), int]) -> None: ...  # E: Tensor shape dimensions must be positive integer literals, string literals, type variables, or expressions, got `*tuple[int, ...]`
+"#,
+);
+
+testcase!(
     test_shaped_array_annotation_parsing,
     shaped_array_env(),
     r#"

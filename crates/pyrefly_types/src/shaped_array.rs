@@ -77,6 +77,54 @@ impl crate::equality::TypeEq for ShapedArraySyntax {
     }
 }
 
+/// How the shape appears in the underlying class type arguments.
+///
+/// This is a display concern, not part of type identity. The projected
+/// `ShapedArrayShape` is the semantic shape; this hint only lets diagnostics
+/// render shaped arrays like the class surface users wrote.
+#[derive(Debug, Clone, Copy, Default)]
+#[derive(Visit, VisitMut)]
+pub enum ShapedArrayShapeArgStyle {
+    #[default]
+    Unknown,
+    TypeVarTuple {
+        index: usize,
+    },
+    TupleCarrier {
+        index: usize,
+    },
+}
+
+impl PartialEq for ShapedArrayShapeArgStyle {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for ShapedArrayShapeArgStyle {}
+
+impl Hash for ShapedArrayShapeArgStyle {
+    fn hash<H: Hasher>(&self, _state: &mut H) {}
+}
+
+impl PartialOrd for ShapedArrayShapeArgStyle {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ShapedArrayShapeArgStyle {
+    fn cmp(&self, _other: &Self) -> Ordering {
+        Ordering::Equal
+    }
+}
+
+impl crate::equality::TypeEq for ShapedArrayShapeArgStyle {
+    fn type_eq(&self, _other: &Self, _ctx: &mut crate::equality::TypeEqCtx) -> bool {
+        true
+    }
+}
+
 /// A class instance with shape information.
 /// Example: Tensor[2, 3] represents a 2x3 tensor
 /// Example: Tensor (no brackets) represents a shapeless tensor (`tuple[Any, ...]`)
@@ -89,6 +137,8 @@ pub struct ShapedArrayType {
     pub shape: ShapedArrayShape,
     /// Whether this type was constructed from native or jaxtyping syntax.
     pub syntax: ShapedArraySyntax,
+    /// How to render the shape among the class type arguments.
+    pub shape_arg_style: ShapedArrayShapeArgStyle,
 }
 
 impl ShapedArrayType {
@@ -98,6 +148,7 @@ impl ShapedArrayType {
             base_class,
             shape,
             syntax: ShapedArraySyntax::Native,
+            shape_arg_style: ShapedArrayShapeArgStyle::Unknown,
         }
     }
 
@@ -108,6 +159,7 @@ impl ShapedArrayType {
             base_class,
             shape: ShapedArrayShape::shapeless(),
             syntax: ShapedArraySyntax::Native,
+            shape_arg_style: ShapedArrayShapeArgStyle::Unknown,
         }
     }
 
@@ -130,6 +182,11 @@ impl ShapedArrayType {
             },
             _ => unreachable!("registered shaped-array class argument should be a tuple carrier"),
         }
+    }
+
+    pub fn with_shape_arg_style(mut self, shape_arg_style: ShapedArrayShapeArgStyle) -> Self {
+        self.shape_arg_style = shape_arg_style;
+        self
     }
 
     pub fn to_type(self) -> Type {

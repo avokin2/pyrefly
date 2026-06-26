@@ -371,10 +371,10 @@ def f(
     dtype_first: DTypeFirstArray[int, (2, 3)],
 ) -> None:
     # Compact and PEP-484 forms reveal identically.
-    reveal_type(compact)  # E: revealed type: Array[2, 3]
-    reveal_type(pep484)  # E: revealed type: Array[2, 3]
-    reveal_type(scalar)  # E: revealed type: Array[()]
-    reveal_type(dtype_first)  # E: revealed type: DTypeFirstArray[2, 3]
+    reveal_type(compact)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(pep484)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(scalar)  # E: revealed type: Array[(), int]
+    reveal_type(dtype_first)  # E: revealed type: DTypeFirstArray[int, (2, 3)]
     reveal_type(compact.dtype())  # E: revealed type: int
 "#,
 );
@@ -396,10 +396,10 @@ def f(
     pep484_scalar: Array[tuple[()], int],
 ) -> None:
     # The compact and PEP-484 carriers canonicalize to the same shape.
-    reveal_type(compact)  # E: revealed type: Array[2, 3]
-    reveal_type(pep484)  # E: revealed type: Array[2, 3]
-    reveal_type(compact_scalar)  # E: revealed type: Array[()]
-    reveal_type(pep484_scalar)  # E: revealed type: Array[()]
+    reveal_type(compact)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(pep484)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(compact_scalar)  # E: revealed type: Array[(), int]
+    reveal_type(pep484_scalar)  # E: revealed type: Array[(), int]
 
     # Closed concrete shapes are mutually assignable in both directions.
     p: Array[tuple[Literal[2], Literal[3]], int] = compact
@@ -407,8 +407,8 @@ def f(
     ps: Array[tuple[()], int] = compact_scalar
     cs: Array[(), int] = pep484_scalar
 
-    wrong_rank2: Array[(2, 4), int] = pep484  # E: `Array[2, 3]` is not assignable to `Array[2, 4]`
-    wrong_rank0: Array[(1,), int] = pep484_scalar  # E: `Array[()]` is not assignable to `Array[1]`
+    wrong_rank2: Array[(2, 4), int] = pep484  # E: `Array[(2, 3), int]` is not assignable to `Array[(2, 4), int]`
+    wrong_rank0: Array[(1,), int] = pep484_scalar  # E: `Array[(), int]` is not assignable to `Array[(1,), int]`
 "#,
 );
 
@@ -508,21 +508,21 @@ def f(
     suffix: SuffixArray[2, 3, str],
     suffix_scalar: SuffixArray[str],
 ) -> None:
-    reveal_type(x)  # E: revealed type: Array[2, 3]
+    reveal_type(x)  # E: revealed type: Array[int, 2, 3]
     reveal_type(x.dtype())  # E: revealed type: int
-    reveal_type(y)  # E: revealed type: Array[()]
+    reveal_type(y)  # E: revealed type: Array[int, ()]
     reveal_type(y.dtype())  # E: revealed type: int
-    reveal_type(z)  # E: revealed type: Array[2, *tuple[int, ...]]
+    reveal_type(z)  # E: revealed type: Array[int, 2, *tuple[int, ...]]
     reveal_type(z.dtype())  # E: revealed type: int
-    reveal_type(w)  # E: revealed type: ArrayWithDevice[2, 3]
+    reveal_type(w)  # E: revealed type: ArrayWithDevice[str, 2, 3, Cpu]
     reveal_type(w.dtype())  # E: revealed type: str
     reveal_type(w.device())  # E: revealed type: Cpu
-    reveal_type(w_scalar)  # E: revealed type: ArrayWithDevice[()]
+    reveal_type(w_scalar)  # E: revealed type: ArrayWithDevice[str, (), Gpu]
     reveal_type(w_scalar.dtype())  # E: revealed type: str
     reveal_type(w_scalar.device())  # E: revealed type: Gpu
-    reveal_type(suffix)  # E: revealed type: SuffixArray[2, 3]
+    reveal_type(suffix)  # E: revealed type: SuffixArray[2, 3, str]
     reveal_type(suffix.dtype())  # E: revealed type: str
-    reveal_type(suffix_scalar)  # E: revealed type: SuffixArray[()]
+    reveal_type(suffix_scalar)  # E: revealed type: SuffixArray[(), str]
     reveal_type(suffix_scalar.dtype())  # E: revealed type: str
 
 def g(x: Array) -> None:
@@ -546,8 +546,8 @@ class Array[DType, *Shape]:
     def dtype(self) -> DType: ...
 
 def annotations(concrete: Array[int, 2, 3], scalar: Array[int], shapeless: Array) -> None:
-    reveal_type(concrete[0])  # E: revealed type: Array[3]
-    reveal_type(concrete[:])  # E: revealed type: Array[2, 3]
+    reveal_type(concrete[0])  # E: revealed type: Array[int, 3]
+    reveal_type(concrete[:])  # E: revealed type: Array[int, 2, 3]
     reveal_type(concrete[0].dtype())  # E: revealed type: int
     scalar[0]  # E: Cannot index scalar tensor (rank 0)
     reveal_type(shapeless)  # E: revealed type: Array
@@ -556,8 +556,8 @@ def annotations(concrete: Array[int, 2, 3], scalar: Array[int], shapeless: Array
     reveal_type(shapeless[None, ...])  # E: revealed type: Array[1, *tuple[Unknown, ...]]
 
 def unbounded_shape(x: Array[int, *tuple[int, ...]], y: Array[int, 2, *tuple[int, ...]]) -> None:
-    reveal_type(x)  # E: revealed type: Array[*tuple[int, ...]]
-    reveal_type(y[0])  # E: revealed type: Array[*tuple[int, ...]]
+    reveal_type(x)  # E: revealed type: Array[int, *tuple[int, ...]]
+    reveal_type(y[0])  # E: revealed type: Array[int, *tuple[int, ...]]
 
 def values() -> None:
     value = Array()
@@ -616,8 +616,8 @@ def shaped_array_segments(
     bad_suffix: SuffixArray[2, 3, 3],  # E: Expected a type form, got instance of `Literal[3]`
     alias: Image,
 ) -> None:
-    reveal_type(good)  # E: revealed type: Array[2, 3]
-    reveal_type(alias)  # E: revealed type: Array[2, 3]
+    reveal_type(good)  # E: revealed type: Array[int, 2, 3, Cpu]
+    reveal_type(alias)  # E: revealed type: Array[int, 2, 3, Cpu]
 
 def dims[N](concrete: Dim[3], symbolic: Dim[N + 1]) -> None:
     pass
@@ -918,12 +918,12 @@ import numpy as np
 from typing import reveal_type
 
 def f(x: np.ndarray[float, 2, 3]) -> None:
-    reveal_type(x)  # E: revealed type: ndarray[2, 3]
-    reveal_type(x.copy())  # E: revealed type: ndarray[2, 3]
+    reveal_type(x)  # E: revealed type: ndarray[float, 2, 3]
+    reveal_type(x.copy())  # E: revealed type: ndarray[float, 2, 3]
     reveal_type(x.item())  # E: revealed type: float
     reveal_type(x.shape)  # E: revealed type: tuple[Literal[2], Literal[3]]
-    reveal_type(x[0])  # E: revealed type: ndarray[3]
-    reveal_type(np.add_leading_axis(x))  # E: revealed type: ndarray[1, 2, 3]
+    reveal_type(x[0])  # E: revealed type: ndarray[float, 3]
+    reveal_type(np.add_leading_axis(x))  # E: revealed type: ndarray[float, 1, 2, 3]
 "#,
 );
 

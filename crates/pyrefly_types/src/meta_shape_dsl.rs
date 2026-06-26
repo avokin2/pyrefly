@@ -49,7 +49,9 @@ use crate::equality::TypeEqCtx;
 use crate::lit_int::LitInt;
 use crate::literal::Lit;
 use crate::shaped_array::ShapedArrayShape;
+use crate::shaped_array::ShapedArrayShapeArgStyle;
 use crate::shaped_array::ShapedArrayType;
+use crate::shaped_array::shape_to_tuple_carrier;
 use crate::tuple::Tuple;
 use crate::types::Type;
 
@@ -3225,7 +3227,21 @@ fn eval_dsl_body(
 /// Falls back to `ret_type` unchanged if it isn't a shaped-array type.
 fn inject_shape(shape: ShapedArrayShape, ret_type: &Type) -> Type {
     match ret_type {
-        Type::ShapedArray(t) => ShapedArrayType::new(t.base_class.clone(), shape).to_type(),
+        Type::ShapedArray(t) => {
+            let mut base_class = t.base_class.clone();
+            if let ShapedArrayShapeArgStyle::TupleCarrier { index } = t.shape_arg_style {
+                let carrier = base_class
+                    .targs_mut()
+                    .as_mut()
+                    .get_mut(index)
+                    .expect("shape argument index should point to a class type argument");
+                *carrier = shape_to_tuple_carrier(&shape);
+            }
+            ShapedArrayType::new(base_class, shape)
+                .with_syntax(t.syntax)
+                .with_shape_arg_style(t.shape_arg_style)
+                .to_type()
+        }
         _ => ret_type.clone(),
     }
 }

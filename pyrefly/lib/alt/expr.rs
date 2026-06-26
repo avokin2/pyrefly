@@ -24,6 +24,7 @@ use pyrefly_types::dimension::canonicalize;
 use pyrefly_types::literal::LitStyle;
 use pyrefly_types::shaped_array::IndexOp;
 use pyrefly_types::shaped_array::ShapedArrayShape;
+use pyrefly_types::shaped_array::ShapedArrayShapeArgStyle;
 use pyrefly_types::shaped_array::ShapedArrayType;
 use pyrefly_types::shaped_array::index_shape_int;
 use pyrefly_types::shaped_array::index_shape_multi;
@@ -2981,9 +2982,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 let stop = upper.as_ref().map(|e| to_dim(e));
                 let step_val = step.as_ref().and_then(|e| to_step(e));
                 match index_shape_slice(&shaped_array_type.shape, start, stop, step_val) {
-                    Ok(shape) => {
-                        ShapedArrayType::new(shaped_array_type.base_class.clone(), shape).to_type()
-                    }
+                    Ok(shape) => self
+                        .shaped_array_with_shape(shaped_array_type, shape)
+                        .to_type(),
                     Err(err) => self.error(errors, range, ErrorKind::BadIndex, err.to_string()),
                 }
             }
@@ -2996,8 +2997,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 match shaped_array_type.shape.as_tuple() {
                     Tuple::Concrete(dims) => {
                         new_dims.extend(dims.iter().cloned());
-                        ShapedArrayType::new(
-                            shaped_array_type.base_class.clone(),
+                        self.shaped_array_with_shape(
+                            shaped_array_type,
                             ShapedArrayShape::from_types(new_dims),
                         )
                         .to_type()
@@ -3014,8 +3015,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     Tuple::Unpacked(f) => {
                         let (prefix, middle, suffix) = &**f;
                         new_dims.extend(prefix.iter().cloned());
-                        ShapedArrayType::new(
-                            shaped_array_type.base_class.clone(),
+                        self.shaped_array_with_shape(
+                            shaped_array_type,
                             ShapedArrayShape::unpacked(new_dims, middle.clone(), suffix.clone()),
                         )
                         .to_type()
@@ -3050,8 +3051,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 let pre_ops: Option<Vec<IndexOp>> = pre_exprs.iter().map(&classify).collect();
                 let post_ops: Option<Vec<IndexOp>> = post_exprs.iter().map(classify).collect();
                 let (Some(pre_ops), Some(post_ops)) = (pre_ops, post_ops) else {
-                    return ShapedArrayType::shapeless(shaped_array_type.base_class.clone())
-                        .to_type();
+                    return self.shaped_array_shapeless(shaped_array_type).to_type();
                 };
 
                 match index_shape_multi(
@@ -3060,9 +3060,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     &post_ops,
                     ellipsis_pos.is_some(),
                 ) {
-                    Ok(shape) => {
-                        ShapedArrayType::new(shaped_array_type.base_class.clone(), shape).to_type()
-                    }
+                    Ok(shape) => self
+                        .shaped_array_with_shape(shaped_array_type, shape)
+                        .to_type(),
                     Err(err) => self.error(errors, range, ErrorKind::BadIndex, err.to_string()),
                 }
             }
@@ -3074,28 +3074,25 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
                 if is_int_index {
                     match index_shape_int(&shaped_array_type.shape) {
-                        Ok(shape) => {
-                            ShapedArrayType::new(shaped_array_type.base_class.clone(), shape)
-                                .to_type()
-                        }
+                        Ok(shape) => self
+                            .shaped_array_with_shape(shaped_array_type, shape)
+                            .to_type(),
                         Err(err) => self.error(errors, range, ErrorKind::BadIndex, err.to_string()),
                     }
                 } else if let Type::ShapedArray(ref idx_shaped_array) = idx_type {
                     // Tensor indexing: tensor[index_tensor] replaces first dim with index shape
                     let Some(idx_dims) = idx_shaped_array.shape.as_concrete() else {
-                        return ShapedArrayType::shapeless(shaped_array_type.base_class.clone())
-                            .to_type();
+                        return self.shaped_array_shapeless(shaped_array_type).to_type();
                     };
                     match index_shape_tensor(&shaped_array_type.shape, idx_dims) {
-                        Ok(shape) => {
-                            ShapedArrayType::new(shaped_array_type.base_class.clone(), shape)
-                                .to_type()
-                        }
+                        Ok(shape) => self
+                            .shaped_array_with_shape(shaped_array_type, shape)
+                            .to_type(),
                         Err(err) => self.error(errors, range, ErrorKind::BadIndex, err.to_string()),
                     }
                 } else {
                     // Unknown index type - return shapeless
-                    ShapedArrayType::shapeless(shaped_array_type.base_class.clone()).to_type()
+                    self.shaped_array_shapeless(shaped_array_type).to_type()
                 }
             }
         }
@@ -3139,6 +3136,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 // carrier. Project it back to an internal shape, normalizing
                 // malformed or unbounded carriers to shapeless.
                 ShapedArrayType::from_tuple_carrier_or_shapeless(cls.clone(), shape_arg)
+                    .with_shape_arg_style(ShapedArrayShapeArgStyle::TypeVarTuple {
+                        index: shape_idx,
+                    })
             }
             QuantifiedKind::TypeVar => {
                 // In TypeVar mode the argument is a single tuple carrier. If it
@@ -3147,14 +3147,92 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 // recover per-dimension information, so build a shapeless /
                 // unknown-rank array while preserving the original class args.
                 match tuple_carrier_to_shape(shape_arg) {
-                    Some(shape) => ShapedArrayType::new(cls.clone(), shape),
-                    None => ShapedArrayType::shapeless(cls.clone()),
+                    Some(shape) => ShapedArrayType::new(cls.clone(), shape).with_shape_arg_style(
+                        ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
+                    ),
+                    None => ShapedArrayType::shapeless(cls.clone()).with_shape_arg_style(
+                        ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
+                    ),
                 }
             }
             QuantifiedKind::ParamSpec => {
                 unreachable!("shaped-array metadata validation rejects ParamSpec shape parameters")
             }
         }
+    }
+
+    /// Build a shaped-array type that carries a new projected `shape`, keeping
+    /// the raw tuple carrier stored in `base_class` synchronized with it.
+    ///
+    /// Tuple-carrier (`TypeVar`-mode) shaped arrays expose `.shape` by reading the
+    /// raw carrier argument stored on `base_class`, *not* the projected `shape`
+    /// field. Any shape-changing operation (indexing, broadcasting, meta-shape
+    /// transforms) must therefore rewrite that carrier; otherwise `.shape` would
+    /// stale-read the pre-operation shape. This helper is the single place that
+    /// keeps the two representations coherent. It preserves `tensor.syntax` and,
+    /// crucially, all non-shape class arguments (notably `DType`).
+    pub(crate) fn shaped_array_with_shape(
+        &self,
+        tensor: &ShapedArrayType,
+        shape: ShapedArrayShape,
+    ) -> ShapedArrayType {
+        match self.shaped_array_shape_for_class_type(&tensor.base_class) {
+            Some(shape_param) => match shape_param.kind() {
+                QuantifiedKind::TypeVar => {
+                    // Tuple-carrier mode: rewrite *only* the registered shape argument
+                    // to the new carrier, leaving every other class argument intact.
+                    let shape_idx = self
+                        .get_class_tparams(tensor.base_class.class_object())
+                        .iter()
+                        .position(|param| param == &shape_param)
+                        .expect("shaped-array metadata should refer to a class type parameter");
+                    let mut base_class = tensor.base_class.clone();
+                    let carrier = base_class
+                        .targs_mut()
+                        .as_mut()
+                        .get_mut(shape_idx)
+                        .expect("class type should have an argument for each type parameter");
+                    *carrier = shape_to_tuple_carrier(&shape);
+                    ShapedArrayType {
+                        base_class,
+                        shape,
+                        syntax: tensor.syntax,
+                        shape_arg_style: tensor.shape_arg_style,
+                    }
+                }
+                QuantifiedKind::TypeVarTuple => ShapedArrayType {
+                    base_class: tensor.base_class.clone(),
+                    shape,
+                    syntax: tensor.syntax,
+                    shape_arg_style: tensor.shape_arg_style,
+                },
+                QuantifiedKind::ParamSpec => {
+                    unreachable!(
+                        "shaped-array metadata validation rejects ParamSpec shape parameters"
+                    )
+                }
+            },
+            // Native/jaxtyping arrays with no registration metadata expose
+            // `.shape` from the projected `shape` field directly, so there is no
+            // carrier to rewrite -- updating the projected shape is both
+            // necessary and sufficient for coherence.
+            None => ShapedArrayType {
+                base_class: tensor.base_class.clone(),
+                shape,
+                syntax: tensor.syntax,
+                shape_arg_style: tensor.shape_arg_style,
+            },
+        }
+    }
+
+    /// Build a shapeless shaped-array type while keeping the raw tuple carrier
+    /// coherent. A plain `ShapedArrayType::shapeless` would leave the old carrier
+    /// (e.g. an unknown-rank `S`) on `base_class`, so `.shape` would stale-read the
+    /// pre-operation shape. Routing through `shaped_array_with_shape` rewrites the
+    /// carrier to the shapeless form too.
+    fn shaped_array_shapeless(&self, tensor: &ShapedArrayType) -> ShapedArrayType {
+        let shapeless = ShapedArrayType::shapeless(tensor.base_class.clone()).shape;
+        self.shaped_array_with_shape(tensor, shapeless)
     }
 
     /// Check if a class is a Dim class (shape_extensions.Dim)
@@ -3736,7 +3814,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .collect();
         let base_class = self.specialize_nontypeddict_to_classtype(cls, class_targs, range, errors);
 
-        ShapedArrayType::new(base_class, shaped_array_shape).to_type()
+        ShapedArrayType::new(base_class, shaped_array_shape)
+            .with_shape_arg_style(ShapedArrayShapeArgStyle::TypeVarTuple { index: shape_idx })
+            .to_type()
     }
     /// Parse Dim[3], Dim[N], Dim[N+1] into Type::Dim(...)
     fn parse_symint_type(&self, args: &[Expr], range: TextRange, errors: &ErrorCollector) -> Type {

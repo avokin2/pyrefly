@@ -516,8 +516,8 @@ class C:
 "#,
 );
 
-// The conflict is reported regardless of whether the annotation and `type=` agree. The
-// extra assignment error comes from the general annotated-assignment check, not attrs.
+// Even when the annotation and `type=` disagree, the conflict is reported once: the specifier's
+// widened return is no longer assignment-checked against the annotation.
 attrs_testcase!(
     test_attrs_attrib_type_and_annotation_conflict_mismatch,
     r#"
@@ -525,7 +525,7 @@ import attr
 
 @attr.s
 class C:
-    x: int = attr.ib(type=str)  # E: both a type annotation and a `type` argument # E: `str` is not assignable to `int`
+    x: int = attr.ib(type=str)  # E: both a type annotation and a `type` argument
 "#,
 );
 

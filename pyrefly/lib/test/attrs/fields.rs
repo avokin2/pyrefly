@@ -47,6 +47,25 @@ C(1)  # OK
 "#,
 );
 
+// `in_(EnumClass)` infers `_ValidatorType[object]`, but the annotation stays authoritative (#3429).
+attrs_testcase!(
+    test_attrs_field_validator_does_not_widen_annotation,
+    r#"
+from enum import Enum
+from attrs import define, field, validators
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+
+@define
+class C:
+    color: Color = field(validator=validators.in_(Color))
+
+C(Color.RED)  # OK
+"#,
+);
+
 // A field's declared type flows to its `__init__` param, so construction args are
 // type-checked: passing a `str` for an `int` field is an error.
 attrs_testcase!(
@@ -244,6 +263,116 @@ class C:
 
 C()              # OK: factory supplies the default
 C("not a list")  # E: not assignable to parameter `items`
+"#,
+);
+
+// A `factory=` callable's return type must be assignable to the field type, just like an
+// explicit `default=` value.
+attrs_testcase!(
+    test_attrs_field_factory_return_type_mismatch,
+    r#"
+from attrs import define, field
+
+def make_str() -> str:
+    return ""
+
+@define
+class C:
+    x: int = field(factory=make_str)  # E: `str` is not assignable to `int`
+"#,
+);
+
+// A matching `factory=` return type is accepted.
+attrs_testcase!(
+    test_attrs_field_factory_return_type_match,
+    r#"
+from attrs import define, field
+
+def make_int() -> int:
+    return 0
+
+@define
+class C:
+    x: int = field(factory=make_int)
+"#,
+);
+
+// A `factory=` whose output feeds a `converter=` is checked against the converter's input,
+// not the field type, so a "mismatched" factory return is not flagged.
+attrs_testcase!(
+    test_attrs_field_factory_with_converter_not_checked,
+    r#"
+from attrs import define, field
+
+def make_str() -> str:
+    return ""
+
+def to_int(s: str) -> int:
+    return int(s)
+
+@define
+class C:
+    x: int = field(factory=make_str, converter=to_int)
+"#,
+);
+
+// Likewise an explicit `default=` value with a `converter=` is the converter's input, so it
+// is not checked against the field type.
+attrs_testcase!(
+    test_attrs_field_default_with_converter_not_checked,
+    r#"
+from attrs import define, field
+
+def to_int(s: str) -> int:
+    return int(s)
+
+@define
+class C:
+    x: int = field(default="5", converter=to_int)
+"#,
+);
+
+// A `converter=` that is itself a type constructor (`converter=int`) is supported: the init
+// parameter accepts the constructor's input types while the attribute keeps the converted output
+// type, and an argument the constructor can't accept is rejected.
+attrs_testcase!(
+    test_attrs_field_converter_is_constructor,
+    r#"
+from typing import assert_type
+from attrs import define, field
+
+@define
+class C:
+    x: int = field(default="5", converter=int)
+
+assert_type(C("5").x, int)
+C(b"10")
+C([1, 2])  # E: not assignable to parameter `x`
+"#,
+);
+
+// Legacy `attr.ib` accepts a positional `default`, so it is checked against the annotation.
+attrs_testcase!(
+    test_attrs_attr_ib_positional_default_checked,
+    r#"
+import attr
+
+@attr.s(auto_attribs=True)
+class C:
+    x: int = attr.ib("bad")  # E: `Literal['bad']` is not assignable to `int`
+"#,
+);
+
+// Next-gen `field` is keyword-only: a positional arg is only an arg-count error and must NOT also
+// be treated as a `default` and checked against the annotation (no spurious assignability error).
+attrs_testcase!(
+    test_attrs_field_positional_not_treated_as_default,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x: int = field("bad")  # E: No matching overload found
 "#,
 );
 
@@ -461,7 +590,7 @@ from attrs import define, field
 
 @define
 class C:
-    x: int = field(default="oops")  # E: `str` is not assignable to `int`
+    x: int = field(default="oops")  # E: `Literal['oops']` is not assignable to `int`
 "#,
 );
 

@@ -31,6 +31,7 @@ use pyrefly_types::shaped_array::index_shape_multi;
 use pyrefly_types::shaped_array::index_shape_slice;
 use pyrefly_types::shaped_array::index_shape_tensor;
 use pyrefly_types::shaped_array::shape_to_tuple_carrier;
+use pyrefly_types::shaped_array::shape_to_tuple_carrier_arg;
 use pyrefly_types::shaped_array::tuple_carrier_to_shape;
 use pyrefly_types::typed_dict::AnonymousTypedDictInner;
 use pyrefly_types::typed_dict::ExtraItems;
@@ -3141,11 +3142,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     })
             }
             QuantifiedKind::TypeVar => {
-                // In TypeVar mode the argument is a single tuple carrier. If it
-                // projects to a concrete shape, use it. Otherwise (raw carriers
-                // like `S`, `Any`, or other unsolved generic forms) we cannot
-                // recover per-dimension information, so build a shapeless /
-                // unknown-rank array while preserving the original class args.
+                // In TypeVar mode the argument is a single tuple carrier. Raw
+                // carriers like `S` project to an unpacked shape with `S` as
+                // the variadic middle, so normal dimension binding can solve
+                // them just like TypeVarTuple-shaped arrays.
                 match tuple_carrier_to_shape(shape_arg) {
                     Some(shape) => ShapedArrayType::new(cls.clone(), shape).with_shape_arg_style(
                         ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
@@ -3192,7 +3192,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         .as_mut()
                         .get_mut(shape_idx)
                         .expect("class type should have an argument for each type parameter");
-                    *carrier = shape_to_tuple_carrier(&shape);
+                    *carrier = shape_to_tuple_carrier_arg(&shape);
                     ShapedArrayType {
                         base_class,
                         shape,

@@ -22,6 +22,7 @@ use crate::dimension::SizeExpr;
 use crate::dimension::canonicalize;
 use crate::lit_int::LitInt;
 use crate::literal::Lit;
+use crate::quantified::QuantifiedKind;
 use crate::tuple::Tuple;
 use crate::types::Type;
 
@@ -631,6 +632,33 @@ pub fn shape_to_tuple_carrier(shape: &ShapedArrayShape) -> Type {
     }
 }
 
+/// Detects a tuple-carrier shape variable occupying the variadic middle of an
+/// unpacked shape.
+pub fn is_tuple_carrier_shape_middle(ty: &Type) -> bool {
+    matches!(ty, Type::Var(_))
+        || matches!(ty, Type::Quantified(q) if q.kind() == QuantifiedKind::TypeVar)
+}
+
+/// Convert a projected tuple-carrier shape back to the class type argument.
+///
+/// A tuple-carrier `TypeVar` represents the whole shape tuple, so `ndarray[S,
+/// DType]` projects to `Unpacked([], S, [])` but must round-trip back to `S`,
+/// not `tuple[*S]`. TypeVarTuple-shaped arrays use `shape_to_tuple_carrier`
+/// directly because their middle really is an unpacked variadic segment.
+pub fn shape_to_tuple_carrier_arg(shape: &ShapedArrayShape) -> Type {
+    match shape.as_tuple() {
+        Tuple::Unpacked(unpacked) => {
+            let (prefix, middle, suffix) = &**unpacked;
+            if prefix.is_empty() && suffix.is_empty() && is_tuple_carrier_shape_middle(middle) {
+                middle.clone()
+            } else {
+                shape_to_tuple_carrier(shape)
+            }
+        }
+        _ => shape_to_tuple_carrier(shape),
+    }
+}
+
 /// Convert a tuple-carrier `Type` into a `ShapedArrayShape`.
 ///
 /// Returns `None` when the carrier is not a tuple or contains an element that is
@@ -661,6 +689,11 @@ pub fn tuple_carrier_to_shape(carrier: &Type) -> Option<ShapedArrayShape> {
             Some(ShapedArrayShape::unpacked(prefix, middle.clone(), suffix))
         }
         Type::Tuple(Tuple::Unbounded(_)) => Some(shapeless_shape()),
+        _ if is_tuple_carrier_shape_middle(carrier) => Some(ShapedArrayShape::unpacked(
+            Vec::new(),
+            carrier.clone(),
+            Vec::new(),
+        )),
         _ => None,
     }
 }
@@ -1318,6 +1351,7 @@ mod tests {
     use crate::shaped_array::ShapedArrayShape;
     use crate::shaped_array::ShapedArrayType;
     use crate::shaped_array::shape_to_tuple_carrier;
+    use crate::shaped_array::shape_to_tuple_carrier_arg;
     use crate::shaped_array::tuple_carrier_to_shape;
     use crate::tuple::Tuple;
     use crate::type_var::PreInferenceVariance;
@@ -1472,6 +1506,30 @@ mod tests {
             tuple_carrier_to_shape(&concrete_carrier(vec![dim(size_expr.clone())])),
             Some(ShapedArrayShape::from_types(vec![size_expr]))
         );
+    }
+
+    #[test]
+    fn raw_typevar_carrier_projects_to_variadic_shape() {
+        let carrier = Type::Quantified(Box::new(Quantified::new(
+            QuantifiedIdentity::new(
+                ModuleName::from_str("__test__"),
+                AnchorIndex::first(TextRange::default()),
+                QuantifiedOrigin::Pep695,
+            ),
+            Name::new("Shape"),
+            QuantifiedKind::TypeVar,
+            None,
+            Restriction::Unrestricted,
+            PreInferenceVariance::Invariant,
+        )));
+        let shape = ShapedArrayShape::unpacked(Vec::new(), carrier.clone(), Vec::new());
+
+        assert_eq!(tuple_carrier_to_shape(&carrier), Some(shape.clone()));
+        assert_eq!(shape_to_tuple_carrier_arg(&shape), carrier);
+
+        let carrier = Type::Var(Var::ZERO);
+        let shape = ShapedArrayShape::unpacked(Vec::new(), carrier.clone(), Vec::new());
+        assert_eq!(shape_to_tuple_carrier_arg(&shape), carrier);
     }
 
     #[test]

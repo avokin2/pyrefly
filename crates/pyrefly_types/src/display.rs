@@ -36,6 +36,7 @@ use crate::shaped_array::ShapedArrayShape;
 use crate::shaped_array::ShapedArrayShapeArgStyle;
 use crate::shaped_array::ShapedArraySyntax;
 use crate::shaped_array::ShapedArrayType;
+use crate::shaped_array::is_tuple_carrier_shape_middle;
 use crate::stdlib::Stdlib;
 use crate::tuple::Tuple;
 use crate::type_alias::TypeAliasData;
@@ -479,6 +480,9 @@ impl<'a> TypeDisplayContext<'a> {
             }
             Tuple::Unpacked(unpacked) => {
                 let (prefix, middle, suffix) = &**unpacked;
+                if prefix.is_empty() && suffix.is_empty() && is_tuple_carrier_shape_middle(middle) {
+                    return self.fmt_helper_generic(middle, false, output);
+                }
                 output.write_str("(")?;
                 let unpacked_middle = Type::Unpack(Box::new(middle.clone()));
                 self.fmt_type_sequence(

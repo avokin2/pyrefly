@@ -51,7 +51,7 @@ use crate::literal::Lit;
 use crate::shaped_array::ShapedArrayShape;
 use crate::shaped_array::ShapedArrayShapeArgStyle;
 use crate::shaped_array::ShapedArrayType;
-use crate::shaped_array::shape_to_tuple_carrier;
+use crate::shaped_array::shape_to_tuple_carrier_arg;
 use crate::tuple::Tuple;
 use crate::types::Type;
 
@@ -3235,7 +3235,7 @@ fn inject_shape(shape: ShapedArrayShape, ret_type: &Type) -> Type {
                     .as_mut()
                     .get_mut(index)
                     .expect("shape argument index should point to a class type argument");
-                *carrier = shape_to_tuple_carrier(&shape);
+                *carrier = shape_to_tuple_carrier_arg(&shape);
             }
             ShapedArrayType::new(base_class, shape)
                 .with_syntax(t.syntax)

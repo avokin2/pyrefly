@@ -194,8 +194,9 @@ class CargoExecutor(Executor):
 
     def tensor_shapes(self) -> None:
         run(["cargo", "build"])
-        # The runner resolves the debug pyrefly itself, so we don't pass `--pyrefly`.
+        # The runners resolve the debug pyrefly themselves, so we don't pass `--pyrefly`.
         run([sys.executable, "tensor-shapes/torch/run_pyrefly.py"])
+        run([sys.executable, "tensor-shapes/numpy/run_pyrefly.py"])
 
     def conformance(self) -> None:
         cargo_target_dir = os.environ.get("CARGO_TARGET_DIR", "target")
@@ -268,6 +269,7 @@ class BuckExecutor(Executor):
                 "tensor-shapes/torch/test:tensor_shapes_error_test",
                 "tensor-shapes/torch/test:tensor_shapes_jaxtyping_test",
                 "tensor-shapes/torch/test:tensor_shapes_jaxtyping_error_test",
+                "tensor-shapes/numpy:numpy_creation_basics_static_test",
                 "--",
                 "--run-disabled",
                 "--return-zero-on-skips",

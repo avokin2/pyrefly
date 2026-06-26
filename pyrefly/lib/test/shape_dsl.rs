@@ -694,6 +694,33 @@ def f[*Ts](
 );
 
 testcase!(
+    test_shaped_array_tuple_carrier_shape_attr_preserves_generic_carrier,
+    shaped_array_env(),
+    r#"
+from typing import Literal, reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+@shaped_array(shape="Shape")
+class Tensor[DType, *Shape]: ...
+
+def carrier[S](x: Array[S, float]) -> None:
+    reveal_type(x.shape)  # E: revealed type: S
+
+def concrete[M](x: Array[(2, 4, M), float]) -> None:
+    reveal_type(x.shape)  # E: revealed type: tuple[Literal[2], Literal[4], Dim[M]]
+
+def unpacked_prefix[*Ts](x: Array[tuple[Literal[2], *Ts], float]) -> None:
+    reveal_type(x.shape)  # E: revealed type: tuple[Literal[2], *Ts]
+
+def typevartuple[*Shape](x: Tensor[float, *Shape]) -> None:
+    reveal_type(x.shape)  # E: revealed type: tuple[*Shape]
+"#,
+);
+
+testcase!(
     test_shaped_array_tuple_carrier_does_not_erase_dtype,
     shaped_array_env(),
     r#"

@@ -15,18 +15,18 @@ don't crash when evaluated by Python.
 import typing
 from dataclasses import dataclass
 
-try:
-    import torch
-    import torch.nn as nn
-except ImportError:
-    torch = None
-    nn = None
 
-if torch is not None and nn is not None:
+def _patch_torch_if_available() -> None:
+    try:
+        import torch  # @manual
+        import torch.nn as nn  # @manual
+    except ImportError:
+        return
+
     # Make torch types subscriptable at runtime so that annotations like
     # Tensor[B, T, N] or nn.Linear[In, Out] evaluate as no-ops instead of
     # crashing with "type is not subscriptable".
-    _subscriptable_classes = [
+    subscriptable_classes = [
         torch.Tensor,
         nn.Embedding,
         nn.Linear,
@@ -52,9 +52,12 @@ if torch is not None and nn is not None:
         nn.AdaptiveMaxPool2d,
         nn.AdaptiveMaxPool3d,
     ]
-    for _cls in _subscriptable_classes:
-        if not hasattr(_cls, "__class_getitem__"):
-            _cls.__class_getitem__ = classmethod(lambda cls, params: cls)
+    for cls in subscriptable_classes:
+        if not hasattr(cls, "__class_getitem__"):
+            cls.__class_getitem__ = classmethod(lambda cls, params: cls)
+
+
+_patch_torch_if_available()
 
 
 class Dim[T]:

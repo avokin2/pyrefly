@@ -16,3 +16,15 @@ def test_matrix_arithmetic() -> None:
     assert_shape(a + b, (3, 4))
     assert_shape(a * b, (3, 4))
     assert_shape(b**2, (3, 4))
+
+
+def test_scalar_rhs_arithmetic() -> None:
+    a = np.full(4, 2.0)
+    b = np.ones((3, 4))
+    c = np.full((3, 4), 2.0)
+
+    assert_shape(a * 2.0, (4,))
+    assert_shape(a + 1.0, (4,))
+    assert_shape(a**2, (4,))
+    assert_shape(b + 1.0, (3, 4))
+    assert_shape(c * 2.0, (3, 4))

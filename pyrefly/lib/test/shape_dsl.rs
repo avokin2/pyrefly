@@ -380,6 +380,58 @@ def f(
 );
 
 testcase!(
+    test_shaped_array_pep484_tuple_carrier_canonicalization,
+    shaped_array_env(),
+    r#"
+from typing import Literal, reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def f(
+    compact: Array[(2, 3), int],
+    pep484: Array[tuple[Literal[2], Literal[3]], int],
+    compact_scalar: Array[(), int],
+    pep484_scalar: Array[tuple[()], int],
+) -> None:
+    # The compact and PEP-484 carriers canonicalize to the same shape.
+    reveal_type(compact)  # E: revealed type: Array[2, 3]
+    reveal_type(pep484)  # E: revealed type: Array[2, 3]
+    reveal_type(compact_scalar)  # E: revealed type: Array[()]
+    reveal_type(pep484_scalar)  # E: revealed type: Array[()]
+
+    # Closed concrete shapes are mutually assignable in both directions.
+    p: Array[tuple[Literal[2], Literal[3]], int] = compact
+    c: Array[(2, 3), int] = pep484
+    ps: Array[tuple[()], int] = compact_scalar
+    cs: Array[(), int] = pep484_scalar
+
+    wrong_rank2: Array[(2, 4), int] = pep484  # E: `Array[2, 3]` is not assignable to `Array[2, 4]`
+    wrong_rank0: Array[(1,), int] = pep484_scalar  # E: `Array[()]` is not assignable to `Array[1]`
+"#,
+);
+
+testcase!(
+    bug = "unbounded tuple shape carriers should be rejected but must not panic",
+    test_shaped_array_unbounded_tuple_carrier_no_panic,
+    shaped_array_env(),
+    r#"
+from typing import reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+# Unbounded tuple carriers do not (yet) produce a source-aware error. They
+# project to an unknown-rank/shapeless tensor internally so that solving never
+# panics. The desired end state is a diagnostic rejecting this form.
+def f(x: Array[tuple[int, ...], int]) -> None:
+    reveal_type(x)  # E: revealed type: Array
+"#,
+);
+
+testcase!(
     test_shaped_array_compact_tuple_arity_error,
     shaped_array_env(),
     r#"

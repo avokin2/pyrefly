@@ -9,6 +9,7 @@ mod init;
 
 mod basic;
 mod call_hierarchy;
+mod code_action_markdown_diagnostic;
 mod code_lens;
 mod completion;
 mod configuration;

@@ -52,6 +52,7 @@ use lsp_types::ConfigurationItem;
 use lsp_types::ConfigurationParams;
 use lsp_types::DeclarationCapability;
 use lsp_types::Diagnostic;
+use lsp_types::DiagnosticMessage;
 use lsp_types::DiagnosticSeverity;
 use lsp_types::DiagnosticTag;
 use lsp_types::DidChangeConfigurationParams;
@@ -62,6 +63,7 @@ use lsp_types::DidChangeWatchedFilesRegistrationOptions;
 use lsp_types::DidChangeWorkspaceFoldersParams;
 use lsp_types::DocumentDiagnosticParams;
 use lsp_types::DocumentDiagnosticReport;
+use lsp_types::DocumentDiagnosticReportKind;
 use lsp_types::DocumentHighlight;
 use lsp_types::DocumentHighlightKind;
 use lsp_types::DocumentHighlightParams;
@@ -87,6 +89,8 @@ use lsp_types::InlayHintLabel;
 use lsp_types::InlayHintLabelPart;
 use lsp_types::InlayHintParams;
 use lsp_types::Location;
+use lsp_types::MarkupContent;
+use lsp_types::MarkupKind;
 use lsp_types::NotebookCellLanguage;
 use lsp_types::NotebookDocumentFilterWithCells;
 use lsp_types::NotebookDocumentSyncFilter;
@@ -292,7 +296,6 @@ use crate::lsp::non_wasm::module_helpers::module_info_to_uri;
 use crate::lsp::non_wasm::move_symbol_new_file::move_symbol_to_new_file_code_action;
 use crate::lsp::non_wasm::mru::CompletionMru;
 use crate::lsp::non_wasm::protocol::Message;
-use crate::lsp::non_wasm::protocol::Notification;
 use crate::lsp::non_wasm::protocol::Request;
 use crate::lsp::non_wasm::protocol::Response;
 use crate::lsp::non_wasm::queue::HeavyTaskQueue;
@@ -524,7 +527,7 @@ impl ServerConnection {
     fn publish_diagnostics_for_uri(
         &self,
         uri: Url,
-        diags: Vec<Diagnostic>,
+        mut diags: Vec<Diagnostic>,
         version: Option<i32>,
         source: DiagnosticSource,
         diagnostic_markdown_support: bool,
@@ -535,21 +538,13 @@ impl ServerConnection {
             info!("Published {} diagnostics for {}", diags.len(), uri);
         }
         if diagnostic_markdown_support {
-            let mut params =
-                serde_json::to_value(PublishDiagnosticsParams::new(uri, diags, version)).unwrap();
-            apply_diagnostic_markup(&mut params);
-            self.send(Message::Notification(Notification {
-                method: PublishDiagnostics::METHOD.to_owned(),
-                params,
-                activity_key: None,
-            }));
-        } else {
-            self.send(Message::Notification(
-                new_notification::<PublishDiagnostics>(PublishDiagnosticsParams::new(
-                    uri, diags, version,
-                )),
-            ));
+            diags.iter_mut().for_each(diagnostic_message_to_markdown);
         }
+        self.send(Message::Notification(
+            new_notification::<PublishDiagnostics>(PublishDiagnosticsParams::new(
+                uri, diags, version,
+            )),
+        ));
     }
 }
 
@@ -708,35 +703,37 @@ fn diagnostic_markdown_support(params: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn apply_diagnostic_markup(value: &mut Value) {
-    fn wrap_messages(diagnostics: &mut [Value]) {
-        for diagnostic in diagnostics {
-            let message = match diagnostic.get("message").and_then(|value| value.as_str()) {
-                Some(message) => format_diagnostic_message_for_markdown(message),
-                None => continue,
-            };
-            if let Some(obj) = diagnostic.as_object_mut() {
-                obj.insert(
-                    "message".to_owned(),
-                    serde_json::json!({"kind": "markdown", "value": message}),
-                );
-            }
+/// Rewrite a diagnostic's plain-text message into a markdown
+/// message for clients that advertise `markupMessageSupport` (LSP 3.18)
+fn diagnostic_message_to_markdown(diagnostic: &mut Diagnostic) {
+    if let DiagnosticMessage::String(message) = &diagnostic.message {
+        let value = format_diagnostic_message_for_markdown(message);
+        diagnostic.message = MarkupContent {
+            kind: MarkupKind::Markdown,
+            value,
         }
+        .into();
+    }
+}
+
+/// Apply `diagnostic_message_to_markdown` to every diagnostic in a document
+/// diagnostic report, including those reported for related documents.
+fn apply_markdown_to_document_report(report: &mut DocumentDiagnosticReport) {
+    fn wrap_full(report: &mut FullDocumentDiagnosticReport) {
+        report
+            .items
+            .iter_mut()
+            .for_each(diagnostic_message_to_markdown);
     }
 
-    if let Some(diagnostics) = value.get_mut("diagnostics").and_then(|v| v.as_array_mut()) {
-        wrap_messages(diagnostics);
-    }
-
-    if let Some(items) = value.get_mut("items").and_then(|v| v.as_array_mut()) {
-        wrap_messages(items);
-    }
-
-    if let Some(related_documents) = value.get_mut("relatedDocuments")
-        && let Some(related_documents) = related_documents.as_object_mut()
-    {
-        for report in related_documents.values_mut() {
-            apply_diagnostic_markup(report);
+    if let DocumentDiagnosticReport::Full(report) = report {
+        wrap_full(&mut report.full_document_diagnostic_report);
+        if let Some(related_documents) = &mut report.related_documents {
+            for related in related_documents.values_mut() {
+                if let DocumentDiagnosticReportKind::Full(report) = related {
+                    wrap_full(report);
+                }
+            }
         }
     }
 }
@@ -2321,15 +2318,13 @@ impl Server {
                             params, &x.id,
                         )
                     {
-                        let mut result =
-                            serde_json::to_value(self.document_diagnostics(&transaction, params))
-                                .unwrap();
+                        let mut report = self.document_diagnostics(&transaction, params);
                         if self.diagnostic_markdown_support {
-                            apply_diagnostic_markup(&mut result);
+                            apply_markdown_to_document_report(&mut report);
                         }
                         self.send_response(Response {
                             id: x.id,
-                            result: Some(result),
+                            result: Some(serde_json::to_value(report).unwrap()),
                             error: None,
                         });
                     }

@@ -20,6 +20,8 @@ use crate::class::ClassType;
 use crate::dimension::ShapeError;
 use crate::dimension::SizeExpr;
 use crate::dimension::canonicalize;
+use crate::lit_int::LitInt;
+use crate::literal::Lit;
 use crate::tuple::Tuple;
 use crate::types::Type;
 
@@ -113,6 +115,21 @@ impl ShapedArrayType {
     pub fn with_syntax(mut self, syntax: ShapedArraySyntax) -> Self {
         self.syntax = syntax;
         self
+    }
+
+    /// Create a shaped-array type from the tuple carrier stored in a class type
+    /// argument, falling back to shapeless for malformed tuple elements.
+    ///
+    /// A non-tuple carrier violates the TypeVarTuple storage invariant and must
+    /// remain a panic instead of silently degrading.
+    pub fn from_tuple_carrier_or_shapeless(base_class: ClassType, carrier: &Type) -> Self {
+        match carrier {
+            Type::Tuple(_) => match tuple_carrier_to_shape(carrier) {
+                Some(shape) => Self::new(base_class, shape),
+                None => Self::shapeless(base_class),
+            },
+            _ => unreachable!("registered shaped-array class argument should be a tuple carrier"),
+        }
     }
 
     pub fn to_type(self) -> Type {
@@ -471,6 +488,123 @@ impl Display for ShapedArrayShape {
                 write!(f, "{}*{}{}", prefix_str, middle, suffix_str)
             }
         }
+    }
+}
+
+// ============================================================================
+// Tuple-carrier conversion
+// ============================================================================
+//
+// A "tuple carrier" is the user-facing spelling of a shape that NumPy-style
+// syntax such as `ndarray[(3, 4, 5), DType]` or
+// `ndarray[tuple[Literal[3], Literal[4], Literal[5]], DType]` produces, where
+// each dimension is written as `Literal[n]` or `Dim[x]`. Internally we store
+// dimensions directly as `Type::Size`, `Type::Quantified`, `Type::Var`, or
+// `Type::Any`. These helpers canonicalize between the two representations so the
+// rest of the type checker only ever deals with the internal form.
+
+/// Convert an internal shape dimension into its user-facing tuple-carrier
+/// element. Literal dimensions become `Literal[n]`; every other (non-literal)
+/// dimension type is wrapped in `Dim[...]`.
+fn dim_to_carrier_element(dim: &Type) -> Type {
+    match dim {
+        Type::Size(SizeExpr::Literal(n)) => LitInt::new(*n).to_explicit_type(),
+        _ => Type::Dim(Box::new(dim.clone())),
+    }
+}
+
+fn is_valid_internal_dim(dim: &Type) -> bool {
+    match dim {
+        Type::Size(expr) => is_valid_internal_size_expr(expr),
+        Type::Quantified(_) | Type::Var(_) | Type::Any(_) => true,
+        _ => false,
+    }
+}
+
+fn is_valid_internal_size_expr(expr: &SizeExpr) -> bool {
+    match expr {
+        SizeExpr::Literal(_) => true,
+        SizeExpr::Add(left, right)
+        | SizeExpr::Sub(left, right)
+        | SizeExpr::Mul(left, right)
+        | SizeExpr::FloorDiv(left, right)
+        | SizeExpr::Pow(left, right) => is_valid_internal_dim(left) && is_valid_internal_dim(right),
+    }
+}
+
+/// Convert a single tuple-carrier element into an internal shape dimension.
+///
+/// Returns `None` for elements that are not valid dimensions (e.g. non-int
+/// literals or arbitrary class types) so that conversion fails cleanly instead
+/// of silently treating an unrelated type as a dimension.
+fn carrier_element_to_dim(carrier: &Type) -> Option<Type> {
+    match carrier {
+        // `Literal[n]` (int) -> internal literal dimension.
+        Type::Literal(lit) => match &lit.value {
+            Lit::Int(i) => i.as_i64().map(|n| Type::Size(SizeExpr::Literal(n))),
+            _ => None,
+        },
+        // `Dim[x]` unwraps to the raw internal dimension `x`.
+        Type::Dim(inner) if is_valid_internal_dim(inner) => Some((**inner).clone()),
+        // Dimensions already in internal form pass through unchanged.
+        Type::Size(expr) if is_valid_internal_size_expr(expr) => Some(carrier.clone()),
+        Type::Quantified(_) | Type::Var(_) | Type::Any(_) => Some(carrier.clone()),
+        _ => None,
+    }
+}
+
+/// Convert a `ShapedArrayShape` into the equivalent tuple-carrier `Type`.
+pub fn shape_to_tuple_carrier(shape: &ShapedArrayShape) -> Type {
+    match shape.as_tuple() {
+        Tuple::Concrete(dims) => Type::Tuple(Tuple::Concrete(
+            dims.iter().map(dim_to_carrier_element).collect(),
+        )),
+        Tuple::Unbounded(t) if t.is_any() => Type::any_tuple(),
+        Tuple::Unbounded(_) => {
+            unreachable!("shaped-array unbounded shapes must be tuple[Any, ...]")
+        }
+        Tuple::Unpacked(unpacked) => {
+            let (prefix, middle, suffix) = &**unpacked;
+            Type::Tuple(Tuple::Unpacked(Box::new((
+                prefix.iter().map(dim_to_carrier_element).collect(),
+                middle.clone(),
+                suffix.iter().map(dim_to_carrier_element).collect(),
+            ))))
+        }
+    }
+}
+
+/// Convert a tuple-carrier `Type` into a `ShapedArrayShape`.
+///
+/// Returns `None` when the carrier is not a tuple or contains an element that is
+/// not a valid dimension.
+///
+/// `tuple[T, ...]` (including `tuple[int, ...]` and `tuple[Any, ...]`)
+/// intentionally canonicalizes to the shapeless / unknown-rank shape: an
+/// unbounded carrier conveys no recoverable per-dimension information.
+pub fn tuple_carrier_to_shape(carrier: &Type) -> Option<ShapedArrayShape> {
+    match carrier {
+        Type::Tuple(Tuple::Concrete(elts)) => {
+            let dims = elts
+                .iter()
+                .map(carrier_element_to_dim)
+                .collect::<Option<Vec<_>>>()?;
+            Some(ShapedArrayShape::from_types(dims))
+        }
+        Type::Tuple(Tuple::Unpacked(unpacked)) => {
+            let (prefix, middle, suffix) = &**unpacked;
+            let prefix = prefix
+                .iter()
+                .map(carrier_element_to_dim)
+                .collect::<Option<Vec<_>>>()?;
+            let suffix = suffix
+                .iter()
+                .map(carrier_element_to_dim)
+                .collect::<Option<Vec<_>>>()?;
+            Some(ShapedArrayShape::unpacked(prefix, middle.clone(), suffix))
+        }
+        Type::Tuple(Tuple::Unbounded(_)) => Some(shapeless_shape()),
+        _ => None,
     }
 }
 
@@ -1095,4 +1229,340 @@ fn apply_ops_to_dims(ops: &[IndexOp], dims: &[Type]) -> Result<(Vec<Type>, usize
         }
     }
     Ok((new_dims, dim_idx))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use pyrefly_python::module::Module;
+    use pyrefly_python::module_name::ModuleName;
+    use pyrefly_python::module_path::ModulePath;
+    use pyrefly_python::nesting_context::NestingContext;
+    use ruff_python_ast::Identifier;
+    use ruff_python_ast::name::Name;
+    use ruff_text_size::TextRange;
+    use ruff_text_size::TextSize;
+
+    use crate::class::Class;
+    use crate::class::ClassDefIndex;
+    use crate::class::ClassType;
+    use crate::dimension::SizeExpr;
+    use crate::lit_int::LitInt;
+    use crate::literal::Lit;
+    use crate::literal::LitStyle;
+    use crate::literal::Literal;
+    use crate::quantified::AnchorIndex;
+    use crate::quantified::Quantified;
+    use crate::quantified::QuantifiedIdentity;
+    use crate::quantified::QuantifiedKind;
+    use crate::quantified::QuantifiedOrigin;
+    use crate::shaped_array::ShapedArrayShape;
+    use crate::shaped_array::ShapedArrayType;
+    use crate::shaped_array::shape_to_tuple_carrier;
+    use crate::shaped_array::tuple_carrier_to_shape;
+    use crate::tuple::Tuple;
+    use crate::type_var::PreInferenceVariance;
+    use crate::type_var::Restriction;
+    use crate::types::AnyStyle;
+    use crate::types::TArgs;
+    use crate::types::Type;
+    use crate::types::Var;
+
+    /// Internal literal dimension `n` (`Type::Size(SizeExpr::Literal(n))`).
+    fn size(n: i64) -> Type {
+        Type::Size(SizeExpr::Literal(n))
+    }
+
+    /// User-facing `Literal[n]` carrier element.
+    fn literal(n: i64) -> Type {
+        LitInt::new(n).to_explicit_type()
+    }
+
+    /// User-facing `Dim[x]` carrier element.
+    fn dim(inner: Type) -> Type {
+        Type::Dim(Box::new(inner))
+    }
+
+    fn concrete_carrier(elts: Vec<Type>) -> Type {
+        Type::Tuple(Tuple::Concrete(elts))
+    }
+
+    fn fake_class_type(module: &str, name: &str) -> ClassType {
+        let module = Module::new(
+            ModuleName::from_str(module),
+            ModulePath::filesystem(PathBuf::from(module)),
+            Arc::new("fake module contents".to_owned()),
+        );
+        ClassType::new(
+            Class::new(
+                ClassDefIndex(0),
+                Identifier::new(Name::new(name), TextRange::empty(TextSize::new(0))),
+                NestingContext::toplevel(),
+                module,
+                None,
+            ),
+            TArgs::default(),
+        )
+    }
+
+    #[test]
+    fn concrete_shape_to_tuple_carrier() {
+        let shape = ShapedArrayShape::from_types(vec![size(3), size(4), size(5)]);
+        assert_eq!(
+            shape_to_tuple_carrier(&shape),
+            concrete_carrier(vec![literal(3), literal(4), literal(5)])
+        );
+    }
+
+    #[test]
+    fn literal_carrier_to_concrete_shape() {
+        let carrier = concrete_carrier(vec![literal(3), literal(4), literal(5)]);
+        assert_eq!(
+            tuple_carrier_to_shape(&carrier),
+            Some(ShapedArrayShape::from_types(vec![
+                size(3),
+                size(4),
+                size(5)
+            ]))
+        );
+    }
+
+    #[test]
+    fn concrete_round_trip_both_directions() {
+        let shape = ShapedArrayShape::from_types(vec![size(2), size(3)]);
+        let carrier = shape_to_tuple_carrier(&shape);
+        assert_eq!(tuple_carrier_to_shape(&carrier), Some(shape.clone()));
+
+        let carrier = concrete_carrier(vec![literal(2), literal(3)]);
+        let shape = tuple_carrier_to_shape(&carrier).unwrap();
+        assert_eq!(shape_to_tuple_carrier(&shape), carrier);
+    }
+
+    #[test]
+    fn dim_carrier_unwraps_to_internal_dimension() {
+        // `Dim[x]` carrier -> raw internal `x`.
+        let carrier = concrete_carrier(vec![dim(size(7))]);
+        assert_eq!(
+            tuple_carrier_to_shape(&carrier),
+            Some(ShapedArrayShape::from_types(vec![size(7)]))
+        );
+    }
+
+    #[test]
+    fn non_literal_internal_dimension_becomes_dim_carrier() {
+        // internal non-literal `x` -> `Dim[x]` carrier.
+        let x = Type::Any(AnyStyle::Explicit);
+        let shape = ShapedArrayShape::from_types(vec![x.clone()]);
+        assert_eq!(
+            shape_to_tuple_carrier(&shape),
+            concrete_carrier(vec![dim(x)])
+        );
+    }
+
+    #[test]
+    fn raw_internal_carrier_elements_pass_through() {
+        let quantified = Type::Quantified(Box::new(Quantified::new(
+            QuantifiedIdentity::new(
+                ModuleName::from_str("__test__"),
+                AnchorIndex::first(TextRange::default()),
+                QuantifiedOrigin::Pep695,
+            ),
+            Name::new("T"),
+            QuantifiedKind::TypeVar,
+            None,
+            Restriction::Unrestricted,
+            PreInferenceVariance::Invariant,
+        )));
+        let dims = vec![
+            size(8),
+            Type::Any(AnyStyle::Explicit),
+            Type::Var(Var::ZERO),
+            quantified,
+        ];
+
+        assert_eq!(
+            tuple_carrier_to_shape(&concrete_carrier(dims.clone())),
+            Some(ShapedArrayShape::from_types(dims))
+        );
+    }
+
+    #[test]
+    fn size_expr_carriers_with_internal_operands_pass_through() {
+        let quantified = Type::Quantified(Box::new(Quantified::new(
+            QuantifiedIdentity::new(
+                ModuleName::from_str("__test__"),
+                AnchorIndex::first(TextRange::default()),
+                QuantifiedOrigin::Pep695,
+            ),
+            Name::new("T"),
+            QuantifiedKind::TypeVar,
+            None,
+            Restriction::Unrestricted,
+            PreInferenceVariance::Invariant,
+        )));
+        let size_expr = Type::Size(SizeExpr::Add(
+            Box::new(quantified.clone()),
+            Box::new(size(1)),
+        ));
+
+        assert_eq!(
+            tuple_carrier_to_shape(&concrete_carrier(vec![size_expr.clone()])),
+            Some(ShapedArrayShape::from_types(vec![size_expr.clone()]))
+        );
+        assert_eq!(
+            tuple_carrier_to_shape(&concrete_carrier(vec![dim(size_expr.clone())])),
+            Some(ShapedArrayShape::from_types(vec![size_expr]))
+        );
+    }
+
+    #[test]
+    fn unpacked_carrier_round_trip() {
+        // tuple[Literal[2], *Ts, Literal[3]] <-> Unpacked([2], Ts, [3]).
+        let middle = Type::Any(AnyStyle::Implicit);
+        let shape = ShapedArrayShape::unpacked(vec![size(2)], middle.clone(), vec![size(3)]);
+        let carrier = shape_to_tuple_carrier(&shape);
+        assert_eq!(
+            carrier,
+            Type::Tuple(Tuple::Unpacked(Box::new((
+                vec![literal(2)],
+                middle,
+                vec![literal(3)],
+            ))))
+        );
+        assert_eq!(tuple_carrier_to_shape(&carrier), Some(shape));
+    }
+
+    #[test]
+    fn unbounded_carriers_canonicalize_to_shapeless() {
+        // Unbounded carriers have no recoverable rank or per-dimension values,
+        // regardless of their element type.
+        let any_unbounded = Type::any_tuple();
+        let internal_unbounded = Type::Tuple(Tuple::Unbounded(Box::new(size(5))));
+        let int_unbounded = Type::Tuple(Tuple::Unbounded(Box::new(Type::ClassType(
+            fake_class_type("builtins", "int"),
+        ))));
+        let shapeless = ShapedArrayShape::shapeless();
+        assert_eq!(
+            tuple_carrier_to_shape(&any_unbounded),
+            Some(shapeless.clone())
+        );
+        assert_eq!(
+            tuple_carrier_to_shape(&internal_unbounded),
+            Some(shapeless.clone())
+        );
+        assert_eq!(tuple_carrier_to_shape(&int_unbounded), Some(shapeless));
+    }
+
+    #[test]
+    fn malformed_tuple_carrier_projects_to_shapeless_array() {
+        let base_class = fake_class_type("arrays", "Array");
+        let carrier = concrete_carrier(vec![bool_literal()]);
+        let shaped_array =
+            ShapedArrayType::from_tuple_carrier_or_shapeless(base_class.clone(), &carrier);
+
+        assert_eq!(shaped_array.base_class, base_class);
+        assert!(shaped_array.is_shapeless());
+    }
+
+    #[test]
+    fn malformed_unpacked_tuple_carrier_projects_to_shapeless_array() {
+        let base_class = fake_class_type("arrays", "Array");
+        let carrier = Type::Tuple(Tuple::Unpacked(Box::new((
+            vec![bool_literal()],
+            Type::Any(AnyStyle::Implicit),
+            Vec::new(),
+        ))));
+        let shaped_array =
+            ShapedArrayType::from_tuple_carrier_or_shapeless(base_class.clone(), &carrier);
+
+        assert_eq!(shaped_array.base_class, base_class);
+        assert!(shaped_array.is_shapeless());
+    }
+
+    #[test]
+    fn valid_tuple_carrier_projects_to_shaped_array() {
+        let base_class = fake_class_type("arrays", "Array");
+        let carrier = concrete_carrier(vec![literal(2), literal(3)]);
+        let shaped_array =
+            ShapedArrayType::from_tuple_carrier_or_shapeless(base_class.clone(), &carrier);
+
+        assert_eq!(shaped_array.base_class, base_class);
+        assert_eq!(
+            shaped_array.shape,
+            ShapedArrayShape::new(vec![SizeExpr::Literal(2), SizeExpr::Literal(3)])
+        );
+    }
+
+    #[test]
+    fn valid_unpacked_tuple_carrier_projects_to_shaped_array() {
+        let base_class = fake_class_type("arrays", "Array");
+        let middle = Type::Any(AnyStyle::Implicit);
+        let carrier = Type::Tuple(Tuple::Unpacked(Box::new((
+            vec![literal(2)],
+            middle.clone(),
+            vec![literal(3)],
+        ))));
+        let shaped_array =
+            ShapedArrayType::from_tuple_carrier_or_shapeless(base_class.clone(), &carrier);
+
+        assert_eq!(shaped_array.base_class, base_class);
+        assert_eq!(
+            shaped_array.shape,
+            ShapedArrayShape::unpacked(vec![size(2)], middle, vec![size(3)])
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "registered shaped-array class argument should be a tuple carrier")]
+    fn non_tuple_carrier_panics() {
+        let base_class = fake_class_type("arrays", "Array");
+        ShapedArrayType::from_tuple_carrier_or_shapeless(base_class, &literal(2));
+    }
+
+    #[test]
+    fn unsupported_carrier_elements_fail() {
+        // A non-int literal element is not a valid dimension.
+        let carrier = concrete_carrier(vec![LitInt::new(0).to_explicit_type(), bool_literal()]);
+        assert_eq!(tuple_carrier_to_shape(&carrier), None);
+        // A non-tuple carrier is not convertible at all.
+        assert_eq!(tuple_carrier_to_shape(&literal(3)), None);
+    }
+
+    #[test]
+    fn unsupported_dim_carrier_inner_elements_fail() {
+        assert_eq!(
+            tuple_carrier_to_shape(&concrete_carrier(vec![dim(literal(3))])),
+            None
+        );
+        assert_eq!(
+            tuple_carrier_to_shape(&concrete_carrier(vec![dim(bool_literal())])),
+            None
+        );
+        assert_eq!(
+            tuple_carrier_to_shape(&concrete_carrier(vec![dim(Type::None)])),
+            None
+        );
+    }
+
+    #[test]
+    fn unsupported_size_expr_operands_fail() {
+        let invalid_size_expr = Type::Size(SizeExpr::Add(Box::new(literal(1)), Box::new(size(2))));
+        assert_eq!(
+            tuple_carrier_to_shape(&concrete_carrier(vec![invalid_size_expr.clone()])),
+            None
+        );
+        assert_eq!(
+            tuple_carrier_to_shape(&concrete_carrier(vec![dim(invalid_size_expr)])),
+            None
+        );
+    }
+
+    fn bool_literal() -> Type {
+        Type::Literal(Box::new(Literal {
+            value: Lit::Bool(true),
+            style: LitStyle::Explicit,
+        }))
+    }
 }

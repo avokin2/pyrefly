@@ -3129,29 +3129,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .as_slice()
             .get(shape_idx)
             .expect("class type should have an argument for each type parameter");
-        match shape_arg {
-            Type::Tuple(Tuple::Concrete(dims)) => {
-                ShapedArrayType::new(cls.clone(), ShapedArrayShape::from_types(dims.clone()))
-            }
-            Type::Tuple(Tuple::Unpacked(unpacked)) => {
-                let (prefix, middle, suffix) = &**unpacked;
-                ShapedArrayType::new(
-                    cls.clone(),
-                    ShapedArrayShape::unpacked(prefix.clone(), middle.clone(), suffix.clone()),
-                )
-            }
-            Type::Tuple(Tuple::Unbounded(dim)) if dim.is_any() => {
-                ShapedArrayType::shapeless(cls.clone())
-            }
-            Type::Tuple(Tuple::Unbounded(_)) => ShapedArrayType::new(
-                cls.clone(),
-                ShapedArrayShape::unpacked(Vec::new(), shape_arg.clone(), Vec::new()),
-            ),
-            _ => unreachable!(
-                "registered TypeVarTuple argument should be stored as a tuple, got `{}`",
-                self.for_display(shape_arg.clone())
-            ),
-        }
+        // Metadata only accepts a `TypeVarTuple` parameter, so the argument is
+        // stored as a tuple carrier. Project it back to an internal shape,
+        // normalizing malformed or unbounded carriers to shapeless.
+        ShapedArrayType::from_tuple_carrier_or_shapeless(cls.clone(), shape_arg)
     }
 
     /// Check if a class is a Dim class (shape_extensions.Dim)

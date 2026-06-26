@@ -14,6 +14,7 @@ type _AnyShape = tuple[Any, ...]
 @shape_extensions.shaped_array(shape="Shape")
 class ndarray[Shape: _Shape = _AnyShape, DType = Any]:
     shape: Shape
+    def __pow__(self, other: int | float) -> ndarray[Shape, DType]: ...
 
 # TODO(stroxler): Replace these finite tuple-shape constructor overloads with a
 # generic `Shape: tuple[int, ...]` overload once carrier shapes flow through

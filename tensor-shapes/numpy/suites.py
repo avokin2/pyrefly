@@ -7,5 +7,6 @@ from __future__ import annotations
 
 
 SUITES = {
+    "arithmetic": ("test_arithmetic.py",),
     "creation-basics": ("test_creation_basics.py",),
 }

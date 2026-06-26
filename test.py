@@ -269,6 +269,7 @@ class BuckExecutor(Executor):
                 "tensor-shapes/torch/test:tensor_shapes_error_test",
                 "tensor-shapes/torch/test:tensor_shapes_jaxtyping_test",
                 "tensor-shapes/torch/test:tensor_shapes_jaxtyping_error_test",
+                "tensor-shapes/numpy:numpy_arithmetic_static_test",
                 "tensor-shapes/numpy:numpy_creation_basics_static_test",
                 "--",
                 "--run-disabled",

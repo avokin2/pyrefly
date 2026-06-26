@@ -2995,34 +2995,24 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             Expr::NoneLiteral(_) => {
                 let one = self.heap.mk_size(SizeExpr::Literal(1));
                 let mut new_dims = vec![one];
-                match shaped_array_type.shape.as_tuple() {
+                let new_shape = match shaped_array_type.shape.as_tuple() {
                     Tuple::Concrete(dims) => {
                         new_dims.extend(dims.iter().cloned());
-                        self.shaped_array_with_shape(
-                            shaped_array_type,
-                            ShapedArrayShape::from_types(new_dims),
-                        )
-                        .to_type()
+                        ShapedArrayShape::from_types(new_dims)
                     }
-                    Tuple::Unbounded(middle) => ShapedArrayType::new(
-                        shaped_array_type.base_class.clone(),
-                        ShapedArrayShape::unpacked(
-                            new_dims,
-                            Type::Tuple(Tuple::Unbounded(middle.clone())),
-                            Vec::new(),
-                        ),
-                    )
-                    .to_type(),
+                    Tuple::Unbounded(middle) => ShapedArrayShape::unpacked(
+                        new_dims,
+                        Type::Tuple(Tuple::Unbounded(middle.clone())),
+                        Vec::new(),
+                    ),
                     Tuple::Unpacked(f) => {
                         let (prefix, middle, suffix) = &**f;
                         new_dims.extend(prefix.iter().cloned());
-                        self.shaped_array_with_shape(
-                            shaped_array_type,
-                            ShapedArrayShape::unpacked(new_dims, middle.clone(), suffix.clone()),
-                        )
-                        .to_type()
+                        ShapedArrayShape::unpacked(new_dims, middle.clone(), suffix.clone())
                     }
-                }
+                };
+                self.shaped_array_with_shape(shaped_array_type, new_shape)
+                    .to_type()
             }
             // Tuple index: tensor[:, -1, :] - apply each index to corresponding dimension
             Expr::Tuple(ExprTuple { elts, .. }) => {

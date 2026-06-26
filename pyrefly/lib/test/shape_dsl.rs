@@ -166,6 +166,14 @@ class ndarray[DType, *Shape]:
 
 @uses_shape_dsl(add_leading_axis_ir)
 def add_leading_axis[DType, *Shape](x: ndarray[DType, *Shape]) -> ndarray[DType, *Shape]: ...
+
+@shaped_array(shape="Shape")
+class tcarray[Shape, DType]:
+    shape: Shape
+    def dtype(self) -> DType: ...
+
+@uses_shape_dsl(add_leading_axis_ir)
+def tc_add_leading_axis[Shape, DType](x: tcarray[Shape, DType]) -> tcarray[Shape, DType]: ...
 "#,
     );
     env
@@ -591,6 +599,91 @@ def values() -> None:
 
 def index_preserves_dtype(concrete: Array[int, 2, 3]) -> Array[int, 3]:
     return concrete[0]
+"#,
+);
+
+testcase!(
+    test_shaped_array_tuple_carrier_indexing_keeps_shape_coherent,
+    shaped_array_env(),
+    r#"
+from typing import Literal, reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]:
+    shape: Shape
+    def dtype(self) -> DType: ...
+
+@shaped_array(shape="Shape")
+class DTypeFirstArray[DType, Shape]:
+    shape: Shape
+    def dtype(self) -> DType: ...
+
+def f(x: Array[(2, 3, 4), int], dtype_first: DTypeFirstArray[int, (2, 3, 4)]) -> None:
+    # Integer index drops the leading dim, and `.shape` (read from the raw
+    # carrier) stays coherent with the projected shape.
+    reveal_type(x[0])  # E: revealed type: Array[(3, 4), int]
+    reveal_type(x[0].shape)  # E: revealed type: tuple[Literal[3], Literal[4]]
+    reveal_type(x[0].dtype())  # E: revealed type: int
+
+    # Mixed tuple index (slice + int) and `None`/newaxis stay coherent too.
+    reveal_type(x[:, 0])  # E: revealed type: Array[(2, 4), int]
+    reveal_type(x[:, 0].shape)  # E: revealed type: tuple[Literal[2], Literal[4]]
+    reveal_type(x[None])  # E: revealed type: Array[(1, 2, 3, 4), int]
+    reveal_type(x[None].shape)  # E: revealed type: tuple[Literal[1], Literal[2], Literal[3], Literal[4]]
+
+    # The carrier rewrite follows the registered shape parameter, even when it
+    # is not the first type argument.
+    reveal_type(dtype_first[0])  # E: revealed type: DTypeFirstArray[int, (3, 4)]
+    reveal_type(dtype_first[0].shape)  # E: revealed type: tuple[Literal[3], Literal[4]]
+    reveal_type(dtype_first[0].dtype())  # E: revealed type: int
+
+def scalar(s: Array[(), int]) -> None:
+    s[0]  # E: Cannot index scalar tensor (rank 0)
+"#,
+);
+
+testcase!(
+    test_shaped_array_unknown_rank_carrier_indexing_not_stale,
+    shaped_array_env(),
+    r#"
+from typing import reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]:
+    shape: Shape
+
+# A raw carrier `S` has unknown rank: indexing/slicing degrade to a shapeless
+# array (no diagnostic), and crucially `.shape` must NOT stale-read `S` after the
+# operation -- the carrier is rewritten to the shapeless form.
+def g[S](x: Array[S, int]) -> None:
+    reveal_type(x[0])  # E: revealed type: Array
+    reveal_type(x[0].shape)  # E: revealed type: tuple[Unknown, ...]
+    reveal_type(x[:])  # E: revealed type: Array
+    reveal_type(x[:].shape)  # E: revealed type: tuple[Unknown, ...]
+"#,
+);
+
+testcase!(
+    test_shaped_array_tuple_carrier_broadcast_keeps_shape_coherent,
+    shaped_array_env(),
+    r#"
+from typing import Literal, reveal_type
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]:
+    shape: Shape
+    def dtype(self) -> DType: ...
+
+def f(x: Array[(2, 3), int], y: Array[(1, 3), int]) -> None:
+    z = x + y
+    # Broadcasting `(2, 3)` with `(1, 3)` yields `(2, 3)`, and the raw carrier is
+    # rewritten so `.shape` stays coherent. DType is preserved from the carrier.
+    reveal_type(z)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(z.shape)  # E: revealed type: tuple[Literal[2], Literal[3]]
+    reveal_type(z.dtype())  # E: revealed type: int
 "#,
 );
 
@@ -1156,6 +1249,24 @@ def f(x: np.ndarray[float, 2, 3]) -> None:
     reveal_type(x.shape)  # E: revealed type: tuple[Literal[2], Literal[3]]
     reveal_type(x[0])  # E: revealed type: ndarray[float, 3]
     reveal_type(np.add_leading_axis(x))  # E: revealed type: ndarray[float, 1, 2, 3]
+"#,
+);
+
+testcase!(
+    test_numpy_tuple_carrier_meta_shape_keeps_shape_coherent,
+    shaped_array_env_with_numpy(),
+    r#"
+import numpy as np
+from typing import Literal, reveal_type
+
+def f(x: np.tcarray[(2, 3), int]) -> None:
+    y = np.tc_add_leading_axis(x)
+    # The meta-shape DSL adds a leading axis. The result's raw tuple carrier is
+    # re-synced to the computed shape, so both the displayed shape and `.shape`
+    # stay coherent; DType is preserved.
+    reveal_type(y)  # E: revealed type: tcarray[(1, 2, 3), int]
+    reveal_type(y.shape)  # E: revealed type: tuple[Literal[1], Literal[2], Literal[3]]
+    reveal_type(y.dtype())  # E: revealed type: int
 "#,
 );
 

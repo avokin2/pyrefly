@@ -1879,7 +1879,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     ) -> Type {
         let ret_type = self.canonicalize_shape_dsl_type(ret_type);
         match meta_shape_func.evaluate(bound_args, &ret_type) {
-            Some(Ok(ty)) => ty,
+            // The meta-shape evaluator (in `pyrefly_types`, which has no metadata
+            // knowledge) rebuilds the result `ShapedArray` with the computed shape
+            // but leaves the base-class tuple carrier stale. Re-sync each result
+            // carrier to its projected shape so tuple-carrier `.shape` stays
+            // coherent.
+            Some(Ok(ty)) => ty.transform(&mut |ty| {
+                if let Type::ShapedArray(shaped_array) = ty {
+                    *ty = self
+                        .shaped_array_with_shape(shaped_array, shaped_array.shape.clone())
+                        .to_type();
+                }
+            }),
             Some(Err(shape_error)) => {
                 errors
                     .error_builder(

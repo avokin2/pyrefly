@@ -46,7 +46,7 @@ jobs:
     - run: cargo clippy --release
     - run: cargo build --release
     - run: cargo test --release
-    - name: Run tensor shape tests
+    - name: Run torch stub tests
       run: python tensor-shapes/torch/run_pyrefly.py --release
     - name: Run Scrut tests
       env:
@@ -57,7 +57,7 @@ jobs:
         PYREFLY_PY: ${{ github.workspace }}/pyrefly/python
       run: env -u GITHUB_ACTIONS scrut test test
       if: ${{ matrix.os != 'windows-latest' }}
-    - name: Set up tensor shape runtime test environment
+    - name: Set up torch runtime test environment
       shell: bash
       run: |
         python -m venv .tensor-shapes-venv
@@ -69,6 +69,6 @@ jobs:
         echo "TENSOR_SHAPES_PYTHON=$TENSOR_SHAPES_PYTHON" >> "$GITHUB_ENV"
         "$TENSOR_SHAPES_PYTHON" -m pip install --upgrade pip
         "$TENSOR_SHAPES_PYTHON" -m pip install torch
-    - name: Run tensor shape runtime tests
+    - name: Run torch runtime tests
       shell: bash
       run: "$TENSOR_SHAPES_PYTHON" tensor-shapes/torch/run_runtime_tests.py

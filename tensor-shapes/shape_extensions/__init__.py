@@ -15,41 +15,46 @@ don't crash when evaluated by Python.
 import typing
 from dataclasses import dataclass
 
-import torch
-import torch.nn as nn
+try:
+    import torch
+    import torch.nn as nn
+except ImportError:
+    torch = None
+    nn = None
 
-# Make torch types subscriptable at runtime so that annotations like
-# Tensor[B, T, N] or nn.Linear[In, Out] evaluate as no-ops instead of
-# crashing with "type is not subscriptable".
-_subscriptable_classes = [
-    torch.Tensor,
-    nn.Embedding,
-    nn.Linear,
-    nn.ModuleList,
-    # Convolution modules
-    nn.Conv1d,
-    nn.Conv2d,
-    nn.Conv3d,
-    nn.ConvTranspose1d,
-    nn.ConvTranspose2d,
-    nn.ConvTranspose3d,
-    # Pooling modules
-    nn.MaxPool1d,
-    nn.MaxPool2d,
-    nn.MaxPool3d,
-    nn.AvgPool1d,
-    nn.AvgPool2d,
-    nn.AvgPool3d,
-    nn.AdaptiveAvgPool1d,
-    nn.AdaptiveAvgPool2d,
-    nn.AdaptiveAvgPool3d,
-    nn.AdaptiveMaxPool1d,
-    nn.AdaptiveMaxPool2d,
-    nn.AdaptiveMaxPool3d,
-]
-for _cls in _subscriptable_classes:
-    if not hasattr(_cls, "__class_getitem__"):
-        _cls.__class_getitem__ = classmethod(lambda cls, params: cls)
+if torch is not None and nn is not None:
+    # Make torch types subscriptable at runtime so that annotations like
+    # Tensor[B, T, N] or nn.Linear[In, Out] evaluate as no-ops instead of
+    # crashing with "type is not subscriptable".
+    _subscriptable_classes = [
+        torch.Tensor,
+        nn.Embedding,
+        nn.Linear,
+        nn.ModuleList,
+        # Convolution modules
+        nn.Conv1d,
+        nn.Conv2d,
+        nn.Conv3d,
+        nn.ConvTranspose1d,
+        nn.ConvTranspose2d,
+        nn.ConvTranspose3d,
+        # Pooling modules
+        nn.MaxPool1d,
+        nn.MaxPool2d,
+        nn.MaxPool3d,
+        nn.AvgPool1d,
+        nn.AvgPool2d,
+        nn.AvgPool3d,
+        nn.AdaptiveAvgPool1d,
+        nn.AdaptiveAvgPool2d,
+        nn.AdaptiveAvgPool3d,
+        nn.AdaptiveMaxPool1d,
+        nn.AdaptiveMaxPool2d,
+        nn.AdaptiveMaxPool3d,
+    ]
+    for _cls in _subscriptable_classes:
+        if not hasattr(_cls, "__class_getitem__"):
+            _cls.__class_getitem__ = classmethod(lambda cls, params: cls)
 
 
 class Dim[T]:

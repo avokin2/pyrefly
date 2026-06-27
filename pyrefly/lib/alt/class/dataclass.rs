@@ -28,6 +28,7 @@ use crate::alt::answers_solver::AnswersSolver;
 use crate::alt::call::TargetWithTParams;
 use crate::alt::callable::CallArg;
 use crate::alt::callable::CallKeyword;
+use crate::alt::class::attrs::AttrsInitName;
 use crate::alt::class::attrs::is_attrs_setters_frozen;
 use crate::alt::class::attrs::is_attrs_setters_pipe;
 use crate::alt::class::class_field::ClassField;
@@ -704,9 +705,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             let strict = field_flags.strict.unwrap_or(strict_default);
             let has_default = !field.is_init_var() || field_flags.default.is_some();
             if field_flags.init_by_name {
+                let param_name = match self.attrs_init_param_name(cls, &name, dataclass_metadata) {
+                    AttrsInitName::Renamed(stripped) => stripped,
+                    AttrsInitName::Collision(_) | AttrsInitName::Unchanged => name.clone(),
+                };
                 params.push(self.as_param(
                     &field,
-                    &name,
+                    &param_name,
                     has_default,
                     true,
                     strict,
@@ -1337,28 +1342,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 };
 
                 if field_flags.init_by_name {
-                    // attrs names a private field's init param by its Python-mangled name with
-                    // leading underscores stripped: `__y` in class `C` -> `_C__y` -> `C__y`;
-                    // `_x` -> `x`. Mangling applies to dunder-leading, non-dunder-trailing names.
-                    let is_attrs = matches!(dataclass.kind, DataclassKind::Attrs { .. });
-                    let class_name = cls.name().as_str().trim_start_matches('_');
-                    let mangled = if is_attrs
-                        && name.as_str().starts_with("__")
-                        && !name.as_str().ends_with("__")
-                        && !class_name.is_empty()
-                    {
-                        Some(format!("_{class_name}{name}"))
-                    } else {
-                        None
-                    };
-                    let effective = mangled.as_deref().unwrap_or_else(|| name.as_str());
-                    let stripped = effective.trim_start_matches('_');
-                    let param_name = if is_attrs
-                        && !stripped.is_empty()
-                        && stripped.len() != name.as_str().len()
-                    {
-                        let stripped_name = Name::new(stripped);
-                        if dataclass.fields.contains(&stripped_name) {
+                    let param_name = match self.attrs_init_param_name(cls, &name, dataclass) {
+                        AttrsInitName::Renamed(stripped) => stripped,
+                        AttrsInitName::Collision(stripped) => {
                             if let Some(range) = self
                                 .get_class_fields(cls)
                                 .and_then(|f| f.field_decl_range(&name))
@@ -1368,16 +1354,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                                     range,
                                     ErrorKind::BadClassDefinition,
                                     format!(
-                                        "Field `{name}` collides with `{stripped_name}` after stripping leading underscores"
+                                        "Field `{name}` collides with `{stripped}` after stripping leading underscores"
                                     ),
                                 );
                             }
                             name.clone()
-                        } else {
-                            stripped_name
                         }
-                    } else {
-                        name.clone()
+                        AttrsInitName::Unchanged => name.clone(),
                     };
                     params.push(self.as_param(
                         &field,

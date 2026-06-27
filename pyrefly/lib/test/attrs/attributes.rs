@@ -205,6 +205,26 @@ reveal_type(C.__init__)  # E: revealed type: (self: C, C__y: int) -> None
 "#,
 );
 
+// Name mangling uses the *defining* class, so an inherited dunder-leading field keeps the base's
+// mangled init name in the subclass: `Base.__y` stays `Base__y`, not `Sub__y`.
+attrs_testcase!(
+    test_attrs_dunder_leading_name_mangling_inherited,
+    r#"
+from typing import reveal_type
+import attrs
+
+@attrs.define
+class Base:
+    __y: int
+
+@attrs.define
+class Sub(Base):
+    __z: int
+
+reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, Base__y: int, Sub__z: int) -> None
+"#,
+);
+
 // `@attr.s(auto_attribs=True)` opts into annotation-driven fields (classic
 // `@attr.s` defaults to `auto_attribs=False`, see the tests below).
 attrs_testcase!(

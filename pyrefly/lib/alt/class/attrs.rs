@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+use dupe::Dupe;
 use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::short_identifier::ShortIdentifier;
 use ruff_python_ast::name::Name;
@@ -18,6 +19,7 @@ use crate::alt::answers_solver::AnswersSolver;
 use crate::alt::class::class_field::DataclassMember;
 use crate::alt::class::class_metadata::TransformDataclass;
 use crate::alt::types::class_metadata::ClassMetadata;
+use crate::alt::types::class_metadata::DataclassKind;
 use crate::alt::types::class_metadata::DataclassMetadata;
 use crate::binding::binding::Key;
 use crate::binding::binding::KeyDecorator;
@@ -69,7 +71,49 @@ pub(crate) fn is_attrs_setters_pipe(ty: &Type) -> bool {
     }
 }
 
+/// The `__init__`/`__replace__` parameter name attrs derives for a field. attrs strips leading
+/// underscores from private fields (`_x` -> `x`).
+pub(crate) enum AttrsInitName {
+    /// Use this stripped name instead of the field name.
+    Renamed(Name),
+    /// The stripped name collides with another field; keep the field name and report it.
+    Collision(Name),
+    /// Not an attrs class, or no leading underscore: use the field name unchanged.
+    Unchanged,
+}
+
 impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
+    pub(crate) fn attrs_init_param_name(
+        &self,
+        cls: &Class,
+        name: &Name,
+        dataclass: &DataclassMetadata,
+    ) -> AttrsInitName {
+        if !matches!(dataclass.kind, DataclassKind::Attrs { .. }) {
+            return AttrsInitName::Unchanged;
+        }
+        let mangled = if name.as_str().starts_with("__") && !name.as_str().ends_with("__") {
+            let defining_class = self
+                .get_class_member_with_defining_class(cls, name)
+                .map_or_else(|| cls.dupe(), |member| member.defining_class);
+            let class_name = defining_class.name().as_str().trim_start_matches('_');
+            (!class_name.is_empty()).then(|| format!("_{class_name}{name}"))
+        } else {
+            None
+        };
+        let effective = mangled.as_deref().unwrap_or_else(|| name.as_str());
+        let stripped = effective.trim_start_matches('_');
+        if stripped.is_empty() || stripped.len() == name.as_str().len() {
+            return AttrsInitName::Unchanged;
+        }
+        let stripped = Name::new(stripped);
+        if dataclass.fields.contains(&stripped) {
+            AttrsInitName::Collision(stripped)
+        } else {
+            AttrsInitName::Renamed(stripped)
+        }
+    }
+
     pub(crate) fn is_attrs_class(
         &self,
         dataclass_from_dataclass_transform: &Option<TransformDataclass>,

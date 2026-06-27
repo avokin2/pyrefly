@@ -1962,17 +1962,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         errors,
                     )
                 }
-                Some(CalleeKind::Function(FunctionKind::DataclassReplace)) => {
-                    self.call_dataclasses_replace(
-                        ty,
-                        &args,
-                        &kws,
-                        x.func.range(),
-                        x.arguments.range,
-                        hint,
-                        errors,
-                    )
-                }
+                // `attr.evolve`/`attrs.evolve` validate kwargs like `dataclasses.replace`.
+                Some(CalleeKind::Function(
+                    FunctionKind::DataclassReplace | FunctionKind::AttrsEvolve,
+                )) => self.call_dataclasses_replace(
+                    ty,
+                    &args,
+                    &kws,
+                    x.func.range(),
+                    x.arguments.range,
+                    hint,
+                    errors,
+                ),
                 Some(CalleeKind::Function(FunctionKind::DataclassAsdict)) => {
                     self.call_dataclasses_asdict(
                         ty,

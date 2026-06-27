@@ -1115,3 +1115,102 @@ c = C(1, 2)
 c.y = 3  # E: Cannot set field `y`
 "#,
 );
+
+// EVOLVE
+//
+// `attr.evolve`/`attrs.evolve` copy an instance with changes; the kwargs are validated against
+// the class fields like `dataclasses.replace`, and all fields are optional.
+
+attrs_testcase!(
+    test_attrs_evolve_basic,
+    r#"
+from typing import assert_type
+import attrs
+
+@attrs.frozen
+class Point:
+    x: int
+    y: int
+
+p = Point(1, 2)
+assert_type(attrs.evolve(p, x=5), Point)
+attrs.evolve(p)
+attrs.evolve(p, x="hello")     # E: not assignable to parameter `x`
+attrs.evolve(p, z=3)           # E: Unexpected keyword argument `z`
+attrs.evolve(p, nonexistent=4)  # E: Unexpected keyword argument `nonexistent`
+"#,
+);
+
+// The deprecated `attr.assoc` updates by actual field name and includes `init=False` fields,
+// unlike `evolve`'s constructor-alias, init-only semantics, so pyrefly does not validate it.
+attrs_testcase!(
+    test_attrs_assoc_not_validated,
+    r#"
+import attr
+
+@attr.define
+class C:
+    _x: int
+
+c = C(1)
+attr.assoc(c, _x=2)
+attr.assoc(c, x="bad")
+"#,
+);
+
+// Inherited fields can be evolved; unknown ones still error.
+attrs_testcase!(
+    test_attrs_evolve_inheritance,
+    r#"
+import attrs
+
+@attrs.define
+class Base:
+    x: int
+
+@attrs.define
+class Sub(Base):
+    y: str
+
+s = Sub(1, "a")
+attrs.evolve(s, x=2, y="b")
+attrs.evolve(s, z=3)  # E: Unexpected keyword argument `z`
+"#,
+);
+
+// Private fields are matched by their stripped init name (`_x` -> `x`).
+attrs_testcase!(
+    test_attrs_evolve_private_field,
+    r#"
+import attrs
+
+@attrs.define
+class C:
+    _x: int
+
+c = C(1)
+attrs.evolve(c, x=2)
+attrs.evolve(c, _x=2)  # E: Unexpected keyword argument `_x`
+"#,
+);
+
+// A dunder-leading field is name-mangled with its *defining* class, so an inherited `Base.__y` is
+// evolved as `Base__y` (not `Sub__y`) on a subclass instance — matching attrs at runtime.
+attrs_testcase!(
+    test_attrs_evolve_inherited_mangled_private_field,
+    r#"
+import attrs
+
+@attrs.define
+class Base:
+    __y: int
+
+@attrs.define
+class Sub(Base):
+    __z: int
+
+s = Sub(1, 2)
+attrs.evolve(s, Base__y=10, Sub__z=20)
+attrs.evolve(s, Sub__y=10)  # E: Unexpected keyword argument `Sub__y`
+"#,
+);

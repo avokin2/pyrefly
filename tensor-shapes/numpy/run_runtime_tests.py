@@ -26,11 +26,11 @@ def load_module(module_name: str, path: Path) -> ModuleType:
     return module
 
 
-def load_shape_extensions(tensor_shapes_root: Path) -> None:
+def load_shape_extensions(shape_extension_root: Path) -> None:
     if "shape_extensions" not in sys.modules:
         load_module(
             "shape_extensions",
-            tensor_shapes_root / "shape_extensions" / "__init__.py",
+            shape_extension_root / "shape_extensions" / "__init__.py",
         )
 
 
@@ -88,6 +88,11 @@ def main() -> int:
         default=tensor_shapes_root_default,
     )
     parser.add_argument(
+        "--shape-extension-root",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument(
         "--suite",
         choices=("all",) + tuple(SUITES),
         action="append",
@@ -95,7 +100,19 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    load_shape_extensions(args.tensor_shapes_root.resolve())
+    if args.shape_extension_root is None:
+        moved_shape_extension_root = (
+            args.tensor_shapes_root / "pyrefly-shape-extensions"
+        )
+        shape_extension_root = (
+            moved_shape_extension_root
+            if moved_shape_extension_root.exists()
+            else args.tensor_shapes_root
+        )
+    else:
+        shape_extension_root = args.shape_extension_root
+
+    load_shape_extensions(shape_extension_root.resolve())
     suites = args.suite or ["all"]
     if "all" in suites:
         suites = list(SUITES)

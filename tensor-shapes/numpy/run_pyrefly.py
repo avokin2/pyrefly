@@ -28,7 +28,8 @@ def run_check(
     *,
     pyrefly_command: list[str],
     numpy_root: Path,
-    tensor_shapes_root: Path,
+    numpy_stubs_root: Path,
+    shape_extension_root: Path,
     suite: str,
     nocapture: bool,
 ) -> int:
@@ -41,7 +42,9 @@ def run_check(
         "--python-version",
         "3.13",
         "--search-path",
-        str(tensor_shapes_root),
+        str(numpy_stubs_root),
+        "--search-path",
+        str(shape_extension_root),
     ]
     command.extend(check_files)
 
@@ -98,6 +101,11 @@ def main() -> int:
         default=None,
     )
     parser.add_argument(
+        "--shape-extension-root",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument(
         "--suite",
         choices=("all",) + tuple(SUITES),
         action="append",
@@ -110,7 +118,18 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    tensor_shapes_root = args.numpy_stubs_root or args.tensor_shapes_root
+    numpy_stubs_root = args.numpy_stubs_root or args.tensor_shapes_root
+    if args.shape_extension_root is None:
+        moved_shape_extension_root = (
+            args.tensor_shapes_root / "pyrefly-shape-extensions"
+        )
+        shape_extension_root = (
+            moved_shape_extension_root
+            if moved_shape_extension_root.exists()
+            else args.tensor_shapes_root
+        )
+    else:
+        shape_extension_root = args.shape_extension_root
     suites = args.suite or ["all"]
     if "all" in suites:
         suites = list(SUITES)
@@ -124,7 +143,8 @@ def main() -> int:
         result = run_check(
             pyrefly_command=pyrefly_command,
             numpy_root=args.numpy_root.resolve(),
-            tensor_shapes_root=tensor_shapes_root.resolve(),
+            numpy_stubs_root=numpy_stubs_root.resolve(),
+            shape_extension_root=shape_extension_root.resolve(),
             suite=suite,
             nocapture=args.nocapture,
         )

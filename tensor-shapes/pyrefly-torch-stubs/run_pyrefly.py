@@ -51,36 +51,38 @@ def run_check(
     *,
     pyrefly: Path,
     torch_root: Path,
-    tensor_shapes_root: Path,
+    torch_stubs_root: Path,
+    shape_extension_root: Path,
     suite: str,
     nocapture: bool,
 ) -> int:
     jaxtyping_root = torch_root / "test" / "jaxtyping"
+    shape_search_roots = [torch_stubs_root, shape_extension_root]
     if suite == "torch-examples":
         python_version = "3.13"
-        search_paths = [tensor_shapes_root]
+        search_paths = shape_search_roots
         check_files = files("examples/*.py", torch_root) + files(
             "examples/runtime/*.py", torch_root
         )
         expectations = False
     elif suite == "torch-positive":
         python_version = "3.13"
-        search_paths = [tensor_shapes_root]
+        search_paths = shape_search_roots
         check_files = files("test/test_*.py", torch_root)
         expectations = False
     elif suite == "torch-negative":
         python_version = "3.13"
-        search_paths = [tensor_shapes_root]
+        search_paths = shape_search_roots
         check_files = files("test/negative_tests/test_*.py", torch_root)
         expectations = True
     elif suite == "jaxtyping-positive":
         python_version = "3.12"
-        search_paths = [jaxtyping_root / "fixtures", tensor_shapes_root]
+        search_paths = [jaxtyping_root / "fixtures"] + shape_search_roots
         check_files = files("test/jaxtyping/test_*.py", torch_root)
         expectations = False
     elif suite == "jaxtyping-negative":
         python_version = "3.12"
-        search_paths = [jaxtyping_root / "fixtures", tensor_shapes_root]
+        search_paths = [jaxtyping_root / "fixtures"] + shape_search_roots
         check_files = files("test/jaxtyping/negative_tests/test_*.py", torch_root)
         expectations = True
     else:
@@ -125,7 +127,8 @@ def run_check(
 
 def main() -> int:
     torch_root_default = Path(__file__).resolve().parent
-    repo_root_default = torch_root_default.parent.parent
+    tensor_shapes_root_default = torch_root_default.parent
+    repo_root_default = tensor_shapes_root_default.parent
     parser = argparse.ArgumentParser()
     # Default deferred until after parsing so `--release` can pick the profile.
     parser.add_argument("--pyrefly", type=Path, default=None)
@@ -136,12 +139,21 @@ def main() -> int:
     )
     parser.add_argument("--torch-root", type=Path, default=torch_root_default)
     parser.add_argument(
-        "--tensor-shapes-root",
+        "--torch-stubs-root",
         type=Path,
         default=(
-            Path(os.environ["TENSOR_SHAPES_ROOT"])
-            if "TENSOR_SHAPES_ROOT" in os.environ
-            else (repo_root_default / "tensor-shapes")
+            Path(os.environ["TORCH_STUBS_ROOT"])
+            if "TORCH_STUBS_ROOT" in os.environ
+            else torch_root_default
+        ),
+    )
+    parser.add_argument(
+        "--shape-extension-root",
+        type=Path,
+        default=(
+            Path(os.environ["SHAPE_EXTENSION_ROOT"])
+            if "SHAPE_EXTENSION_ROOT" in os.environ
+            else tensor_shapes_root_default / "pyrefly-shape-extensions"
         ),
     )
     parser.add_argument(
@@ -173,7 +185,8 @@ def main() -> int:
         result = run_check(
             pyrefly=pyrefly,
             torch_root=args.torch_root.resolve(),
-            tensor_shapes_root=args.tensor_shapes_root.resolve(),
+            torch_stubs_root=args.torch_stubs_root.resolve(),
+            shape_extension_root=args.shape_extension_root.resolve(),
             suite=suite,
             nocapture=args.nocapture,
         )

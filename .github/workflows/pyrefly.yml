@@ -47,7 +47,7 @@ jobs:
     - run: cargo build --release
     - run: cargo test --release
     - name: Run torch stub tests
-      run: python tensor-shapes/torch/run_pyrefly.py --release
+      run: python tensor-shapes/pyrefly-torch-stubs/run_pyrefly.py --release
     - name: Run Scrut tests
       env:
         PYREFLY: ${{ github.workspace }}/target/release/pyrefly
@@ -71,4 +71,4 @@ jobs:
         "$TENSOR_SHAPES_PYTHON" -m pip install torch
     - name: Run torch runtime tests
       shell: bash
-      run: "$TENSOR_SHAPES_PYTHON" tensor-shapes/torch/run_runtime_tests.py
+      run: "$TENSOR_SHAPES_PYTHON" tensor-shapes/pyrefly-torch-stubs/run_runtime_tests.py

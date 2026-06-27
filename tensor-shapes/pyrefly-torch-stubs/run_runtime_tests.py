@@ -43,7 +43,7 @@ def main() -> int:
     torch_root = args.torch_root.resolve()
     runtime_tests_root = torch_root / "test" / "runtime_tests"
 
-    add_import_path(torch_root.parent)
+    add_import_path(torch_root.parent / "pyrefly-shape-extensions")
     add_import_path(torch_root / "examples" / "runtime")
 
     suites = args.suite or ["all"]

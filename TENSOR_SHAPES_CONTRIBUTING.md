@@ -15,7 +15,7 @@ Shape tracking uses three complementary mechanisms:
 1. **Fixture stubs**: `.pyi` files with shape-generic type signatures. These
    cover modules like `nn.Linear`, `nn.Conv2d`, and functions like `torch.mm`.
 2. **Shape DSL functions**: shape transforms written in a small Python subset in
-   `tensor-shapes/torch-stubs/_shapes.pyi`, decorated with
+   `tensor-shapes/pyrefly-torch-stubs/torch-stubs/_shapes.pyi`, decorated with
    `@shape_dsl_function`, and attached to stubs with `@uses_shape_dsl(...)`.
    These cover operations with computed shape logic like `reshape`, `cat`,
    pooling, convolution, and interpolation.
@@ -32,7 +32,7 @@ changes and should be treated as kernel work.
 ### Where They Live
 
 ```text
-tensor-shapes/torch-stubs/
+tensor-shapes/pyrefly-torch-stubs/torch-stubs/
 |-- __init__.pyi
 |-- _shapes.pyi
 |-- nn/
@@ -75,8 +75,8 @@ dimensions.
    parameters like `bias` and `dropout` stay as their original types.
 3. Write the method or function signature expressing the shape transform. Use
    `*Xs` or `*Bs` for batch dimensions that pass through unchanged.
-4. Add the stub to the appropriate `.pyi` file in `tensor-shapes/torch-stubs`.
-5. Add or update focused tests under `tensor-shapes/torch/test/`.
+4. Add the stub to the appropriate `.pyi` file in `tensor-shapes/pyrefly-torch-stubs/torch-stubs`.
+5. Add or update focused tests under `tensor-shapes/pyrefly-torch-stubs/test/`.
 
 ### Example: Adding a New Module
 
@@ -107,7 +107,7 @@ Use the DSL when a plain signature cannot express the output shape.
 DSL functions live in:
 
 ```text
-tensor-shapes/torch-stubs/_shapes.pyi
+tensor-shapes/pyrefly-torch-stubs/torch-stubs/_shapes.pyi
 ```
 
 Stubs attach a DSL function with `@uses_shape_dsl(...)`. For example, a stub may
@@ -158,7 +158,7 @@ This sums shapes along the concatenation dimension and preserves all others.
 
 ### Adding a New DSL Function
 
-1. Write the shape transform in `tensor-shapes/torch-stubs/_shapes.pyi`.
+1. Write the shape transform in `tensor-shapes/pyrefly-torch-stubs/torch-stubs/_shapes.pyi`.
 2. Decorate it with `@shape_dsl_function`.
 3. Attach it to the public stub with `@uses_shape_dsl(...)`.
 4. Add positive tests that assert the computed shape.
@@ -170,7 +170,7 @@ This sums shapes along the concatenation dimension and preserves all others.
 ### Where They Live
 
 ```text
-tensor-shapes/torch/examples/
+tensor-shapes/pyrefly-torch-stubs/examples/
 ```
 
 Each file is a fully annotated port of a real-world PyTorch model with
@@ -193,7 +193,7 @@ Each file is a fully annotated port of a real-world PyTorch model with
 This script checks a ported model for common issues:
 
 ```bash
-tensor-shapes/skills/add-shape-types-to-torch-model/verify_port.sh tensor-shapes/torch/examples/<model>.py
+tensor-shapes/skills/add-shape-types-to-torch-model/verify_port.sh tensor-shapes/pyrefly-torch-stubs/examples/<model>.py
 ```
 
 It reports:
@@ -217,22 +217,22 @@ Build Pyrefly first, then run:
 
 ```bash
 cargo build
-python3 tensor-shapes/torch/run_pyrefly.py
+python3 tensor-shapes/pyrefly-torch-stubs/run_pyrefly.py
 ```
 
 If your build uses a custom target directory, `run_pyrefly.py` respects
 `CARGO_TARGET_DIR`. You can also pass the binary explicitly:
 
 ```bash
-python3 tensor-shapes/torch/run_pyrefly.py --pyrefly /path/to/pyrefly
+python3 tensor-shapes/pyrefly-torch-stubs/run_pyrefly.py --pyrefly /path/to/pyrefly
 ```
 
 Run a single suite while iterating:
 
 ```bash
-python3 tensor-shapes/torch/run_pyrefly.py --suite torch-positive
-python3 tensor-shapes/torch/run_pyrefly.py --suite torch-negative
-python3 tensor-shapes/torch/run_pyrefly.py --suite torch-examples
+python3 tensor-shapes/pyrefly-torch-stubs/run_pyrefly.py --suite torch-positive
+python3 tensor-shapes/pyrefly-torch-stubs/run_pyrefly.py --suite torch-negative
+python3 tensor-shapes/pyrefly-torch-stubs/run_pyrefly.py --suite torch-examples
 ```
 
 Use `--nocapture` when you want the full Pyrefly output on success. By default,
@@ -242,11 +242,11 @@ failure.
 In an internal Buck checkout, the equivalent static validation targets are:
 
 ```bash
-buck test tensor-shapes/torch/test:tensor_shapes_all_test
-buck test tensor-shapes/torch/test:tensor_shapes_error_test
-buck test tensor-shapes/torch/test:tensor_shapes_jaxtyping_test
-buck test tensor-shapes/torch/test:tensor_shapes_jaxtyping_error_test
-buck test tensor-shapes/torch/examples:torch_examples_test
+buck test tensor-shapes/pyrefly-torch-stubs/test:tensor_shapes_all_test
+buck test tensor-shapes/pyrefly-torch-stubs/test:tensor_shapes_error_test
+buck test tensor-shapes/pyrefly-torch-stubs/test:tensor_shapes_jaxtyping_test
+buck test tensor-shapes/pyrefly-torch-stubs/test:tensor_shapes_jaxtyping_error_test
+buck test tensor-shapes/pyrefly-torch-stubs/examples:torch_examples_test
 ```
 
 The project-level `test.py` runner keeps tensor-shape validation separate from
@@ -264,7 +264,7 @@ behave correctly in Python, not just in Pyrefly's static checker.
 The tests live in:
 
 ```text
-tensor-shapes/torch/test/runtime_tests/
+tensor-shapes/pyrefly-torch-stubs/test/runtime_tests/
 ```
 
 Run them from a Python 3.12+ virtualenv with `torch` installed:
@@ -274,22 +274,22 @@ python3.12 -m venv .tensor-shapes-venv
 . .tensor-shapes-venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install torch
-python tensor-shapes/torch/run_runtime_tests.py
+python tensor-shapes/pyrefly-torch-stubs/run_runtime_tests.py
 ```
 
 Run one suite while iterating:
 
 ```bash
-python tensor-shapes/torch/run_runtime_tests.py --suite annotation
-python tensor-shapes/torch/run_runtime_tests.py --suite model
+python tensor-shapes/pyrefly-torch-stubs/run_runtime_tests.py --suite annotation
+python tensor-shapes/pyrefly-torch-stubs/run_runtime_tests.py --suite model
 ```
 
 The runtime runner sets up import paths for `shape_extensions` and the runnable
 example modules. In an internal Buck checkout, the existing runtime targets are:
 
 ```bash
-buck test tensor-shapes/torch/test:annotation_runtime_test
-buck test tensor-shapes/torch/test:model_runtime_test
+buck test tensor-shapes/pyrefly-torch-stubs/test:annotation_runtime_test
+buck test tensor-shapes/pyrefly-torch-stubs/test:model_runtime_test
 ```
 
 ## Kernel Tests
@@ -336,7 +336,7 @@ Before handing off changes, run formatting and linting:
 
 Also run the relevant tensor-shape checks for the files you touched:
 
-- Stub/test/example changes: `python3 tensor-shapes/torch/run_pyrefly.py`
+- Stub/test/example changes: `python3 tensor-shapes/pyrefly-torch-stubs/run_pyrefly.py`
 - Runtime helper or runnable model changes:
-  `python tensor-shapes/torch/run_runtime_tests.py`
+  `python tensor-shapes/pyrefly-torch-stubs/run_runtime_tests.py`
 - Kernel changes: `cargo test shape_dsl` or the Buck equivalent above

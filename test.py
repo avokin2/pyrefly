@@ -195,7 +195,7 @@ class CargoExecutor(Executor):
     def tensor_shapes(self) -> None:
         run(["cargo", "build"])
         # The runners resolve the debug pyrefly themselves, so we don't pass `--pyrefly`.
-        run([sys.executable, "tensor-shapes/torch/run_pyrefly.py"])
+        run([sys.executable, "tensor-shapes/pyrefly-torch-stubs/run_pyrefly.py"])
         run([sys.executable, "tensor-shapes/numpy/run_pyrefly.py"])
 
     def conformance(self) -> None:
@@ -264,11 +264,11 @@ class BuckExecutor(Executor):
             [
                 "buck2",
                 "test",
-                "tensor-shapes/torch/examples:torch_examples_test",
-                "tensor-shapes/torch/test:tensor_shapes_all_test",
-                "tensor-shapes/torch/test:tensor_shapes_error_test",
-                "tensor-shapes/torch/test:tensor_shapes_jaxtyping_test",
-                "tensor-shapes/torch/test:tensor_shapes_jaxtyping_error_test",
+                "tensor-shapes/pyrefly-torch-stubs/examples:torch_examples_test",
+                "tensor-shapes/pyrefly-torch-stubs/test:tensor_shapes_all_test",
+                "tensor-shapes/pyrefly-torch-stubs/test:tensor_shapes_error_test",
+                "tensor-shapes/pyrefly-torch-stubs/test:tensor_shapes_jaxtyping_test",
+                "tensor-shapes/pyrefly-torch-stubs/test:tensor_shapes_jaxtyping_error_test",
                 "tensor-shapes/numpy:numpy_arithmetic_static_test",
                 "tensor-shapes/numpy:numpy_creation_basics_static_test",
                 "--",

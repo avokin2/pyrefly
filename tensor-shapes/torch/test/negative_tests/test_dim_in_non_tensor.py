@@ -5,7 +5,7 @@
 
 """Test if Dim type variables work correctly in non-Tensor contexts"""
 
-from typing import Any, assert_type, Generic
+from typing import Any, assert_type
 
 
 # Test 1: Dim type variable in a regular generic class

@@ -16,17 +16,21 @@ use starlark_map::Hashed;
 
 use crate::alt::answers::LookupAnswer;
 use crate::alt::answers_solver::AnswersSolver;
+use crate::alt::callable::CallArg;
+use crate::alt::callable::CallKeyword;
 use crate::alt::class::class_field::DataclassMember;
 use crate::alt::class::class_metadata::TransformDataclass;
 use crate::alt::types::class_metadata::ClassMetadata;
 use crate::alt::types::class_metadata::DataclassKind;
 use crate::alt::types::class_metadata::DataclassMetadata;
+use crate::alt::unwrap::HintRef;
 use crate::binding::binding::Key;
 use crate::binding::binding::KeyDecorator;
 use crate::config::error_kind::ErrorKind;
 use crate::error::collector::ErrorCollector;
 use crate::types::callable::FunctionKind;
 use crate::types::class::Class;
+use crate::types::class::ClassType;
 use crate::types::keywords::DataclassKeywords;
 use crate::types::keywords::TypeMap;
 use crate::types::literal::Lit;
@@ -244,5 +248,58 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 "`order` cannot be True when `eq` is False".to_owned(),
             );
         }
+    }
+
+    /// Validate an `attr.assoc`/`attrs.assoc` call: unlike `evolve`, it keys on actual attribute
+    /// names (no init-alias renaming) and accepts `init=False` fields, so we build a fresh signature.
+    pub(crate) fn call_attrs_assoc(
+        &self,
+        cls: &ClassType,
+        rest_args: &[CallArg],
+        kws: &[CallKeyword],
+        callee_range: TextRange,
+        arg_range: TextRange,
+        hint: Option<HintRef>,
+        errors: &ErrorCollector,
+    ) -> Type {
+        let class_obj = cls.class_object();
+        let metadata = self.get_metadata_for_class(class_obj);
+        let dataclass = metadata
+            .dataclass_metadata()
+            .expect("assoc target is a validated attrs class");
+        let kw_only = self.compute_kw_only_fields_by_class(class_obj);
+        let sub = cls.targs().substitution();
+        let strict_default = dataclass.kws.strict;
+        let params = self
+            .iter_fields(class_obj, dataclass, false, &kw_only)
+            .into_iter()
+            .map(|(name, field, flags)| {
+                self.as_param(
+                    &field,
+                    &name,
+                    true,
+                    true,
+                    flags.strict.unwrap_or(strict_default),
+                    flags.converter_param.clone(),
+                    &|t| sub.substitute_into(t),
+                    errors,
+                )
+            })
+            .collect();
+        let assoc_ty = self.synthesized_method(
+            class_obj,
+            Name::new_static("assoc"),
+            params,
+            Type::ClassType(cls.clone()),
+        );
+        self.freeform_call_infer(
+            assoc_ty,
+            rest_args,
+            kws,
+            callee_range,
+            arg_range,
+            hint,
+            errors,
+        )
     }
 }

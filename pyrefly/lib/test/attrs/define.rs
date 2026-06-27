@@ -1141,10 +1141,33 @@ attrs.evolve(p, nonexistent=4)  # E: Unexpected keyword argument `nonexistent`
 "#,
 );
 
-// The deprecated `attr.assoc` updates by actual field name and includes `init=False` fields,
-// unlike `evolve`'s constructor-alias, init-only semantics, so pyrefly does not validate it.
+// ASSOC
+//
+// The deprecated `attr.assoc` keys on actual attribute names (no init-alias renaming) and includes
+// `init=False` fields, unlike `evolve`'s constructor-alias, init-only semantics.
+
 attrs_testcase!(
-    test_attrs_assoc_not_validated,
+    test_attrs_assoc_basic,
+    r#"
+from typing import assert_type
+import attr
+
+@attr.define
+class C:
+    x: int
+    y: int
+
+c = C(1, 2)
+assert_type(attr.assoc(c, x=5), C)
+attr.assoc(c)
+attr.assoc(c, x="bad")    # E: not assignable to parameter `x`
+attr.assoc(c, z=3)        # E: Unexpected keyword argument `z`
+"#,
+);
+
+// `assoc` keys on the attribute name `_x`, whereas `evolve` strips it to the constructor alias `x`.
+attrs_testcase!(
+    test_attrs_assoc_private_attribute,
     r#"
 import attr
 
@@ -1154,7 +1177,130 @@ class C:
 
 c = C(1)
 attr.assoc(c, _x=2)
-attr.assoc(c, x="bad")
+attr.assoc(c, x=2)        # E: Unexpected keyword argument `x`
+attr.evolve(c, x=2)
+attr.evolve(c, _x=2)      # E: Unexpected keyword argument `_x`
+"#,
+);
+
+// `init=False` fields are not constructor params, so `evolve` rejects them while `assoc` accepts them.
+attrs_testcase!(
+    test_attrs_assoc_init_false_field,
+    r#"
+import attr
+
+@attr.define
+class C:
+    x: int
+    y: int = attr.field(init=False, default=0)
+
+c = C(1)
+attr.assoc(c, y=5)
+attr.evolve(c, y=5)       # E: Unexpected keyword argument `y`
+"#,
+);
+
+// `attr.evolve` on a non-attrs instance is rejected (runtime `NotAnAttrsClassError`), unlike
+// `dataclasses.replace` whose stub permits any value.
+attrs_testcase!(
+    test_attrs_evolve_non_attrs_rejected,
+    r#"
+import attr
+
+class NotAttrs:
+    x: int
+
+attr.evolve(NotAttrs())  # E: is not an attrs class
+"#,
+);
+
+// A plain stdlib `@dataclass` instance is also not an attrs class: `attr.evolve` rejects it
+// even though `dataclasses.replace` would accept it.
+attrs_testcase!(
+    test_attrs_evolve_plain_dataclass_rejected,
+    r#"
+import attr
+from dataclasses import dataclass
+
+@dataclass
+class D:
+    x: int
+
+attr.evolve(D(1))  # E: is not an attrs class
+"#,
+);
+
+// The attrs-only restriction must not leak into `dataclasses.replace`, which still accepts a
+// plain `@dataclass`; and `attr.evolve` still works on a real attrs class.
+attrs_testcase!(
+    test_attrs_evolve_vs_replace_dataclass,
+    r#"
+import attr
+from dataclasses import dataclass, replace
+
+@dataclass
+class D:
+    x: int
+
+@attr.define
+class A:
+    x: int
+
+attr.evolve(A(1), x=2)   # OK: attrs class
+replace(D(1), x=2)       # OK: `replace` accepts a plain dataclass
+attr.evolve(A(1), y=2)   # E: Unexpected keyword argument `y`
+"#,
+);
+
+// In a union, `attr.evolve` flags the non-attrs member while still checking the attrs member.
+attrs_testcase!(
+    test_attrs_evolve_union_member_rejected,
+    r#"
+import attr
+from dataclasses import dataclass
+
+@attr.define
+class A:
+    x: int
+
+@dataclass
+class D:
+    x: int
+
+def f(o: A | D) -> None:
+    attr.evolve(o, x=2)  # E: is not an attrs class
+"#,
+);
+
+// Best-effort: we only flag concrete non-attrs `ClassType`s, so a non-class instance like a
+// TypedDict is left to the (untyped) stub rather than rejected here.
+attrs_testcase!(
+    test_attrs_evolve_non_class_instance_not_flagged,
+    r#"
+import attr
+from typing import TypedDict
+
+class TD(TypedDict):
+    x: int
+
+def f(d: TD) -> None:
+    attr.evolve(d)
+"#,
+);
+
+// `Any` and type variables could resolve to an attrs class at runtime, so `attr.evolve` must
+// not reject them.
+attrs_testcase!(
+    test_attrs_evolve_gradual_not_rejected,
+    r#"
+import attr
+from typing import Any
+
+def f(x: Any) -> None:
+    attr.evolve(x)  # OK: `Any` could be an attrs instance
+
+def g[T](y: T) -> None:
+    attr.evolve(y)  # OK: a type variable could be an attrs instance
 "#,
 );
 

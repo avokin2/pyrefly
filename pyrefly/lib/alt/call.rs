@@ -1962,9 +1962,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         errors,
                     )
                 }
-                // `attr.evolve`/`attrs.evolve` validate kwargs like `dataclasses.replace`.
+                // `attr.evolve` validates kwargs like `dataclasses.replace`; `attr.assoc` validates
+                // against attribute names, including `init=False` fields. Both require an attrs class.
                 Some(CalleeKind::Function(
-                    FunctionKind::DataclassReplace | FunctionKind::AttrsEvolve,
+                    FunctionKind::DataclassReplace
+                    | FunctionKind::AttrsEvolve
+                    | FunctionKind::AttrsAssoc,
                 )) => self.call_dataclasses_replace(
                     ty,
                     &args,

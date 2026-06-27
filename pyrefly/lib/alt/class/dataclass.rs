@@ -447,26 +447,74 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         };
         let obj_ty = obj_arg.infer(self, errors);
 
-        let is_dataclass = |cls: &ClassType| {
-            let cls_metadata = self.get_metadata_for_class(cls.class_object());
-            cls_metadata.dataclass_metadata().is_some()
+        // `evolve`/`assoc` require an attrs class; `replace` accepts any dataclass.
+        let callee_kind = replace_ty.callee_kind();
+        let is_assoc = matches!(
+            callee_kind,
+            Some(CalleeKind::Function(FunctionKind::AttrsAssoc))
+        );
+        let requires_attrs = is_assoc
+            || matches!(
+                callee_kind,
+                Some(CalleeKind::Function(FunctionKind::AttrsEvolve))
+            );
+        let is_valid_target = |cls: &ClassType| {
+            let metadata = self.get_metadata_for_class(cls.class_object());
+            if requires_attrs {
+                metadata
+                    .dataclass_metadata()
+                    .is_some_and(|dm| matches!(dm.kind, DataclassKind::Attrs { .. }))
+            } else {
+                metadata.dataclass_metadata().is_some()
+            }
         };
 
         let mut dataclasses = Vec::new();
         let mut non_dataclasses = Vec::new();
+        // Best-effort: reject only a concrete non-attrs `ClassType`. Gradual and non-class types are
+        // left to the stub, avoiding false positives and staying robust to new `Type` variants.
+        let mut has_non_attrs_class = false;
         self.map_over_union(&obj_ty, |ty| match ty {
-            Type::ClassType(cls) if is_dataclass(cls) => dataclasses.push(ty.clone()),
-            _ => non_dataclasses.push(ty.clone()),
+            Type::ClassType(cls) if is_valid_target(cls) => dataclasses.push(ty.clone()),
+            _ => {
+                has_non_attrs_class =
+                    has_non_attrs_class || (requires_attrs && matches!(ty, Type::ClassType(_)));
+                non_dataclasses.push(ty.clone());
+            }
         });
 
-        // For unions of dataclasses, typecheck each member individually. We treat the first argument
+        if has_non_attrs_class {
+            self.error(
+                errors,
+                obj_arg.range(),
+                ErrorKind::BadArgumentType,
+                "First argument is not an attrs class".to_owned(),
+            );
+        }
+
+        // For unions, typecheck each valid target individually. We treat the first argument
         // as the member type to avoid rejecting `A | B` as not assignable to `A`.
+        let rest_args = args.iter().skip(1).cloned().collect::<Vec<_>>();
         let mut rets = dataclasses.map(|ty| {
+            if is_assoc {
+                let Type::ClassType(cls) = ty else {
+                    unreachable!("assoc targets are validated attrs ClassTypes")
+                };
+                return self.call_attrs_assoc(
+                    cls,
+                    &rest_args,
+                    kws,
+                    callee_range,
+                    arg_range,
+                    hint,
+                    errors,
+                );
+            }
             let ret = self.call_magic_dunder_method(
                 ty,
                 &dunder::REPLACE,
                 arg_range,
-                &args.iter().skip(1).cloned().collect::<Vec<_>>(),
+                &rest_args,
                 kws,
                 errors,
                 None,

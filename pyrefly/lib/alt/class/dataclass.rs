@@ -732,10 +732,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             params.push(Param::Kwargs(None, self.heap.mk_any_implicit()));
         }
 
-        let ty = self.heap.mk_function(Function {
-            signature: Callable::list(ParamList::new(params), self.instantiate(cls)),
-            metadata: FuncMetadata::method(cls, dunder::REPLACE),
-        });
+        let ty = self.synthesized_method(cls, dunder::REPLACE, params, self.instantiate(cls));
         ClassSynthesizedField::new(ty)
     }
 
@@ -1411,10 +1408,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             params.push(Param::Kwargs(None, self.heap.mk_any_implicit()));
         }
 
-        let ty = self.heap.mk_function(Function {
-            signature: Callable::list(ParamList::new(params), self.heap.mk_none()),
-            metadata: FuncMetadata::method(cls, dunder::INIT),
-        });
+        let ty = self.synthesized_method(cls, dunder::INIT, params, self.heap.mk_none());
         ClassSynthesizedField::new(ty)
     }
 
@@ -1495,10 +1489,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     fn get_dataclass_hash(&self, cls: &Class) -> ClassSynthesizedField {
         let params = vec![self.class_self_param(cls, false)];
         let ret = self.heap.mk_class_type(self.stdlib.int().clone());
-        ClassSynthesizedField::new(self.heap.mk_function(Function {
-            signature: Callable::list(ParamList::new(params), ret),
-            metadata: FuncMetadata::method(cls, dunder::HASH),
-        }))
+        ClassSynthesizedField::new(self.synthesized_method(cls, dunder::HASH, params, ret))
     }
 
     fn get_frozen_setattr(&self, cls: &Class) -> ClassSynthesizedField {

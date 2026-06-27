@@ -17,6 +17,7 @@ pub mod named_tuple;
 pub mod new_type;
 pub mod pydantic;
 pub mod pydantic_lax;
+pub mod synthesized_classes_shared;
 pub mod targs;
 pub mod targs_cursor;
 pub mod total_ordering;

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import assert_type
 
-import torch
 from shape_extensions import Dim
 from torch import Tensor
 

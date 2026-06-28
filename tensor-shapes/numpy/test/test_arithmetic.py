@@ -28,3 +28,13 @@ def test_scalar_rhs_arithmetic() -> None:
     assert_shape(a**2, (4,))
     assert_shape(b + 1.0, (3, 4))
     assert_shape(c * 2.0, (3, 4))
+
+
+def test_unary_arithmetic() -> None:
+    a = np.full(5, -1.0)
+
+    assert_shape(np.abs(a), (5,))
+    assert_shape(np.negative(a), (5,))
+    assert_shape(-a, (5,))
+    assert_shape(+a, (5,))
+    assert_shape(-np.ones((3, 4)), (3, 4))

@@ -1693,3 +1693,184 @@ c.x = 5  # E: Cannot set field `x`
 c.y = 5  # OK
 "#,
 );
+
+// Tuple-unpacked assignment of parallel specifiers declares one field per name, just as if each
+// were written on its own line (so `type=`, `default=`, etc. all apply per element).
+attrs_testcase!(
+    test_attrs_tuple_unpacked_specifiers,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.s
+class A:
+    x, y, z = attr.ib(), attr.ib(type=int), attr.ib(default=17)
+
+reveal_type(A.__init__)  # E: revealed type: (self: A, x: Any, y: int, z: int = ...) -> None
+A(1, 2, 3)  # OK
+"#,
+);
+
+// Only the specifier elements become fields; a plain value bound alongside is an ordinary class var.
+attrs_testcase!(
+    test_attrs_tuple_unpacked_mixed,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.s
+class A:
+    x, y = attr.ib(), 5
+
+reveal_type(A.__init__)  # E: revealed type: (self: A, x: Any) -> None
+"#,
+);
+
+// Tuple-unpacked specifiers in a base class are inherited like any other attrs fields.
+attrs_testcase!(
+    test_attrs_tuple_unpacked_specifiers_inherited,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.s
+class Base:
+    x, y = attr.ib(), attr.ib(type=int)
+
+@attr.s
+class Sub(Base):
+    z = attr.ib()
+
+reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, x: Any, y: int, z: Any) -> None
+"#,
+);
+
+// A plain (non-attrs) tuple assignment is unaffected: both names are ordinary class variables.
+attrs_testcase!(
+    test_attrs_non_specifier_unpacking_unaffected,
+    r#"
+from typing import assert_type
+import attr
+
+@attr.s
+class A:
+    a, b = 1, 2
+    x = attr.ib()
+
+assert_type(A.a, int)
+assert_type(A.b, int)
+"#,
+);
+
+// A list-literal target unpacks the same way a tuple target does.
+attrs_testcase!(
+    test_attrs_list_target_unpacked_specifiers,
+    r#"
+import attr
+
+@attr.s
+class A:
+    [x, y] = attr.ib(), attr.ib()
+
+A(1, 2)  # OK
+A(1)     # E: Missing argument `y`
+"#,
+);
+
+// The right-hand side may itself be a list literal of specifiers.
+attrs_testcase!(
+    test_attrs_unpacked_specifiers_list_rhs,
+    r#"
+import attr
+
+@attr.s
+class A:
+    x, y = [attr.ib(), attr.ib()]
+
+A(1, 2)     # OK
+A(1, 2, 3)  # E: Expected 2 positional arguments
+"#,
+);
+
+// Next-gen `field()` works in an unpack too, including a per-element `default=`.
+attrs_testcase!(
+    test_attrs_unpacked_field_specifiers_with_default,
+    r#"
+from attrs import define, field
+
+@define
+class A:
+    x, y = field(), field(default=0)
+
+A(1)     # OK: y has a default
+A(1, 2)  # OK
+"#,
+);
+
+// Python evaluates the whole RHS tuple before binding any target name, so a later RHS element
+// that mentions an earlier target sees the *pre-assignment* binding (the module-level `x`), not
+// the field created on this same line.
+attrs_testcase!(
+    test_attrs_unpacked_specifier_rhs_evaluation_order,
+    r#"
+from typing import reveal_type
+import attr
+
+x = "outer"
+
+@attr.s
+class A:
+    x, y = attr.ib(), x
+
+reveal_type(A.y)  # E: revealed type: str
+"#,
+);
+
+// The same ordering applies inside a specifier's arguments: `default=x` refers to the outer `x`,
+// not the field being created on this line.
+attrs_testcase!(
+    test_attrs_unpacked_specifier_arg_evaluation_order,
+    r#"
+from typing import reveal_type
+import attr
+
+x = "outer"
+
+@attr.s
+class A:
+    x, y = attr.ib(), attr.ib(default=x)
+
+reveal_type(A.__init__)  # E: revealed type: (self: A, x: Any, y: str = ...) -> None
+"#,
+);
+
+// An arity mismatch is not the specifier pattern, so it falls back to ordinary unpacking (which
+// reports the size mismatch) rather than the per-name field treatment.
+attrs_testcase!(
+    test_attrs_unpacked_specifiers_arity_mismatch_falls_back,
+    r#"
+import attr
+
+@attr.s
+class A:
+    x, y = attr.ib(), attr.ib(), attr.ib()  # E: Cannot unpack
+"#,
+);
+
+// A starred RHS element is not the positional specifier pattern, so it falls back to ordinary
+// unpacking rather than binding a name to the `*` node.
+attrs_testcase!(
+    test_attrs_unpacked_specifiers_starred_rhs_falls_back,
+    r#"
+from typing import reveal_type
+import attr
+
+rest = (attr.ib(),)
+
+@attr.s
+class A:
+    x, y = attr.ib(), *rest
+
+reveal_type(A.__init__)  # E: revealed type: (self: A) -> None
+"#,
+);

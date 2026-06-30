@@ -195,6 +195,29 @@ impl<'a> BindingsBuilder<'a> {
         }
     }
 
+    /// Whether `expr` is a call to an attrs field specifier (`attr.ib()`/`attrib()`/`field()`).
+    pub(crate) fn is_attrs_specifier_call(&self, expr: &Expr) -> bool {
+        matches!(expr, Expr::Call(call) if self.attrs_field_specifier_kind(&call.func).is_some())
+    }
+
+    /// If `target = value` unpacks a tuple/list of names from a matching tuple/list literal with at
+    /// least one attrs field specifier, the (name targets, values) element slices; otherwise `None`.
+    /// A starred RHS element (`x, y = attr.ib(), *rest`) makes the elements non-positional, so it
+    /// falls back to normal unpacking.
+    pub(crate) fn attrs_unpacked_specifier_elements<'b>(
+        &self,
+        target: &'b Expr,
+        value: &'b Expr,
+    ) -> Option<(&'b [Expr], &'b [Expr])> {
+        let (targets, values) = (unpack_elements(target)?, unpack_elements(value)?);
+        (!targets.is_empty()
+            && targets.len() == values.len()
+            && targets.iter().all(|t| matches!(t, Expr::Name(_)))
+            && !values.iter().any(|v| matches!(v, Expr::Starred(_)))
+            && values.iter().any(|v| self.is_attrs_specifier_call(v)))
+        .then_some((targets, values))
+    }
+
     /// Classify a class-body assignment as an attrs `attr.ib()`/`field()` specifier and report its
     /// `@<field>.default`/`.validator` errors. Detected at binding so solving reads it by identity.
     pub(crate) fn attrs_field_specifier(
@@ -278,5 +301,14 @@ impl<'a> BindingsBuilder<'a> {
                 attrs_decorators.defaults.get(field_name).copied()
             },
         })
+    }
+}
+
+/// The element expressions of a tuple/list literal, for unpacking-assignment handling.
+fn unpack_elements(expr: &Expr) -> Option<&[Expr]> {
+    match expr {
+        Expr::Tuple(t) => Some(&t.elts),
+        Expr::List(l) => Some(&l.elts),
+        _ => None,
     }
 }

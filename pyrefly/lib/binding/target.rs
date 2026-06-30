@@ -399,6 +399,36 @@ impl<'a> BindingsBuilder<'a> {
         match targets {
             [] => {}
             [target] => {
+                // attrs collects one field per binding site, so `x, y = attr.ib(), field()` binds
+                // each name to its own specifier rather than opaque unpacking that drops the fields.
+                // Ensure the whole RHS once before binding any name (like `bind_unpacking`) so a later
+                // specifier mentioning an earlier name (`x, y = attr.ib(), x`) sees the outer binding.
+                if self.scopes.in_class_body()
+                    && self
+                        .attrs_unpacked_specifier_elements(target, value)
+                        .is_some()
+                {
+                    let mut rhs = self.declare_current_idx(Key::Anon(value.range()));
+                    self.ensure_expr(value, rhs.usage());
+                    self.insert_binding_current(rhs, Binding::Expr(None, Box::new(value.clone())));
+                    let (target_elements, value_elements) = self
+                        .attrs_unpacked_specifier_elements(target, value)
+                        .expect("structure is unchanged by ensure_expr");
+                    for (t, v) in target_elements.iter().zip(value_elements) {
+                        let Expr::Name(name) = t else {
+                            unreachable!(
+                                "attrs_unpacked_specifier_elements guarantees name targets"
+                            )
+                        };
+                        self.bind_single_name_assign(
+                            &Ast::expr_name_identifier(name.clone()),
+                            Box::new(v.clone()),
+                            None,
+                            false,
+                        );
+                    }
+                    return;
+                }
                 self.bind_target_impl(
                     target,
                     Some(value),
@@ -537,11 +567,17 @@ impl<'a> BindingsBuilder<'a> {
     ///
     /// The pinned definition is the one that goes into scopes, and normal name lookups
     /// will see that - only a first use binding may see the raw, unpinned result.
+    ///
+    /// `ensure_assigned` selects who resolves the RHS `value`. When `true`, this function
+    /// resolves it. When `false`, the caller has already resolved the whole RHS once (e.g.
+    /// parallel/tuple unpacking, which evaluates it before binding any name), so this call
+    /// leaves `value` untouched.
     pub fn bind_single_name_assign(
         &mut self,
         name: &Identifier,
         mut value: Box<Expr>,
         direct_ann: Option<(&Expr, Idx<KeyAnnotation>)>,
+        ensure_assigned: bool,
     ) -> Option<Idx<KeyAnnotation>> {
         if Ast::is_synthesized_empty_identifier(name) {
             let range = value.range();
@@ -583,22 +619,24 @@ impl<'a> BindingsBuilder<'a> {
             !is_definitely_type_alias && receiver_idx.is_none() && self.infer_with_first_use();
         let scope_idx = current.idx();
         let mut tparams = None;
-        if is_definitely_type_alias {
-            let mut legacy = Some(LegacyTParamCollector::new(false));
-            self.ensure_type_with_usage(&mut value, &mut legacy, &mut Usage::TypeAliasRhs);
-            if let Some(collector) = legacy {
-                tparams = Some(collector.lookup_keys().into_boxed_slice());
+        if ensure_assigned {
+            if is_definitely_type_alias {
+                let mut legacy = Some(LegacyTParamCollector::new(false));
+                self.ensure_type_with_usage(&mut value, &mut legacy, &mut Usage::TypeAliasRhs);
+                if let Some(collector) = legacy {
+                    tparams = Some(collector.lookup_keys().into_boxed_slice());
+                }
+            } else if has_typeform_annotation && value.is_string_literal_expr() {
+                self.ensure_type_with_usage(
+                    &mut value,
+                    &mut None,
+                    &mut Usage::StaticTypeInformation {
+                        is_annotation: false,
+                    },
+                );
+            } else {
+                self.ensure_expr(&mut value, current.usage());
             }
-        } else if has_typeform_annotation && value.is_string_literal_expr() {
-            self.ensure_type_with_usage(
-                &mut value,
-                &mut None,
-                &mut Usage::StaticTypeInformation {
-                    is_annotation: false,
-                },
-            );
-        } else {
-            self.ensure_expr(&mut value, current.usage());
         }
         // A string `type=` on a legacy `attr.ib` specifier is a forward reference; bind it as a
         // type (parsing the string and resolving its names)

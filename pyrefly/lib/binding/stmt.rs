@@ -827,6 +827,7 @@ impl<'a> BindingsBuilder<'a> {
                         &Ast::expr_name_identifier(name.clone()),
                         x.value,
                         None,
+                        true,
                     );
                 } else if let Expr::Call(call) = &mut *x.value
                     && matches!(call.arguments.args.first(), Some(Expr::StringLiteral(_)))
@@ -849,6 +850,7 @@ impl<'a> BindingsBuilder<'a> {
                                 &Ast::expr_name_identifier(name),
                                 value,
                                 None,
+                                true,
                             );
                         }
                         return;
@@ -915,6 +917,7 @@ impl<'a> BindingsBuilder<'a> {
                             &name,
                             value,
                             Some((&x.annotation, ann_idx)),
+                            true,
                         ),
                         None => self.bind_definition(
                             &name,

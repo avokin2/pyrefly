@@ -17,3 +17,13 @@ def test_row_vector_broadcasts_over_matrix() -> None:
     assert_shape(row + matrix, (3, 4))
     assert_shape(matrix * row, (3, 4))
     assert_shape(row * matrix, (3, 4))
+
+
+def test_singleton_column_broadcasts_over_matrix() -> None:
+    matrix = np.ones((3, 4))
+    column = np.full((3, 1), 2.0)
+
+    assert_shape(matrix + column, (3, 4))
+    assert_shape(column + matrix, (3, 4))
+    assert_shape(matrix * column, (3, 4))
+    assert_shape(column * matrix, (3, 4))

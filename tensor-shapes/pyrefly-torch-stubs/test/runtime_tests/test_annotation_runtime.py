@@ -29,6 +29,7 @@ from shape_extensions import (
     D,
     defines_assert_shape,
     Dim,
+    enable_torchscript_runtime_compat,
     TypeVar,
     TypeVarTuple,
 )
@@ -50,6 +51,9 @@ class TestSubscriptRuntime(unittest.TestCase):
 
         self.assertTrue(callable(f))
 
+    def test_tensor_subscript_erases_to_tensor(self):
+        self.assertIs(torch.Tensor[3, 4], torch.Tensor)
+
     def test_typevar_subscript(self):
         """Tensor[N, 3] — TypeVar in subscript, works after patch."""
 
@@ -57,6 +61,36 @@ class TestSubscriptRuntime(unittest.TestCase):
             return x
 
         self.assertTrue(callable(f))
+
+
+class TestTorchScriptRuntimeCompat(unittest.TestCase):
+    """TorchScript compatibility mode erases shape-only runtime annotations."""
+
+    def setUp(self):
+        super().setUp()
+        original_class_getitem = Dim.__dict__.get("__class_getitem__")
+
+        def restore_dim_class_getitem():
+            if original_class_getitem is None:
+                if "__class_getitem__" in Dim.__dict__:
+                    delattr(Dim, "__class_getitem__")
+            else:
+                Dim.__class_getitem__ = original_class_getitem
+
+        self.addCleanup(restore_dim_class_getitem)
+
+    def test_dim_subscript_erases_to_int(self):
+        enable_torchscript_runtime_compat()
+
+        def f[N]() -> None:
+            self.assertIs(Dim[N], int)
+
+        f()
+
+    def test_tensor_subscript_still_erases_to_tensor(self):
+        enable_torchscript_runtime_compat()
+
+        self.assertIs(torch.Tensor[3, 4], torch.Tensor)
 
 
 class TestTypeVarArithmetic(unittest.TestCase):

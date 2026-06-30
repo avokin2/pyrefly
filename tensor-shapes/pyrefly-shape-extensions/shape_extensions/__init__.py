@@ -16,6 +16,14 @@ import typing
 from dataclasses import dataclass
 
 
+def _return_class(cls, params):
+    return cls
+
+
+def _return_int(cls, params):
+    return int
+
+
 def _patch_torch_if_available() -> None:
     try:
         import torch  # @manual
@@ -54,7 +62,7 @@ def _patch_torch_if_available() -> None:
     ]
     for cls in subscriptable_classes:
         if not hasattr(cls, "__class_getitem__"):
-            cls.__class_getitem__ = classmethod(lambda cls, params: cls)
+            cls.__class_getitem__ = classmethod(_return_class)
 
 
 _patch_torch_if_available()
@@ -68,6 +76,16 @@ class Dim[T]:
     """
 
     pass
+
+
+def enable_torchscript_runtime_compat() -> None:
+    """Erase shape-only runtime annotations to types TorchScript understands.
+
+    This is a one-way, process-global compatibility mode for legacy TorchScript
+    paths. It intentionally has no disable API for production callers.
+    """
+
+    Dim.__class_getitem__ = classmethod(_return_int)
 
 
 @dataclass(frozen=True)

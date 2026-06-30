@@ -49,6 +49,7 @@ use crate::types::keywords::DataclassFieldKeywords;
 use crate::types::keywords::DataclassKeywords;
 use crate::types::keywords::TypeMap;
 use crate::types::literal::Lit;
+use crate::types::tuple::Tuple;
 use crate::types::types::CalleeKind;
 use crate::types::types::Type;
 
@@ -87,6 +88,31 @@ pub(crate) fn is_attrs_setters_pipe(ty: &Type) -> bool {
             && matches!(id.module.name().as_str(), "attr.setters" | "attrs.setters")
     } else {
         false
+    }
+}
+
+/// Whether a resolved `on_setattr` type freezes the attribute: the `frozen` hook, or any element of
+/// a tuple/list/union of hooks.
+fn attrs_type_is_frozen_setter(ty: &Type) -> bool {
+    if is_attrs_setters_frozen(ty) {
+        return true;
+    }
+    match ty {
+        Type::Tuple(Tuple::Concrete(elts)) => elts.iter().any(attrs_type_is_frozen_setter),
+        Type::Tuple(Tuple::Unbounded(elt)) => attrs_type_is_frozen_setter(elt),
+        Type::Tuple(Tuple::Unpacked(unpacked)) => {
+            let (prefix, middle, suffix) = &**unpacked;
+            prefix.iter().any(attrs_type_is_frozen_setter)
+                || attrs_type_is_frozen_setter(middle)
+                || suffix.iter().any(attrs_type_is_frozen_setter)
+        }
+        Type::ClassType(ct) if ct.is_builtin("list") => ct
+            .targs()
+            .as_slice()
+            .first()
+            .is_some_and(attrs_type_is_frozen_setter),
+        Type::Union(u) => u.members.iter().any(attrs_type_is_frozen_setter),
+        _ => false,
     }
 }
 
@@ -444,19 +470,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     /// - a list or tuple of hooks
     /// - multiple hooks passed to `setters.pipe`
     pub(crate) fn on_setattr_is_frozen(&self, expr: &Expr) -> bool {
-        match expr {
-            Expr::List(list) => list.elts.iter().any(|e| self.on_setattr_is_frozen(e)),
-            Expr::Tuple(tuple) => tuple.elts.iter().any(|e| self.on_setattr_is_frozen(e)),
-            Expr::Call(call)
-                if is_attrs_setters_pipe(&self.expr_infer(&call.func, &self.error_swallower())) =>
-            {
-                call.arguments
-                    .args
-                    .iter()
-                    .any(|e| self.on_setattr_is_frozen(e))
-            }
-            _ => is_attrs_setters_frozen(&self.expr_infer(expr, &self.error_swallower())),
+        // `pipe(...)`'s return type doesn't record which hooks it composed, so it must be inspected
+        // by expression; every other form is decided from the inferred type.
+        if let Expr::Call(call) = expr
+            && is_attrs_setters_pipe(&self.expr_infer(&call.func, &self.error_swallower()))
+        {
+            return call
+                .arguments
+                .args
+                .iter()
+                .any(|e| self.on_setattr_is_frozen(e));
         }
+        attrs_type_is_frozen_setter(&self.expr_infer(expr, &self.error_swallower()))
     }
 
     /// `attr.converters.optional(c)` wraps an inner converter so the field also accepts `None`.

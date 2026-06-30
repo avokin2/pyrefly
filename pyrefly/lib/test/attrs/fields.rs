@@ -1591,3 +1591,105 @@ c.x = 5  # E: Cannot set field `x`
 c.y = 5  # OK
 "#,
 );
+
+// A hook list bound to a variable still freezes (detection is type-based, not syntactic). The
+// separate overload error is `list` invariance on `on_setattr`, orthogonal to read-only detection.
+attrs_testcase!(
+    test_attrs_field_on_setattr_frozen_via_list_variable,
+    r#"
+from attr import define, field, setters
+
+hooks = [setters.frozen]
+
+@define
+class C:
+    x: int = field(on_setattr=hooks)  # E: No matching overload found for function `attrs.field`
+
+C(1).x = 5  # E: Cannot set field `x`
+"#,
+);
+
+// A list with several hooks infers a `list[<union of hook types>]`; `frozen` anywhere in the union
+// makes the field read-only (the union branch of the type walk).
+attrs_testcase!(
+    test_attrs_field_on_setattr_frozen_via_list_variable_union,
+    r#"
+from attr import define, field, setters
+
+hooks = [setters.validate, setters.frozen]
+
+@define
+class C:
+    x: int = field(on_setattr=hooks)  # E: No matching overload found for function `attrs.field`
+
+C(1).x = 5  # E: Cannot set field `x`
+"#,
+);
+
+// Negative: a variable holding only non-frozen hooks leaves the field writable.
+attrs_testcase!(
+    test_attrs_field_on_setattr_non_frozen_variable_writable,
+    r#"
+from attr import define, field, setters
+
+hooks = [setters.validate]
+
+@define
+class C:
+    x: int = field(on_setattr=hooks)  # E: No matching overload found for function `attrs.field`
+
+C(1).x = 5  # OK: no `frozen` hook
+"#,
+);
+
+// A single `frozen` hook bound to a variable freezes the field with no overload noise (a lone hook
+// is a plain callable the stub accepts, unlike an invariant `list`/`tuple` of hooks).
+attrs_testcase!(
+    test_attrs_field_on_setattr_frozen_single_hook_variable,
+    r#"
+from attr import define, field, setters
+
+hook = setters.frozen
+
+@define
+class C:
+    x: int = field(on_setattr=hook)
+
+C(1).x = 5  # E: Cannot set field `x`
+"#,
+);
+
+// Negative: a single non-frozen hook bound to a variable leaves the field writable.
+attrs_testcase!(
+    test_attrs_field_on_setattr_non_frozen_single_hook_variable,
+    r#"
+from attr import define, field, setters
+
+hook = setters.validate
+
+@define
+class C:
+    x: int = field(on_setattr=hook)
+
+C(1).x = 5  # OK: not the `frozen` hook
+"#,
+);
+
+// Read-only-ness from a variable hook is per-field: a sibling without `on_setattr` stays writable.
+attrs_testcase!(
+    test_attrs_field_on_setattr_frozen_variable_is_per_field,
+    r#"
+from attr import define, field, setters
+
+frozen_hook = setters.frozen
+
+@define
+class C:
+    x: int = field(on_setattr=frozen_hook)
+    y: int = field()
+
+c = C(1, 2)
+c.x = 5  # E: Cannot set field `x`
+c.y = 5  # OK
+"#,
+);

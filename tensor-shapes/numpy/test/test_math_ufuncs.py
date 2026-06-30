@@ -15,6 +15,8 @@ def test_exponential_and_log_preserve_shape() -> None:
 
     assert_shape(np.exp(a), (4,))
     assert_shape(np.log(a), (4,))
+    assert_shape(np.log2(a), (4,))
+    assert_shape(np.log10(a), (4,))
     assert_shape(np.sqrt(b), (3, 4))
 
 
@@ -23,6 +25,8 @@ def test_trig_preserves_shape() -> None:
 
     assert_shape(np.sin(angles), (2, 3))
     assert_shape(np.cos(angles), (2, 3))
+    assert_shape(np.tan(angles), (2, 3))
+    assert_shape(np.arcsin(np.full((2, 3), 0.5)), (2, 3))
 
 
 def test_rounding_preserves_shape() -> None:
@@ -30,3 +34,5 @@ def test_rounding_preserves_shape() -> None:
 
     assert_shape(np.floor(a), (5,))
     assert_shape(np.ceil(a), (5,))
+    assert_shape(np.round(a), (5,))
+    assert_shape(np.trunc(a), (5,))

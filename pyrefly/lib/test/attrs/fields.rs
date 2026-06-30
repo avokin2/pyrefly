@@ -839,6 +839,131 @@ C(1)  # OK
 "#,
 );
 
+// A string `type=` is a forward reference: it resolves to the real type (here `list[int]`) for the
+// synthesized parameter, instead of being rejected as a `Literal[str]` value.
+attrs_testcase!(
+    test_attrs_legacy_attr_ib_type_string_forward_ref,
+    r#"
+import attr
+from typing import reveal_type
+
+@attr.s
+class C:
+    x = attr.ib(type='list[int]')
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, x: list[int]) -> None
+C([1])  # OK
+C(0)    # E: Argument `Literal[0]` is not assignable to parameter `x`
+"#,
+);
+
+// A forward reference to a class defined later in the module resolves too, since the string is
+// bound as a type during binding rather than evaluated as a value.
+attrs_testcase!(
+    test_attrs_legacy_attr_ib_type_string_later_class,
+    r#"
+import attr
+from typing import reveal_type
+
+@attr.s
+class C:
+    other = attr.ib(type='D')
+
+class D:
+    pass
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, other: D) -> None
+"#,
+);
+
+// A bare builtin name string resolves like an annotation, so construction is type-checked.
+attrs_testcase!(
+    test_attrs_attrib_type_string_builtin,
+    r#"
+import attr
+
+@attr.s
+class C:
+    x = attr.ib(type='int')
+
+attr.fields(C)  # keep `attr` used
+C(5)            # OK
+C("bad")        # E: Argument `Literal['bad']` is not assignable to parameter `x`
+"#,
+);
+
+// A dotted/qualified name string resolves through the module it names.
+attrs_testcase!(
+    test_attrs_attrib_type_string_qualified,
+    r#"
+from typing import assert_type
+import typing
+import attr
+
+@attr.s
+class C:
+    x = attr.ib(type='typing.List[int]')
+
+assert_type(C([1]).x, list[int])
+"#,
+);
+
+// A union written as a string resolves to the union type.
+attrs_testcase!(
+    test_attrs_attrib_type_string_union,
+    r#"
+from typing import assert_type
+import attr
+
+@attr.s
+class C:
+    x = attr.ib(type='int | None')
+
+assert_type(C(None).x, int | None)
+assert_type(C(5).x, int | None)
+"#,
+);
+
+// A string naming the enclosing class resolves (self-referential forward reference).
+attrs_testcase!(
+    test_attrs_attrib_type_string_self_reference,
+    r#"
+from typing import assert_type
+import attr
+
+@attr.s
+class C:
+    nxt = attr.ib(type='C | None')
+
+assert_type(C(None).nxt, "C | None")
+"#,
+);
+
+// Unlike legacy `attr.ib` (whose `type=` is typed `object`), next-gen `field` types `type=` as a
+// real `type[...]`, so a forward-reference string is rejected by the stub rather than resolved.
+attrs_testcase!(
+    test_attrs_field_type_string_rejected_by_stub,
+    r#"
+from attrs import define, field
+
+@define
+class C:
+    x = field(type='str')  # E: Argument `Literal['str']` is not assignable to parameter `type`
+"#,
+);
+
+// An unresolvable name in the string is reported, like any bad forward reference.
+attrs_testcase!(
+    test_attrs_attrib_type_string_unknown_name,
+    r#"
+import attr
+
+@attr.s
+class C:
+    x = attr.ib(type='Nonexistent')  # E: Could not find name `Nonexistent`
+"#,
+);
+
 attrs_testcase!(
     field_default_decorator_ordering,
     r#"

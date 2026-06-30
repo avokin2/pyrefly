@@ -44,6 +44,7 @@ use crate::binding::narrow::identifier_and_chain_prefix_for_expr;
 use crate::binding::scope::FlowStyle;
 use crate::binding::scope::NameReadInfo;
 use crate::export::special::SpecialExport;
+use crate::types::class::AttrsFieldSpecifierKind;
 
 impl<'a> BindingsBuilder<'a> {
     /// Bind one level of an unpacked LHS target, for example in `x, (y, [*z]), q = foo`
@@ -598,6 +599,21 @@ impl<'a> BindingsBuilder<'a> {
             );
         } else {
             self.ensure_expr(&mut value, current.usage());
+        }
+        // A string `type=` on a legacy `attr.ib` specifier is a forward reference; bind it as a
+        // type (parsing the string and resolving its names)
+        if self.scopes.in_class_body()
+            && let Expr::Call(call) = value.as_mut()
+            && self.attrs_field_specifier_kind(&call.func) == Some(AttrsFieldSpecifierKind::Attrib)
+        {
+            for kw in call.arguments.keywords.iter_mut() {
+                if kw.arg.as_ref().is_some_and(|id| id.as_str() == "type")
+                    && let Expr::StringLiteral(lit) = &kw.value
+                    && lit.as_single_part_string().is_some()
+                {
+                    self.ensure_type(&mut kw.value, &mut None);
+                }
+            }
         }
         let style = if self.scopes.in_class_body() {
             FlowStyle::ClassField {

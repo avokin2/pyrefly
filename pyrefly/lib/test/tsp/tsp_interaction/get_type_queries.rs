@@ -528,6 +528,59 @@ fn test_get_computed_type_module_import_includes_package_init_uri() {
 }
 
 #[test]
+fn test_get_computed_type_reexported_class_returns_module_bug() {
+    // BUG (current behavior): `getComputedType` over the range of a member-access
+    // expression `pkg.Foo`, where `Foo` is re-exported by the package, returns the
+    // left-hand-side *module* type instead of the re-exported *class*. The handler
+    // (`get_computed_type_at_range`) only special-cases call expressions; for any
+    // other range it resolves the identifier at `range.start()`, which lands on
+    // `pkg` and yields `Module`. The `.Foo` member is never resolved.
+    //
+    // pyright (control) returns kind=Class here. A follow-up fix flips this
+    // assertion to TypeKind::Class once the handler resolves the full node range.
+    //
+    // Self-contained: a local two-module package re-export, not the real unittest.
+    let temp_dir = TempDir::new().unwrap();
+    write_pyproject(temp_dir.path());
+
+    let package_dir = temp_dir.path().join("pkg");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::write(package_dir.join("sub.pyi"), "class Foo: ...\n").unwrap();
+    std::fs::write(
+        package_dir.join("__init__.pyi"),
+        "from .sub import Foo as Foo\n",
+    )
+    .unwrap();
+
+    let test_file = temp_dir.path().join("main.py");
+    std::fs::write(
+        &test_file,
+        "import pkg\nclass MyClass(pkg.Foo):\n    pass\n",
+    )
+    .unwrap();
+
+    let mut tsp = TspInteraction::new();
+    tsp.set_root(temp_dir.path().to_path_buf());
+    tsp.initialize(Default::default());
+
+    tsp.server.did_open("main.py");
+    tsp.client.expect_any_message();
+
+    let snapshot = get_current_snapshot(&mut tsp, 2);
+    let file_uri = Url::from_file_path(&test_file).unwrap().to_string();
+
+    // `pkg.Foo` spans line 1, chars 14..21 in `class MyClass(pkg.Foo):`.
+    let result = get_computed_type_range_ok(&mut tsp, &file_uri, 1, 14, 1, 21, snapshot);
+
+    // Current (incorrect) behavior: the module `pkg`, not the class `Foo`.
+    assert_kind(&result, TypeKind::Module);
+    let module_name = result.get("moduleName").and_then(|v| v.as_str());
+    assert_eq!(module_name, Some("pkg"), "Expected module name 'pkg'");
+
+    tsp.shutdown();
+}
+
+#[test]
 fn test_get_computed_type_bound_method_is_function() {
     // `m = x.append` — querying `m` (position 0 on line 1) gives bound method type
     let (mut tsp, file_uri, snapshot) = setup_project("x = [1, 2]\nm = x.append\n");

@@ -437,22 +437,56 @@ impl<'a> BindingsBuilder<'a> {
                 );
             }
             _ => {
+                // Bind the RHS once; every target shares it via `MultiTargetAssign`.
                 let mut user = self.declare_current_idx(Key::Anon(value.range()));
                 self.ensure_expr(value, user.usage());
                 let rhs_idx =
                     self.insert_binding_current(user, Binding::Expr(None, Box::new(value.clone())));
-                for target in targets.iter_mut() {
-                    let range = target.range();
-                    self.bind_target_impl(
-                        target,
-                        None,
-                        &|_, ann| {
-                            ExprOrBinding::Binding(Binding::MultiTargetAssign(
-                                ann, rhs_idx, range, None,
-                            ))
-                        },
-                        false,
-                    );
+                // A specifier chained to several names (`p = q = attr.ib()`) declares one field per
+                // name, matching runtime attrs, so tag each name a class field carrying the specifier.
+                if self.scopes.in_class_body()
+                    && self.is_attrs_specifier_call(value)
+                    && targets.iter().all(|t| matches!(t, Expr::Name(_)))
+                {
+                    self.ensure_attrs_specifier_type_forward_ref(value);
+                    for target in targets.iter_mut() {
+                        let Expr::Name(name) = target else {
+                            unreachable!("guarded above: every chained specifier target is a name")
+                        };
+                        let user = self
+                            .declare_current_idx(Key::Definition(ShortIdentifier::expr_name(name)));
+                        let ann = self.bind_current(
+                            &name.id,
+                            &user,
+                            FlowStyle::ClassField {
+                                initial_value: Some(value.clone()),
+                            },
+                        );
+                        // These names flow through the generic `MultiTargetAssign`, not the
+                        // attrs-aware `NameAssign { attrs_field_specifier }` of the single-name
+                        // path, so a chained specifier skips its converter-aware
+                        // default-vs-annotation check (a `converter=` default can be wrongly
+                        // flagged) and `@p.default` sibling attribution (`q` may look
+                        // defaultless).
+                        self.insert_binding_current(
+                            user,
+                            Binding::MultiTargetAssign(ann, rhs_idx, name.range(), None),
+                        );
+                    }
+                } else {
+                    for target in targets.iter_mut() {
+                        let range = target.range();
+                        self.bind_target_impl(
+                            target,
+                            None,
+                            &|_, ann| {
+                                ExprOrBinding::Binding(Binding::MultiTargetAssign(
+                                    ann, rhs_idx, range, None,
+                                ))
+                            },
+                            false,
+                        );
+                    }
                 }
             }
         }
@@ -551,6 +585,26 @@ impl<'a> BindingsBuilder<'a> {
         self.insert_binding_current(user, binding);
     }
 
+    /// A string `type=` on a legacy `attr.ib` specifier (`attr.ib(type="D")`) is a forward
+    /// reference; bind it as a type so the string's names resolve. Call once per specifier (a
+    /// chained `p = q = attr.ib(type="D")` shares one specifier, so binding it per-name would
+    /// double-insert the string's type binding).
+    fn ensure_attrs_specifier_type_forward_ref(&mut self, value: &mut Expr) {
+        if self.scopes.in_class_body()
+            && let Expr::Call(call) = value
+            && self.attrs_field_specifier_kind(&call.func) == Some(AttrsFieldSpecifierKind::Attrib)
+        {
+            for kw in call.arguments.keywords.iter_mut() {
+                if kw.arg.as_ref().is_some_and(|id| id.as_str() == "type")
+                    && let Expr::StringLiteral(lit) = &kw.value
+                    && lit.as_single_part_string().is_some()
+                {
+                    self.ensure_type(&mut kw.value, &mut None);
+                }
+            }
+        }
+    }
+
     /// Handle single assignment: this is closely related to `bind_target_name`, but
     /// handles additional concerns (such as type alias logic) that don't apply to
     /// other target name assignments.
@@ -638,21 +692,7 @@ impl<'a> BindingsBuilder<'a> {
                 self.ensure_expr(&mut value, current.usage());
             }
         }
-        // A string `type=` on a legacy `attr.ib` specifier is a forward reference; bind it as a
-        // type (parsing the string and resolving its names)
-        if self.scopes.in_class_body()
-            && let Expr::Call(call) = value.as_mut()
-            && self.attrs_field_specifier_kind(&call.func) == Some(AttrsFieldSpecifierKind::Attrib)
-        {
-            for kw in call.arguments.keywords.iter_mut() {
-                if kw.arg.as_ref().is_some_and(|id| id.as_str() == "type")
-                    && let Expr::StringLiteral(lit) = &kw.value
-                    && lit.as_single_part_string().is_some()
-                {
-                    self.ensure_type(&mut kw.value, &mut None);
-                }
-            }
-        }
+        self.ensure_attrs_specifier_type_forward_ref(value.as_mut());
         let style = if self.scopes.in_class_body() {
             FlowStyle::ClassField {
                 initial_value: Some((*value).clone()),

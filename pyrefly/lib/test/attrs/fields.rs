@@ -1745,6 +1745,39 @@ reveal_type(Sub.__init__)  # E: revealed type: (self: Sub, x: Any, y: int, z: An
 "#,
 );
 
+// A string `type=` forward reference resolves for every chained name, just like a lone specifier.
+attrs_testcase!(
+    test_attrs_chained_specifier_type_forward_ref,
+    r#"
+import attr
+from typing import reveal_type
+
+@attr.s
+class C:
+    p = q = attr.ib(type='D')
+
+class D:
+    pass
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, p: D, q: D) -> None
+"#,
+);
+
+// One specifier chained to several names declares a field per name, matching runtime attrs.
+attrs_testcase!(
+    test_attrs_chained_specifier_makes_one_field_per_name,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.s
+class B:
+    p = q = attr.ib()
+
+reveal_type(B.__init__)  # E: revealed type: (self: B, p: Any, q: Any) -> None
+"#,
+);
+
 // A plain (non-attrs) tuple assignment is unaffected: both names are ordinary class variables.
 attrs_testcase!(
     test_attrs_non_specifier_unpacking_unaffected,
@@ -1841,6 +1874,98 @@ class A:
     x, y = attr.ib(), attr.ib(default=x)
 
 reveal_type(A.__init__)  # E: revealed type: (self: A, x: Any, y: str = ...) -> None
+"#,
+);
+
+// The next-gen `field()` specifier chains the same way.
+attrs_testcase!(
+    test_attrs_chained_field_specifier_makes_one_field_per_name,
+    r#"
+from attrs import define, field
+
+@define
+class B:
+    p = q = field()
+
+B(1, 2)  # OK
+B(1)     # E: Missing argument `q`
+"#,
+);
+
+// A chained specifier's arguments apply to every name, so `default=` makes each field optional.
+attrs_testcase!(
+    test_attrs_chained_specifier_with_default,
+    r#"
+import attr
+
+@attr.s
+class A:
+    p = q = attr.ib(default=0)
+
+A()      # OK: both have a default
+A(1, 2)  # OK
+"#,
+);
+
+// Chained-specifier fields in a base class are inherited like any other attrs fields.
+attrs_testcase!(
+    test_attrs_chained_specifier_inherited,
+    r#"
+from typing import reveal_type
+import attr
+
+@attr.s
+class B:
+    p = q = attr.ib()
+
+@attr.s
+class C(B):
+    x = attr.ib()
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, p: Any, q: Any, x: Any) -> None
+"#,
+);
+
+// In a class that is not attrs-decorated, a chained `attr.ib()` is ordinary Python: no fields.
+attrs_testcase!(
+    test_attrs_chained_specifier_in_non_attrs_class_ok,
+    r#"
+import attr
+
+class C:
+    p = q = attr.ib()  # OK: C is not an attrs class
+"#,
+);
+
+// A stdlib `@dataclass` is not attrs, so an unannotated chained `attr.ib()` declares no fields.
+attrs_testcase!(
+    test_attrs_chained_specifier_in_stdlib_dataclass_ok,
+    r#"
+from dataclasses import dataclass
+import attr
+
+@dataclass
+class C:
+    p = q = attr.ib()  # OK: C is a stdlib dataclass, not an attrs class
+"#,
+);
+
+// In a non-attrs dataclass the names are ordinary annotated fields; the chained `attr.ib()` is
+// just their default value.
+attrs_testcase!(
+    test_attrs_chained_specifier_non_attrs_dataclass_fields,
+    r#"
+from typing import reveal_type
+from dataclasses import dataclass
+import attr
+
+@dataclass
+class C:
+    p: int
+    q: int
+    p = q = attr.ib()
+
+reveal_type(C.__init__)  # E: revealed type: (self: C, p: int = ..., q: int = ...) -> None
 "#,
 );
 

@@ -44,7 +44,6 @@ use crate::binding::narrow::identifier_and_chain_prefix_for_expr;
 use crate::binding::scope::FlowStyle;
 use crate::binding::scope::NameReadInfo;
 use crate::export::special::SpecialExport;
-use crate::types::class::AttrsFieldSpecifierKind;
 
 impl<'a> BindingsBuilder<'a> {
     /// Bind one level of an unpacked LHS target, for example in `x, (y, [*z]), q = foo`
@@ -644,11 +643,7 @@ impl<'a> BindingsBuilder<'a> {
         let attrs_field_specifier = if self.scopes.in_class_body()
             && let Expr::Call(call) = value.as_ref()
         {
-            match self.as_special_export(&call.func) {
-                Some(SpecialExport::AttrsLegacyAttrib) => Some(AttrsFieldSpecifierKind::Attrib),
-                Some(SpecialExport::AttrsNextGenField) => Some(AttrsFieldSpecifierKind::Field),
-                _ => None,
-            }
+            self.attrs_field_specifier_kind(&call.func)
         } else {
             None
         };

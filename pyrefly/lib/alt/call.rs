@@ -38,6 +38,7 @@ use crate::alt::callable::CallArg;
 use crate::alt::callable::CallKeyword;
 use crate::alt::callable::CallWithTypes;
 use crate::alt::class::class_field::DescriptorBase;
+use crate::alt::class::dataclass::ReplaceKind;
 use crate::alt::expr::TypeOrExpr;
 use crate::alt::nn_module_specials::is_nn_sequential;
 use crate::alt::unwrap::HintRef;
@@ -1965,18 +1966,27 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 // `attr.evolve` validates kwargs like `dataclasses.replace`; `attr.assoc` validates
                 // against attribute names, including `init=False` fields. Both require an attrs class.
                 Some(CalleeKind::Function(
-                    FunctionKind::DataclassReplace
+                    kind @ (FunctionKind::DataclassReplace
                     | FunctionKind::AttrsEvolve
-                    | FunctionKind::AttrsAssoc,
-                )) => self.call_dataclasses_replace(
-                    ty,
-                    &args,
-                    &kws,
-                    x.func.range(),
-                    x.arguments.range,
-                    hint,
-                    errors,
-                ),
+                    | FunctionKind::AttrsAssoc),
+                )) => {
+                    let replace_kind = match kind {
+                        FunctionKind::DataclassReplace => ReplaceKind::Replace,
+                        FunctionKind::AttrsEvolve => ReplaceKind::Evolve,
+                        FunctionKind::AttrsAssoc => ReplaceKind::Assoc,
+                        _ => unreachable!("guarded by the enclosing match arm"),
+                    };
+                    self.call_dataclasses_replace(
+                        replace_kind,
+                        ty,
+                        &args,
+                        &kws,
+                        x.func.range(),
+                        x.arguments.range,
+                        hint,
+                        errors,
+                    )
+                }
                 Some(CalleeKind::Function(FunctionKind::DataclassAsdict)) => {
                     self.call_dataclasses_asdict(
                         ty,

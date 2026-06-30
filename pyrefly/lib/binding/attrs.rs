@@ -182,6 +182,19 @@ pub(crate) fn collect_attrs_decorator_methods(body: &[Stmt], out: &mut AttrsDeco
 }
 
 impl<'a> BindingsBuilder<'a> {
+    /// The attrs field-specifier kind for a call's callee: `Attrib` for legacy `attr.ib()`/`attrib()`,
+    /// `Field` for next-gen `field()`, and `None` for any other call.
+    pub(crate) fn attrs_field_specifier_kind(
+        &self,
+        func: &Expr,
+    ) -> Option<AttrsFieldSpecifierKind> {
+        match self.as_special_export(func) {
+            Some(SpecialExport::AttrsLegacyAttrib) => Some(AttrsFieldSpecifierKind::Attrib),
+            Some(SpecialExport::AttrsNextGenField) => Some(AttrsFieldSpecifierKind::Field),
+            _ => None,
+        }
+    }
+
     /// Classify a class-body assignment as an attrs `attr.ib()`/`field()` specifier and report its
     /// `@<field>.default`/`.validator` errors. Detected at binding so solving reads it by identity.
     pub(crate) fn attrs_field_specifier(
@@ -197,11 +210,7 @@ impl<'a> BindingsBuilder<'a> {
         let ExprOrBinding::Expr(Expr::Call(call)) = value.as_ref() else {
             return None;
         };
-        let kind = match self.as_special_export(&call.func) {
-            Some(SpecialExport::AttrsLegacyAttrib) => AttrsFieldSpecifierKind::Attrib,
-            Some(SpecialExport::AttrsNextGenField) => AttrsFieldSpecifierKind::Field,
-            _ => return None,
-        };
+        let kind = self.attrs_field_specifier_kind(&call.func)?;
         // Only `attr.ib` accepts a positional default; `field`'s is keyword-only.
         let positional_default = (kind == AttrsFieldSpecifierKind::Attrib)
             .then(|| call.arguments.args.first())

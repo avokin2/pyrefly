@@ -5,11 +5,24 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+//! Solving-phase support for the `attrs`/`attr` library (the third-party precursor to and superset
+//! of `@dataclass`). attrs classes are recognized as a [`DataclassKind::Attrs`] during binding; this
+//! module implements the behaviors that diverge from plain dataclasses, including: init-parameter
+//! renaming (stripping leading underscores), the `auto_attribs` defaults per decorator flavor,
+//! `eq`/`order`/`cmp` validation, `on_setattr`/`setters.frozen` read-only detection,
+//! `converters.optional` handling, `@x.default` decorator return-type checks, and the
+//! `assoc`/`fields`/`fields_dict` runtime helpers.
+
 use std::sync::Arc;
 
 use dupe::Dupe;
 use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::short_identifier::ShortIdentifier;
+use pyrefly_types::typed_dict::AnonymousTypedDictInner;
+use pyrefly_types::typed_dict::TypedDict;
+use pyrefly_types::typed_dict::TypedDictField;
+use ruff_python_ast::Arguments;
+use ruff_python_ast::Expr;
 use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
 use starlark_map::Hashed;
@@ -26,11 +39,13 @@ use crate::alt::types::class_metadata::DataclassMetadata;
 use crate::alt::unwrap::HintRef;
 use crate::binding::binding::Key;
 use crate::binding::binding::KeyDecorator;
+use crate::binding::binding::KeyExport;
 use crate::config::error_kind::ErrorKind;
 use crate::error::collector::ErrorCollector;
 use crate::types::callable::FunctionKind;
 use crate::types::class::Class;
 use crate::types::class::ClassType;
+use crate::types::keywords::DataclassFieldKeywords;
 use crate::types::keywords::DataclassKeywords;
 use crate::types::keywords::TypeMap;
 use crate::types::literal::Lit;
@@ -301,5 +316,174 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             hint,
             errors,
         )
+    }
+
+    /// `attr.fields(C)` / `attr.fields_dict(C)`: return a field-aware type and reject a non-attrs
+    /// class argument (matching attrs' runtime `NotAnAttrsClassError`). `fields_dict` returns an
+    /// anonymous `TypedDict {name: Attribute[t]}`; `fields` keeps the stub's declared return for now.
+    pub(crate) fn call_attrs_fields(
+        &self,
+        func_name: &Name,
+        fields_ty: &Type,
+        args: &[CallArg],
+        kws: &[CallKeyword],
+        callee_range: TextRange,
+        arg_range: TextRange,
+        hint: Option<HintRef>,
+        errors: &ErrorCollector,
+    ) -> Type {
+        if let [CallArg::Arg(obj_arg)] = args
+            && kws.is_empty()
+        {
+            // Keep the `ClassType` when present so a generic `type[C[int]]` substitutes its targs.
+            let (cls, class_type) = match obj_arg.infer(self, errors) {
+                Type::ClassDef(cls) => (Some(cls), None),
+                Type::Type(inner) => match *inner {
+                    Type::ClassType(c) => (Some(c.class_object().clone()), Some(c)),
+                    _ => (None, None),
+                },
+                _ => (None, None),
+            };
+            if let Some(cls) = cls {
+                let metadata = self.get_metadata_for_class(&cls);
+                let dataclass = metadata.dataclass_metadata();
+                if let Some(dataclass) = dataclass
+                    && matches!(dataclass.kind, DataclassKind::Attrs { .. })
+                {
+                    if func_name.as_str() == "fields_dict"
+                        && let Some(td) =
+                            self.attrs_fields_dict_type(&cls, dataclass, class_type.as_ref())
+                    {
+                        return td;
+                    }
+                } else if !metadata.is_protocol() {
+                    // `type[AttrsInstance]` (a Protocol) is the canonical "any attrs class"
+                    // annotation, so accept Protocols; non-class arguments are left to the stub.
+                    self.error(
+                        errors,
+                        arg_range,
+                        ErrorKind::BadArgumentType,
+                        format!("Argument to `{func_name}()` is not an attrs class"),
+                    );
+                    return self.heap.mk_any_explicit();
+                }
+            }
+        }
+        self.freeform_call_infer(
+            fields_ty.clone(),
+            args,
+            kws,
+            callee_range,
+            arg_range,
+            hint,
+            errors,
+        )
+    }
+
+    /// `attr.fields_dict(C)` returns an ordered mapping of field name to its `Attribute[T]`. Model it
+    /// as an anonymous `TypedDict` (one entry per field), bailing to the stub's `dict` for very wide
+    /// classes. Returns `None` if the `Attribute` class is unavailable from the stubs.
+    fn attrs_fields_dict_type(
+        &self,
+        cls: &Class,
+        dataclass: &DataclassMetadata,
+        class_type: Option<&ClassType>,
+    ) -> Option<Type> {
+        const MAX_FIELDS: usize = 20;
+        let attribute_class = self.attrs_attribute_class()?;
+        let kw_only = self.compute_kw_only_fields_by_class(cls);
+        let raw_fields = self.iter_fields(cls, dataclass, false, &kw_only);
+        if raw_fields.len() > MAX_FIELDS {
+            return None;
+        }
+        let sub = class_type.map(|c| c.targs().substitution());
+        let swallow = self.error_swallower();
+        let fields = raw_fields
+            .into_iter()
+            .map(|(name, field, _)| {
+                let ty = match &sub {
+                    Some(sub) => sub.substitute_into(field.ty()),
+                    None => field.ty(),
+                };
+                let attr_ty =
+                    self.specialize(&attribute_class, vec![ty], TextRange::default(), &swallow);
+                (
+                    name,
+                    TypedDictField {
+                        ty: attr_ty,
+                        required: true,
+                        read_only_reason: None,
+                    },
+                )
+            })
+            .collect();
+        Some(
+            self.heap
+                .mk_typed_dict(TypedDict::Anonymous(Box::new(AnonymousTypedDictInner {
+                    fields,
+                }))),
+        )
+    }
+
+    /// Resolve the `attr.Attribute` / `attrs.Attribute` class from the stubs, if available.
+    fn attrs_attribute_class(&self) -> Option<Class> {
+        let name = Name::new_static("Attribute");
+        for module in [ModuleName::attr(), ModuleName::attrs()] {
+            if self.exports.export_exists(module, &name)
+                && let Type::ClassDef(cls) = self
+                    .get_from_export(module, None, &KeyExport(name.clone()))
+                    .as_ref()
+            {
+                return Some(cls.clone());
+            }
+        }
+        None
+    }
+
+    /// Whether an attrs `on_setattr` argument makes the attribute read-only. Possible forms:
+    /// - a single hook like `setters.frozen`
+    /// - a list or tuple of hooks
+    /// - multiple hooks passed to `setters.pipe`
+    pub(crate) fn on_setattr_is_frozen(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::List(list) => list.elts.iter().any(|e| self.on_setattr_is_frozen(e)),
+            Expr::Tuple(tuple) => tuple.elts.iter().any(|e| self.on_setattr_is_frozen(e)),
+            Expr::Call(call)
+                if is_attrs_setters_pipe(&self.expr_infer(&call.func, &self.error_swallower())) =>
+            {
+                call.arguments
+                    .args
+                    .iter()
+                    .any(|e| self.on_setattr_is_frozen(e))
+            }
+            _ => is_attrs_setters_frozen(&self.expr_infer(expr, &self.error_swallower())),
+        }
+    }
+
+    /// `attr.converters.optional(c)` wraps an inner converter so the field also accepts `None`.
+    /// Returns `<c's input> | None` when `converter=` is such a call, else `None` so the caller
+    /// falls back to plain converter handling.
+    pub(crate) fn attrs_converters_optional_param(
+        &self,
+        args: &Arguments,
+        errors: &ErrorCollector,
+    ) -> Option<Type> {
+        let kw = args.keywords.iter().find(|kw| {
+            kw.arg
+                .as_ref()
+                .is_some_and(|n| n.id == DataclassFieldKeywords::CONVERTER)
+        })?;
+        let Expr::Call(call) = &kw.value else {
+            return None;
+        };
+        if !matches!(
+            self.expr_infer(&call.func, errors).callee_kind(),
+            Some(CalleeKind::Function(FunctionKind::AttrsConvertersOptional))
+        ) {
+            return None;
+        }
+        let inner = call.arguments.args.first()?;
+        let inner_ty = self.expr_infer(inner, errors);
+        Some(self.union(self.get_converter_param(&inner_ty), self.heap.mk_none()))
     }
 }

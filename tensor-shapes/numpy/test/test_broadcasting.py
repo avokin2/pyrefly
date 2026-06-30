@@ -37,3 +37,12 @@ def test_column_broadcasts_with_row_vector() -> None:
     assert_shape(row + column, (3, 4))
     assert_shape(column * row, (3, 4))
     assert_shape(row * column, (3, 4))
+
+
+def test_scalar_left_and_division_broadcasting() -> None:
+    a = np.ones((3, 4))
+
+    assert_shape(1.0 + a, (3, 4))
+    assert_shape(2.0 * a, (3, 4))
+    assert_shape(a / 2.0, (3, 4))
+    assert_shape(1.0 / (a + 1.0), (3, 4))

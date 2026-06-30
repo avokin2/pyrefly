@@ -528,16 +528,12 @@ fn test_get_computed_type_module_import_includes_package_init_uri() {
 }
 
 #[test]
-fn test_get_computed_type_reexported_class_returns_module_bug() {
-    // BUG (current behavior): `getComputedType` over the range of a member-access
-    // expression `pkg.Foo`, where `Foo` is re-exported by the package, returns the
-    // left-hand-side *module* type instead of the re-exported *class*. The handler
-    // (`get_computed_type_at_range`) only special-cases call expressions; for any
-    // other range it resolves the identifier at `range.start()`, which lands on
-    // `pkg` and yields `Module`. The `.Foo` member is never resolved.
-    //
-    // pyright (control) returns kind=Class here. A follow-up fix flips this
-    // assertion to TypeKind::Class once the handler resolves the full node range.
+fn test_get_computed_type_reexported_class() {
+    // `getComputedType` over the range of a member-access expression `pkg.Foo`,
+    // where `Foo` is re-exported by the package, must return the re-exported
+    // *class* — not the left-hand-side *module*. The handler resolves the type of
+    // the whole node the range covers, rather than the identifier at
+    // `range.start()` (which lands on `pkg`). Matches pyright, which returns Class.
     //
     // Self-contained: a local two-module package re-export, not the real unittest.
     let temp_dir = TempDir::new().unwrap();
@@ -572,10 +568,19 @@ fn test_get_computed_type_reexported_class_returns_module_bug() {
     // `pkg.Foo` spans line 1, chars 14..21 in `class MyClass(pkg.Foo):`.
     let result = get_computed_type_range_ok(&mut tsp, &file_uri, 1, 14, 1, 21, snapshot);
 
-    // Current (incorrect) behavior: the module `pkg`, not the class `Foo`.
-    assert_kind(&result, TypeKind::Module);
-    let module_name = result.get("moduleName").and_then(|v| v.as_str());
-    assert_eq!(module_name, Some("pkg"), "Expected module name 'pkg'");
+    // The re-exported class `Foo`, followed through `from .sub import Foo as Foo`.
+    assert_kind(&result, TypeKind::Class);
+    // A class object referenced as a base is Instantiable (INSTANTIABLE = 1).
+    let flags = result.get("flags").and_then(|v| v.as_i64());
+    assert!(
+        flags.is_some_and(|f| f & 1 != 0),
+        "Expected INSTANTIABLE flag (1) for re-exported class, got flags={flags:?}"
+    );
+    let name = result
+        .get("declaration")
+        .and_then(|d| d.get("name"))
+        .and_then(|n| n.as_str());
+    assert_eq!(name, Some("Foo"), "Expected class name 'Foo'");
 
     tsp.shutdown();
 }

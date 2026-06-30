@@ -380,16 +380,15 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         )
     }
 
-    /// `attr.fields_dict(C)` returns an ordered mapping of field name to its `Attribute[T]`. Model it
-    /// as an anonymous `TypedDict` (one entry per field), bailing to the stub's `dict` for very wide
-    /// classes. Returns `None` if the `Attribute` class is unavailable from the stubs.
+    /// `attr.fields_dict(C)` maps each field name to its `Attribute[T]`, modeled as an anonymous
+    /// `TypedDict`. Over 100 fields, returns `None` to fall back to the stub's `dict`.
     fn attrs_fields_dict_type(
         &self,
         cls: &Class,
         dataclass: &DataclassMetadata,
         class_type: Option<&ClassType>,
     ) -> Option<Type> {
-        const MAX_FIELDS: usize = 20;
+        const MAX_FIELDS: usize = 100;
         let attribute_class = self.attrs_attribute_class()?;
         let kw_only = self.compute_kw_only_fields_by_class(cls);
         let raw_fields = self.iter_fields(cls, dataclass, false, &kw_only);

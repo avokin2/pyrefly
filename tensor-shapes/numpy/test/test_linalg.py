@@ -6,7 +6,16 @@
 from __future__ import annotations
 
 import numpy as np
-from shape_extensions import assert_shape
+from shape_extensions import assert_shape, Dim, TypeVar
+
+N = TypeVar("N")
+
+
+def square_svd_components(
+    x: np.ndarray[tuple[Dim[N], Dim[N]]],
+) -> np.ndarray[tuple[Dim[N], Dim[N]]]:
+    _u, _s, vt = np.linalg.svd(x, full_matrices=False)
+    return vt
 
 
 def test_matmul_function_2d() -> None:
@@ -52,6 +61,39 @@ def test_solve_column_rhs_regression_composition() -> None:
     y = np.random.randn(5, 1)
 
     assert_shape(np.linalg.solve(x.T @ x, x.T @ y), (3, 1))
+
+
+def test_svd_reduced_wide_matrix() -> None:
+    x = np.ones((3, 5))
+
+    u, s, vt = np.linalg.svd(x, full_matrices=False)
+
+    assert_shape(u, (3, 3))
+    assert_shape(s, (3,))
+    assert_shape(vt, (3, 5))
+
+
+def test_svd_reduced_square_matrix() -> None:
+    x = np.ones((4, 4))
+
+    u, s, vt = np.linalg.svd(x, full_matrices=False)
+
+    assert_shape(u, (4, 4))
+    assert_shape(s, (4,))
+    assert_shape(vt, (4, 4))
+    assert_shape(square_svd_components(x), (4, 4))
+
+
+def test_svd_all_component_pca_projection() -> None:
+    x = np.random.randn(5, 3)
+    x_centered = x - x.mean(axis=0)
+    u, s, vt = np.linalg.svd(x_centered, full_matrices=False)
+    projection = x_centered @ vt.T
+
+    assert_shape(u, (5, 3))
+    assert_shape(s, (3,))
+    assert_shape(vt, (3, 3))
+    assert_shape(projection, (5, 3))
 
 
 def test_matmul_operator_rejects_mismatched_inner_dimension() -> None:

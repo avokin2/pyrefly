@@ -1277,7 +1277,7 @@ fn shape_dsl_env() -> TestEnv {
         "my_shapes.pyi",
         r#"
 from typing import Any
-from shape_extensions.dsl import shape_dsl_function
+from shape_extensions.dsl import ShapedArray, shape_dsl_function
 import shape_extensions.dsl
 
 class symint: ...
@@ -1331,6 +1331,38 @@ def iterator_kernel_ir(x: list[int], y: list[int]) -> int:
 @shape_dsl_function
 def reductions_ir(x: list[int | symint]) -> int | symint:
     return shape_extensions.dsl.prod(x) + shape_extensions.dsl.sum(x)
+
+@shape_dsl_function
+def int_min(a: int | symint, b: int | symint) -> int | symint:
+    if a == b:
+        return a
+    if isinstance(a, int) and isinstance(b, int):
+        if a < b:
+            return a
+        return b
+    return Unknown
+
+@shape_dsl_function
+def svd_reduced_2d_ir(
+    a: ShapedArray,
+    full_matrices: bool,
+    compute_uv: bool = True,
+    hermitian: bool = False,
+) -> list[ShapedArray]:
+    if len(a.shape) != 2:
+        raise Error("svd expects 2-D arrays")
+    if full_matrices:
+        raise Error("only reduced svd shapes are modeled")
+    if not compute_uv:
+        raise Error("svd without singular vectors is not modeled")
+    if hermitian:
+        raise Error("hermitian svd shapes are not modeled")
+    k = int_min(a.shape[0], a.shape[1])
+    return [
+        ShapedArray(shape=[a.shape[0], k]),
+        ShapedArray(shape=[k]),
+        ShapedArray(shape=[k, a.shape[1]]),
+    ]
 
 @shape_dsl_function
 def einsum_kernel_ir() -> int:
@@ -1394,12 +1426,15 @@ def two_errors_ir(x: int) -> int:  # E: @shape_dsl_function type error: undefine
         "my_lib",
         "my_lib.pyi",
         r#"
-from typing import Any, overload
-from shape_extensions import uses_shape_dsl
-from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, list_kernel_ir, iterator_kernel_ir, reductions_ir, einsum_kernel_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
+from typing import Any, Literal, overload
+from shape_extensions import shaped_array, uses_shape_dsl
+from my_shapes import identity_ir, double_ir, scalar_kernel_ir, string_guard_ir, list_kernel_ir, iterator_kernel_ir, reductions_ir, svd_reduced_2d_ir, einsum_kernel_ir, not_a_dsl_fn, bad_syntax_ir, kwargs_ir, calls_undefined, bad_no_ret, two_errors_ir, returns_wrong_type_ir, dims_as_scalar_union_ir, unknown_fallback_ir, helper_exact_one_ir, too_few_args_ir, too_many_args_ir
 import my_shapes
 
 non_literal: Any
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
 
 @uses_shape_dsl(identity_ir)
 def plain_fn(x: int) -> int: ...
@@ -1434,6 +1469,22 @@ def iterator_kernel_fn(x: tuple[int, ...], y: tuple[int, ...]) -> int: ...
 
 @uses_shape_dsl(reductions_ir)
 def reductions_fn(x: tuple[int, ...]) -> int: ...
+
+@uses_shape_dsl(svd_reduced_2d_ir)
+def svd_fn[Shape, DType](
+    a: Array[Shape, DType],
+    full_matrices: Literal[False],
+    compute_uv: Literal[True] = True,
+    hermitian: Literal[False] = False,
+) -> tuple[Array[Shape, DType], Array[Shape, DType], Array[Shape, DType]]: ...
+
+@uses_shape_dsl(svd_reduced_2d_ir)
+def svd_raw_flags_fn[Shape, DType](
+    a: Array[Shape, DType],
+    full_matrices: bool,
+    compute_uv: bool = True,
+    hermitian: bool = False,
+) -> tuple[Array[Shape, DType], Array[Shape, DType], Array[Shape, DType]]: ...
 
 @uses_shape_dsl(einsum_kernel_ir)
 def einsum_kernel_fn() -> int: ...
@@ -1588,6 +1639,45 @@ from typing import Literal, assert_type
 from my_lib import reductions_fn
 
 assert_type(reductions_fn((2, 3, 4)), Literal[33])
+"#,
+);
+
+testcase!(
+    test_shape_dsl_svd_reduced_2d_shapes,
+    shape_dsl_env(),
+    r#"
+from typing import Literal, reveal_type
+from my_lib import Array, svd_fn
+
+def f(tall: Array[(5, 3), float], wide: Array[(3, 5), float], square: Array[(4, 4), float]) -> None:
+    tall_u, tall_s, tall_vt = svd_fn(tall, full_matrices=False)
+    reveal_type(tall_u)  # E: revealed type: Array[(5, 3), float]
+    reveal_type(tall_s)  # E: revealed type: Array[(3,), float]
+    reveal_type(tall_vt)  # E: revealed type: Array[(3, 3), float]
+
+    wide_u, wide_s, wide_vt = svd_fn(wide, full_matrices=False)
+    reveal_type(wide_u)  # E: revealed type: Array[(3, 3), float]
+    reveal_type(wide_s)  # E: revealed type: Array[(3,), float]
+    reveal_type(wide_vt)  # E: revealed type: Array[(3, 5), float]
+
+    square_u, square_s, square_vt = svd_fn(square, full_matrices=False)
+    reveal_type(square_u)  # E: revealed type: Array[(4, 4), float]
+    reveal_type(square_s)  # E: revealed type: Array[(4,), float]
+    reveal_type(square_vt)  # E: revealed type: Array[(4, 4), float]
+"#,
+);
+
+testcase!(
+    test_shape_dsl_svd_rejects_unsupported_modes,
+    shape_dsl_env(),
+    r#"
+from my_lib import Array, svd_raw_flags_fn
+
+def f(x: Array[(5, 3), float], vector: Array[(5,), float]) -> None:
+    svd_raw_flags_fn(vector, full_matrices=False)  # E: svd expects 2-D arrays
+    svd_raw_flags_fn(x, full_matrices=True)  # E: only reduced svd shapes are modeled
+    svd_raw_flags_fn(x, full_matrices=False, compute_uv=False)  # E: svd without singular vectors is not modeled
+    svd_raw_flags_fn(x, full_matrices=False, hermitian=True)  # E: hermitian svd shapes are not modeled
 "#,
 );
 

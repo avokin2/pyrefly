@@ -12,6 +12,16 @@ def int_max(a: int, b: int) -> int:
     return b
 
 @shape_dsl_function
+def int_min(a: int | symint, b: int | symint) -> int | symint:
+    if a == b:
+        return a
+    if isinstance(a, int) and isinstance(b, int):
+        if a < b:
+            return a
+        return b
+    return Unknown
+
+@shape_dsl_function
 def broadcast_dim(
     a: int | symint,
     b: int | symint,
@@ -48,6 +58,28 @@ def matmul_2d_ir(a: ShapedArray, b: ShapedArray) -> ShapedArray:
     ):
         raise Error("matmul inner dimensions must match")
     return ShapedArray(shape=[a.shape[0], b.shape[1]])
+
+@shape_dsl_function
+def svd_reduced_2d_ir(
+    a: ShapedArray,
+    full_matrices: bool,
+    compute_uv: bool = True,
+    hermitian: bool = False,
+) -> list[ShapedArray]:
+    if len(a.shape) != 2:
+        raise Error("svd expects 2-D arrays")
+    if full_matrices:
+        raise Error("only reduced svd shapes are modeled")
+    if not compute_uv:
+        raise Error("svd without singular vectors is not modeled")
+    if hermitian:
+        raise Error("hermitian svd shapes are not modeled")
+    k = int_min(a.shape[0], a.shape[1])
+    return [
+        ShapedArray(shape=[a.shape[0], k]),
+        ShapedArray(shape=[k]),
+        ShapedArray(shape=[k, a.shape[1]]),
+    ]
 
 @shape_dsl_function
 def normalize_axis(rank: int, axis: int) -> int:

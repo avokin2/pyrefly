@@ -42,6 +42,14 @@ def test_reduce_matrix_axis_zero() -> None:
     assert_shape(np.max(a, axis=0), (4,))
 
 
+def test_mean_method_axis_zero_broadcasts_over_matrix() -> None:
+    a = np.ones((3, 4))
+    column_means = a.mean(axis=0)
+
+    assert_shape(column_means, (4,))
+    assert_shape(a - column_means, (3, 4))
+
+
 def test_reduce_matrix_axis_one() -> None:
     a = np.ones((3, 4))
 

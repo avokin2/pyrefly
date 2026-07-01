@@ -3,9 +3,10 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import overload
+from typing import Literal, overload
 
-from shape_extensions import Dim
+from numpy._shapes import svd_reduced_2d_ir
+from shape_extensions import Dim, uses_shape_dsl
 
 from .. import ndarray
 
@@ -20,3 +21,26 @@ def solve[N, K, DType](
     a: ndarray[tuple[Dim[N], Dim[N]], DType],
     b: ndarray[tuple[Dim[N], Dim[K]]],
 ) -> ndarray[tuple[Dim[N], Dim[K]], DType]: ...
+@overload
+def svd[N, DType](
+    a: ndarray[tuple[Dim[N], Dim[N]], DType],
+    # NumPy defaults to full SVD; this MVP accepts only the reduced form needed
+    # by PCA-style demos.
+    full_matrices: Literal[False],
+    compute_uv: Literal[True] = True,
+    hermitian: Literal[False] = False,
+) -> tuple[
+    ndarray[tuple[Dim[N], Dim[N]], DType],
+    ndarray[tuple[Dim[N]], DType],
+    ndarray[tuple[Dim[N], Dim[N]], DType],
+]: ...
+@uses_shape_dsl(svd_reduced_2d_ir)
+@overload
+def svd(
+    a: ndarray,
+    # NumPy defaults to full SVD; this MVP accepts only the reduced form needed
+    # by PCA-style demos.
+    full_matrices: Literal[False],
+    compute_uv: Literal[True] = True,
+    hermitian: Literal[False] = False,
+) -> tuple[ndarray, ndarray, ndarray]: ...

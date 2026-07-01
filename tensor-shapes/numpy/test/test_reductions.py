@@ -15,6 +15,24 @@ def make_array(shape: Any) -> Any:
     return np.ones(shape)
 
 
+def test_reduce_matrix_no_axis() -> None:
+    a = np.ones((3, 4))
+
+    assert_shape(np.sum(a), ())
+    assert_shape(np.mean(a), ())
+
+
+def test_reduce_higher_rank_no_axis() -> None:
+    a = cast(
+        "np.ndarray[tuple[Literal[2], Literal[3], Literal[4]]]",
+        make_array((2, 3, 4)),
+    )
+
+    assert_shape(np.sum(a), ())
+    assert_shape(np.mean(a, keepdims=True), (1, 1, 1))
+    assert_shape(np.max(a, keepdims=True), (1, 1, 1))
+
+
 def test_reduce_matrix_axis_zero() -> None:
     a = np.ones((3, 4))
 

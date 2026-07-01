@@ -11,6 +11,7 @@ from shape_extensions import assert_shape, Dim, TypeVar
 N = TypeVar("N")
 P = TypeVar("P")
 K = TypeVar("K")
+C = TypeVar("C")
 
 
 def ordinary_least_squares(
@@ -58,6 +59,15 @@ def nearest_centroid_labels(
     deltas = point_vectors - centroid_vectors
     squared_distances = np.sum(deltas**2, axis=-1)
     return np.argmin(squared_distances, axis=-1)
+
+
+def cross_entropy_loss(
+    logits: np.ndarray[tuple[Dim[N], Dim[C]]],
+    targets: np.ndarray[tuple[Dim[N]], np.dtype[np.intp]],
+) -> np.ndarray[tuple[()]]:
+    shifted = logits - logits.max(axis=1, keepdims=True)
+    log_probs = shifted - np.log(np.exp(shifted).sum(axis=1, keepdims=True))
+    return -log_probs[np.arange(len(targets)), targets].mean()
 
 
 def test_ordinary_least_squares() -> None:
@@ -132,3 +142,21 @@ def test_nearest_centroid_labels() -> None:
     assert_shape(deltas, (5, 4, 3))
     assert_shape(squared_distances, (5, 4))
     assert_shape(labels, (5,))
+
+
+def test_cross_entropy_loss() -> None:
+    logits = np.random.randn(5, 3)
+    targets = np.zeros(5, dtype=np.intp)
+    shifted = logits - logits.max(axis=1, keepdims=True)
+    normalizers = np.exp(shifted).sum(axis=1, keepdims=True)
+    log_probs = shifted - np.log(normalizers)
+    target_log_probs = log_probs[np.arange(len(targets)), targets]
+    loss = cross_entropy_loss(logits, targets)
+
+    assert_shape(logits, (5, 3))
+    assert_shape(targets, (5,))
+    assert_shape(shifted, (5, 3))
+    assert_shape(normalizers, (5, 1))
+    assert_shape(log_probs, (5, 3))
+    assert_shape(target_log_probs, (5,))
+    assert_shape(loss, ())

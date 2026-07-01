@@ -120,7 +120,7 @@ def main() -> int:
     total_tests = 0
     for suite in suites:
         for filename in SUITES[suite]:
-            total_tests += run_test_file(args.numpy_root.resolve() / "test" / filename)
+            total_tests += run_test_file(args.numpy_root.resolve() / filename)
     print(f"PASS {len(suites)} suites ({total_tests} tests)")
     return 0
 

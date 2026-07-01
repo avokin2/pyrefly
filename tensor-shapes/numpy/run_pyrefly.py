@@ -33,7 +33,7 @@ def run_check(
     suite: str,
     nocapture: bool,
 ) -> int:
-    check_files = [str(Path("test") / file) for file in SUITES[suite]]
+    check_files = [file.as_posix() for file in SUITES[suite]]
     command = [
         *pyrefly_command,
         "check",

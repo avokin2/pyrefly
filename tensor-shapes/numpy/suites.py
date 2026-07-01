@@ -5,14 +5,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 
 SUITES = {
-    "arithmetic": ("test_arithmetic.py",),
-    "broadcasting": ("test_broadcasting.py",),
-    "creation-basics": ("test_creation_basics.py",),
-    "dtype-properties": ("test_dtype_properties.py",),
-    "linalg": ("test_linalg.py",),
-    "math-ufuncs": ("test_math_ufuncs.py",),
-    "random": ("test_random.py",),
-    "reductions": ("test_reductions.py",),
+    "arithmetic": (Path("test/test_arithmetic.py"),),
+    "broadcasting": (Path("test/test_broadcasting.py"),),
+    "creation-basics": (Path("test/test_creation_basics.py"),),
+    "dtype-properties": (Path("test/test_dtype_properties.py"),),
+    "examples": (Path("examples/stats.py"),),
+    "linalg": (Path("test/test_linalg.py"),),
+    "math-ufuncs": (Path("test/test_math_ufuncs.py"),),
+    "random": (Path("test/test_random.py"),),
+    "reductions": (Path("test/test_reductions.py"),),
 }

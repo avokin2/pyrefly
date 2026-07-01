@@ -19,12 +19,44 @@ def test_zeros_default_dtype() -> None:
     assert x.dtype == np.dtype(np.float64)
 
 
+def test_zeros_explicit_scalar_dtype() -> None:
+    x = np.zeros((2, 3), dtype=np.int32)
+
+    assert_shape(x, (2, 3))
+    assert_type(x.dtype, np.dtype[np.int32])
+    assert x.dtype == np.dtype(np.int32)
+
+
+def test_zeros_builtin_type_dtype_falls_back_to_unknown() -> None:
+    x = np.zeros(5, dtype=int)
+
+    assert_shape(x, (5,))
+    assert_type(x.dtype, Any)
+    assert x.dtype == np.dtype(int)
+
+
 def test_ones_default_dtype() -> None:
     x = np.ones((2, 3))
 
     assert_shape(x, (2, 3))
     assert_type(x.dtype, np.dtype[np.float64])
     assert x.dtype == np.dtype(np.float64)
+
+
+def test_ones_explicit_scalar_dtype() -> None:
+    x = np.ones(5, dtype=np.bool_)
+
+    assert_shape(x, (5,))
+    assert_type(x.dtype, np.dtype[np.bool_])
+    assert x.dtype == np.dtype(np.bool_)
+
+
+def test_ones_tuple_shape_explicit_scalar_dtype() -> None:
+    x = np.ones((5,), dtype=np.int64)
+
+    assert_shape(x, (5,))
+    assert_type(x.dtype, np.dtype[np.int64])
+    assert x.dtype == np.dtype(np.int64)
 
 
 def test_empty_default_dtype() -> None:
@@ -41,6 +73,38 @@ def test_full_omitted_dtype_uses_fill_value_dtype() -> None:
     assert_shape(x, (2, 3))
     assert_type(x.dtype, Any)
     assert x.dtype == np.dtype(int)
+
+
+def test_empty_explicit_scalar_dtype() -> None:
+    x = np.empty((4,), dtype=np.float32)
+
+    assert_shape(x, (4,))
+    assert_type(x.dtype, np.dtype[np.float32])
+    assert x.dtype == np.dtype(np.float32)
+
+
+def test_empty_matrix_explicit_scalar_dtype() -> None:
+    x = np.empty((2, 3), dtype=np.bool_)
+
+    assert_shape(x, (2, 3))
+    assert_type(x.dtype, np.dtype[np.bool_])
+    assert x.dtype == np.dtype(np.bool_)
+
+
+def test_full_explicit_scalar_dtype() -> None:
+    x = np.full((3, 4), 7, dtype=np.int64)
+
+    assert_shape(x, (3, 4))
+    assert_type(x.dtype, np.dtype[np.int64])
+    assert x.dtype == np.dtype(np.int64)
+
+
+def test_full_scalar_shape_explicit_scalar_dtype() -> None:
+    x = np.full(3, 7, dtype=np.float32)
+
+    assert_shape(x, (3,))
+    assert_type(x.dtype, np.dtype[np.float32])
+    assert x.dtype == np.dtype(np.float32)
 
 
 def test_eye_default_dtype() -> None:

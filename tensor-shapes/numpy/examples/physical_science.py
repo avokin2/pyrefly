@@ -69,6 +69,31 @@ def gravitational_forces(
     return forces.sum(axis=1)
 
 
+def particle_in_box(
+    n_points: Dim[N],
+) -> tuple[np.ndarray[tuple[Dim[N]]], np.ndarray[tuple[Dim[N], Dim[N]]]]:
+    """Solve a finite-difference quantum particle-in-a-box Hamiltonian.
+
+    A one-dimensional particle in a box is a standard quantum mechanics model:
+    the particle is confined to an interval, and the Hamiltonian's eigenvalues
+    are the allowed energies while its eigenvectors are the wavefunctions. This
+    dimensionless finite-difference version samples the interior of the interval
+    at `N` points, so the negative second-derivative kinetic operator becomes an
+    `N x N` tridiagonal matrix. The main diagonal has length `N`, while each
+    off-diagonal has length `N - 1`; placing those off-diagonal vectors at
+    offsets `+1` and `-1` still produces `N x N` matrices. Solving the symmetric
+    eigenproblem returns `N` energy levels and an `N x N` matrix whose columns
+    are the corresponding wavefunctions.
+    """
+    dx = 1.0 / (n_points + 1)
+    diagonal = np.full(n_points, 2.0 / dx**2)
+    off_diagonal = np.full(n_points - 1, -1.0 / dx**2)
+    hamiltonian = (
+        np.diag(diagonal) + np.diag(off_diagonal, 1) + np.diag(off_diagonal, -1)
+    )
+    return np.linalg.eigh(hamiltonian)
+
+
 def test_harmonic_oscillator_energy() -> None:
     position = np.random.randn(5, 3)
     velocity = np.random.randn(5, 3)
@@ -111,3 +136,23 @@ def test_gravitational_forces() -> None:
     assert_shape(mass[None, :, None], (1, 5, 1))
     assert_shape(forces, (5, 5, 3))
     assert_shape(total_force, (5, 3))
+
+
+def test_particle_in_box() -> None:
+    n_points = 5
+    dx = 1.0 / (n_points + 1)
+    diagonal = np.full(n_points, 2.0 / dx**2)
+    off_diagonal = np.full(n_points - 1, -1.0 / dx**2)
+    hamiltonian = (
+        np.diag(diagonal) + np.diag(off_diagonal, 1) + np.diag(off_diagonal, -1)
+    )
+    energies, wavefunctions = particle_in_box(n_points)
+
+    assert_shape(diagonal, (5,))
+    assert_shape(off_diagonal, (4,))
+    assert_shape(np.diag(diagonal), (5, 5))
+    assert_shape(np.diag(off_diagonal, 1), (5, 5))
+    assert_shape(np.diag(off_diagonal, -1), (5, 5))
+    assert_shape(hamiltonian, (5, 5))
+    assert_shape(energies, (5,))
+    assert_shape(wavefunctions, (5, 5))

@@ -23,6 +23,16 @@ def test_matmul_operator_2d() -> None:
     assert_shape(a @ b, (3, 5))
 
 
+def test_transpose_property_2d() -> None:
+    x = np.ones((3, 4))
+    y = np.ones((3, 1))
+
+    assert_shape(x.T, (4, 3))
+    assert_shape(x.T.T, (3, 4))
+    assert_shape(x.T @ x, (4, 4))
+    assert_shape(x.T @ y, (4, 1))
+
+
 def test_matmul_operator_rejects_mismatched_inner_dimension() -> None:
     a = np.ones((3, 4))
     b = np.ones((6, 5))

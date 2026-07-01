@@ -10,6 +10,7 @@ SUITES = {
     "arithmetic": ("test_arithmetic.py",),
     "broadcasting": ("test_broadcasting.py",),
     "creation-basics": ("test_creation_basics.py",),
+    "dtype-properties": ("test_dtype_properties.py",),
     "math-ufuncs": ("test_math_ufuncs.py",),
     "reductions": ("test_reductions.py",),
 }

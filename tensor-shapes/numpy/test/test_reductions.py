@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast, Literal
+from typing import Any, assert_type, cast, Literal
 
 import numpy as np
 from shape_extensions import assert_shape
@@ -67,6 +67,43 @@ def test_reduce_higher_rank_axis() -> None:
 
     assert_shape(np.sum(a, axis=1), (2, 4))
     assert_shape(np.mean(a, axis=-1), (2, 3))
+
+
+def test_argmin_matrix_axis() -> None:
+    a = np.ones((3, 4))
+    labels = np.argmin(a, axis=-1)
+
+    assert_shape(np.argmin(a, axis=0), (4,))
+    assert_shape(np.argmin(a, axis=1), (3,))
+    assert_shape(np.argmin(a, axis=-2), (4,))
+    assert_shape(labels, (3,))
+    assert_type(labels.dtype, np.dtype[np.intp])
+    assert labels.dtype == np.dtype(np.intp)
+
+
+def test_expand_dims_matrix_negative_axis() -> None:
+    a = np.ones((3, 4))
+
+    assert_shape(np.expand_dims(a, axis=-3), (1, 3, 4))
+    assert_shape(np.expand_dims(a, axis=-2), (3, 1, 4))
+    assert_shape(np.expand_dims(a, axis=-1), (3, 4, 1))
+
+
+def test_nearest_centroid_assignment_shapes() -> None:
+    points = np.ones((5, 3))
+    centroids = np.ones((4, 3))
+
+    point_vectors = np.expand_dims(points, axis=-2)
+    centroid_vectors = np.expand_dims(centroids, axis=-3)
+    deltas = point_vectors - centroid_vectors
+    squared_distances = np.sum(deltas**2, axis=-1)
+    labels = np.argmin(squared_distances, axis=-1)
+
+    assert_shape(point_vectors, (5, 1, 3))
+    assert_shape(centroid_vectors, (1, 4, 3))
+    assert_shape(deltas, (5, 4, 3))
+    assert_shape(squared_distances, (5, 4))
+    assert_shape(labels, (5,))
 
 
 def test_reduce_rejects_invalid_axes() -> None:

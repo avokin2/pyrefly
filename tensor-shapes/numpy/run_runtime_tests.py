@@ -73,6 +73,18 @@ def run_test_file(path: Path) -> int:
     return len(tests)
 
 
+def run_suites(numpy_root: Path, suites: list[str]) -> int:
+    if "all" in suites:
+        suites = list(SUITES)
+
+    total_tests = 0
+    for suite in suites:
+        for filename in SUITES[suite]:
+            total_tests += run_test_file(numpy_root.resolve() / filename)
+    print(f"PASS {len(suites)} suites ({total_tests} tests)")
+    return total_tests
+
+
 def main() -> int:
     numpy_root_default = Path(__file__).resolve().parent
     tensor_shapes_root_default = (
@@ -114,14 +126,7 @@ def main() -> int:
 
     load_shape_extensions(shape_extension_root.resolve())
     suites = args.suite or ["all"]
-    if "all" in suites:
-        suites = list(SUITES)
-
-    total_tests = 0
-    for suite in suites:
-        for filename in SUITES[suite]:
-            total_tests += run_test_file(args.numpy_root.resolve() / filename)
-    print(f"PASS {len(suites)} suites ({total_tests} tests)")
+    run_suites(args.numpy_root, suites)
     return 0
 
 

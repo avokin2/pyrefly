@@ -1,0 +1,70 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
+from __future__ import annotations
+
+import numpy as np
+from shape_extensions import assert_shape, Dim, TypeVar
+
+N = TypeVar("N")
+D = TypeVar("D")
+
+
+def harmonic_oscillator_energy(
+    position: np.ndarray[tuple[Dim[N], Dim[D]]],
+    velocity: np.ndarray[tuple[Dim[N], Dim[D]]],
+    stiffness: float,
+    mass: float,
+) -> np.ndarray[tuple[Dim[N]]]:
+    """Compute the total oscillator energy for a batch of states.
+
+    Each row is one independent oscillator state, and each column is a spatial
+    coordinate. The potential energy is proportional to squared displacement
+    from equilibrium, while the kinetic energy is proportional to squared
+    velocity. Reducing over the coordinate axis keeps one scalar energy per
+    state, so the result has shape `(N,)`.
+    """
+    potential_energy = 0.5 * stiffness * np.sum(position**2, axis=-1)
+    kinetic_energy = 0.5 * mass * np.sum(velocity**2, axis=-1)
+    return potential_energy + kinetic_energy
+
+
+def linear_elastic_displacement(
+    stiffness: np.ndarray[tuple[Dim[N], Dim[N]]],
+    force: np.ndarray[tuple[Dim[N], Dim[1]]],
+) -> np.ndarray[tuple[Dim[N], Dim[1]]]:
+    """Solve a linear elastic equilibrium system.
+
+    In small-displacement linear elasticity, the discretized equilibrium
+    equation is `K u = f`: the stiffness matrix `K` maps unknown displacements
+    `u` to applied forces `f`. Solving the square linear system preserves the
+    force vector's column shape, producing a displacement vector with shape
+    `(N, 1)`.
+    """
+    return np.linalg.solve(stiffness, force)
+
+
+def test_harmonic_oscillator_energy() -> None:
+    position = np.random.randn(5, 3)
+    velocity = np.random.randn(5, 3)
+    potential_energy = 0.5 * 2.0 * np.sum(position**2, axis=-1)
+    kinetic_energy = 0.5 * 4.0 * np.sum(velocity**2, axis=-1)
+    energy = harmonic_oscillator_energy(position, velocity, stiffness=2.0, mass=4.0)
+
+    assert_shape(position, (5, 3))
+    assert_shape(velocity, (5, 3))
+    assert_shape(potential_energy, (5,))
+    assert_shape(kinetic_energy, (5,))
+    assert_shape(energy, (5,))
+
+
+def test_linear_elastic_displacement() -> None:
+    stiffness = np.eye(4)
+    force = np.ones((4, 1))
+    displacement = linear_elastic_displacement(stiffness, force)
+
+    assert_shape(stiffness, (4, 4))
+    assert_shape(force, (4, 1))
+    assert_shape(displacement, (4, 1))

@@ -82,6 +82,15 @@ def test_reduce_higher_rank_axis() -> None:
     assert_shape(np.mean(a, axis=-1), (2, 3))
 
 
+def test_method_sum_3d_axis_one_for_nbody() -> None:
+    forces = cast(
+        "np.ndarray[tuple[Literal[5], Literal[5], Literal[3]]]",
+        make_array((5, 5, 3)),
+    )
+
+    assert_shape(forces.sum(axis=1), (5, 3))
+
+
 def test_argmin_matrix_axis() -> None:
     a = np.ones((3, 4))
     labels = np.argmin(a, axis=-1)

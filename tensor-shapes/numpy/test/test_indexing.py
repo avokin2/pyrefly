@@ -45,3 +45,37 @@ def test_paired_row_column_indexing_uses_index_shape() -> None:
     selected = logits[rows, columns]
 
     assert_shape(selected, (2,))
+
+
+def test_none_indexing_for_nbody_broadcasting() -> None:
+    positions = np.ones((5, 3))
+    masses = np.ones(5)
+    pairwise_deltas = positions[:, None, :] - positions[None, :, :]
+    source_masses = masses[None, :, None]
+
+    assert_shape(positions[:, None, :], (5, 1, 3))
+    assert_shape(positions[None, :, :], (1, 5, 3))
+    assert_shape(pairwise_deltas, (5, 5, 3))
+    assert_shape(source_masses, (1, 5, 1))
+
+
+def test_projecting_3d_slice_for_fill_diagonal() -> None:
+    distances = np.expand_dims(np.ones((5, 5)), axis=-1)
+    diagonal_view = distances[:, :, 0]
+    result = np.fill_diagonal(diagonal_view, 1.0)
+
+    assert_shape(diagonal_view, (5, 5))
+    assert result is None
+
+
+def test_fill_diagonal_rejects_vector() -> None:
+    vector = np.ones(5)
+
+    assert_shape(vector, (5,))
+    try:
+        # E: Tensor rank mismatch
+        np.fill_diagonal(vector, 1.0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected NumPy to reject a one-dimensional diagonal")

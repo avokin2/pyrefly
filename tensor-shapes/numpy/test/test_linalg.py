@@ -63,6 +63,31 @@ def test_solve_column_rhs_regression_composition() -> None:
     assert_shape(np.linalg.solve(x.T @ x, x.T @ y), (3, 1))
 
 
+def test_norm_3d_axis_keepdims_for_nbody() -> None:
+    positions = np.ones((5, 3))
+    pairwise_deltas = positions[:, None, :] - positions[None, :, :]
+
+    assert_shape(np.linalg.norm(pairwise_deltas, axis=-1, keepdims=True), (5, 5, 1))
+
+
+def gravitational_force_shape_path(
+    pos: np.ndarray[tuple[Dim[N], Dim[3]]],
+    mass: np.ndarray[tuple[Dim[N]]],
+) -> np.ndarray[tuple[Dim[N], Dim[3]]]:
+    diff = pos[None, :, :] - pos[:, None, :]
+    dist = np.linalg.norm(diff, axis=-1, keepdims=True)
+    np.fill_diagonal(dist[:, :, 0], 1.0)
+    forces = mass[:, None, None] * diff * (mass[None, :, None] / dist**3)
+    return forces.sum(axis=1)
+
+
+def test_nbody_force_shape_path() -> None:
+    pos = np.ones((5, 3))
+    mass = np.ones(5)
+
+    assert_shape(gravitational_force_shape_path(pos, mass), (5, 3))
+
+
 def test_svd_reduced_wide_matrix() -> None:
     x = np.ones((3, 5))
 

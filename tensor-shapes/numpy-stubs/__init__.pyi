@@ -93,12 +93,20 @@ class ndarray[Shape: _Shape = _AnyShape, DType = Any]:
     def mean[N](
         self: ndarray[tuple[Dim[N]], DType],
     ) -> ndarray[tuple[()], DType]: ...
+    @overload
     def sum[N, M](
         self: ndarray[tuple[Dim[N], Dim[M]], DType],
         axis: Literal[1],
         *,
         keepdims: Literal[True],
     ) -> ndarray[tuple[Dim[N], Dim[1]], DType]: ...
+    @overload
+    def sum[N, M, K](
+        self: ndarray[tuple[Dim[N], Dim[M], Dim[K]], DType],
+        axis: Literal[1],
+        *,
+        keepdims: Literal[False] = False,
+    ) -> ndarray[tuple[Dim[N], Dim[K]], DType]: ...
     def max[N, M](
         self: ndarray[tuple[Dim[N], Dim[M]], DType],
         axis: Literal[1],
@@ -131,6 +139,11 @@ def clip[Shape: _Shape](
     a: ndarray[Shape], a_min: int | float, a_max: int | float
 ) -> ndarray[Shape]: ...
 def negative[Shape: _Shape](x: ndarray[Shape]) -> ndarray[Shape]: ...
+def fill_diagonal[N, DType](
+    a: ndarray[tuple[Dim[N], Dim[N]], DType],
+    val: Any,
+    wrap: bool = False,
+) -> None: ...
 def arange[N](stop: Dim[N], /) -> ndarray[tuple[Dim[N]], dtype[intp]]: ...
 @overload
 def expand_dims[N, M, DType](

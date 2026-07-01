@@ -21,6 +21,11 @@ def solve[N, K, DType](
     a: ndarray[tuple[Dim[N], Dim[N]], DType],
     b: ndarray[tuple[Dim[N], Dim[K]]],
 ) -> ndarray[tuple[Dim[N], Dim[K]], DType]: ...
+def norm[N, M, DType](
+    x: ndarray[tuple[Dim[N], Dim[M], Dim[3]], DType],
+    axis: Literal[-1],
+    keepdims: Literal[True],
+) -> ndarray[tuple[Dim[N], Dim[M], Dim[1]], DType]: ...
 @overload
 def svd[N, DType](
     a: ndarray[tuple[Dim[N], Dim[N]], DType],

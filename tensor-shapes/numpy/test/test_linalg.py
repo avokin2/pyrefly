@@ -33,6 +33,27 @@ def test_transpose_property_2d() -> None:
     assert_shape(x.T @ y, (4, 1))
 
 
+def test_solve_vector_rhs() -> None:
+    a = np.eye(3)
+    b = np.ones(3)
+
+    assert_shape(np.linalg.solve(a, b), (3,))
+
+
+def test_solve_matrix_rhs() -> None:
+    a = np.eye(3)
+    b = np.ones((3, 2))
+
+    assert_shape(np.linalg.solve(a, b), (3, 2))
+
+
+def test_solve_column_rhs_regression_composition() -> None:
+    x = np.ones((5, 3))
+    y = np.ones((5, 1))
+
+    assert_shape(np.linalg.solve(x.T @ x, x.T @ y), (3, 1))
+
+
 def test_matmul_operator_rejects_mismatched_inner_dimension() -> None:
     a = np.ones((3, 4))
     b = np.ones((6, 5))

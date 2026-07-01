@@ -90,3 +90,10 @@ def test_reduce_higher_rank_keepdims() -> None:
 
     assert_shape(np.sum(a, axis=(1, 2), keepdims=True), (2, 1, 1))
     assert_shape(np.min(a, axis=0, keepdims=True), (1, 3, 4))
+
+
+def test_keepdims_reduction_broadcasts_over_matrix() -> None:
+    a = np.ones((3, 4))
+    row_totals = np.sum(a, axis=1, keepdims=True)
+
+    assert_shape(a / row_totals, (3, 4))

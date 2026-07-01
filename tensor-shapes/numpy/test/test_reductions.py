@@ -62,3 +62,31 @@ def test_reduce_rejects_invalid_axes() -> None:
         pass
     else:
         raise AssertionError("expected NumPy to reject duplicate axes")
+
+
+def test_reduce_matrix_axis_zero_keepdims() -> None:
+    a = np.ones((3, 4))
+
+    assert_shape(np.sum(a, axis=0, keepdims=True), (1, 4))
+    assert_shape(np.mean(a, axis=0, keepdims=True), (1, 4))
+    assert_shape(np.min(a, axis=0, keepdims=True), (1, 4))
+    assert_shape(np.max(a, axis=0, keepdims=True), (1, 4))
+
+
+def test_reduce_matrix_axis_one_keepdims() -> None:
+    a = np.ones((3, 4))
+
+    assert_shape(np.sum(a, axis=1, keepdims=True), (3, 1))
+    assert_shape(np.mean(a, axis=1, keepdims=True), (3, 1))
+    assert_shape(np.min(a, axis=1, keepdims=True), (3, 1))
+    assert_shape(np.max(a, axis=1, keepdims=True), (3, 1))
+
+
+def test_reduce_higher_rank_keepdims() -> None:
+    a = cast(
+        "np.ndarray[tuple[Literal[2], Literal[3], Literal[4]]]",
+        make_array((2, 3, 4)),
+    )
+
+    assert_shape(np.sum(a, axis=(1, 2), keepdims=True), (2, 1, 1))
+    assert_shape(np.min(a, axis=0, keepdims=True), (1, 3, 4))

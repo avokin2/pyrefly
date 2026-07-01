@@ -19,6 +19,14 @@ def ordinary_least_squares(
     return np.linalg.solve(x.T @ x, x.T @ y)
 
 
+def ridge_regression(
+    x: np.ndarray[tuple[Dim[N], Dim[P]]],
+    y: np.ndarray[tuple[Dim[N], Dim[1]]],
+    penalty_matrix: np.ndarray[tuple[Dim[P], Dim[P]]],
+) -> np.ndarray[tuple[Dim[P], Dim[1]]]:
+    return np.linalg.solve(x.T @ x + penalty_matrix, x.T @ y)
+
+
 def test_ordinary_least_squares() -> None:
     x = np.eye(3)
     y = np.ones((3, 1))
@@ -26,3 +34,15 @@ def test_ordinary_least_squares() -> None:
     assert_shape(x, (3, 3))
     assert_shape(y, (3, 1))
     assert_shape(ordinary_least_squares(x, y), (3, 1))
+
+
+def test_ridge_regression() -> None:
+    x = np.eye(3)
+    y = np.ones((3, 1))
+    lam = 0.1
+    penalty_matrix = lam * np.identity(3)
+
+    assert_shape(x, (3, 3))
+    assert_shape(y, (3, 1))
+    assert_shape(penalty_matrix, (3, 3))
+    assert_shape(ridge_regression(x, y, penalty_matrix), (3, 1))

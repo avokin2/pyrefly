@@ -48,8 +48,8 @@ def test_solve_matrix_rhs() -> None:
 
 
 def test_solve_column_rhs_regression_composition() -> None:
-    x = np.ones((5, 3))
-    y = np.ones((5, 1))
+    x = np.random.randn(5, 3)
+    y = np.random.randn(5, 1)
 
     assert_shape(np.linalg.solve(x.T @ x, x.T @ y), (3, 1))
 

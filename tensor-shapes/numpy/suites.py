@@ -14,6 +14,7 @@ SUITES = {
     "creation-basics": (Path("test/test_creation_basics.py"),),
     "dtype-properties": (Path("test/test_dtype_properties.py"),),
     "examples": (Path("examples/stats.py"),),
+    "indexing": (Path("test/test_indexing.py"),),
     "linalg": (Path("test/test_linalg.py"),),
     "math-ufuncs": (Path("test/test_math_ufuncs.py"),),
     "random": (Path("test/test_random.py"),),

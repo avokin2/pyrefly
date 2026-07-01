@@ -50,6 +50,19 @@ def test_mean_method_axis_zero_broadcasts_over_matrix() -> None:
     assert_shape(a - column_means, (3, 4))
 
 
+def test_method_reductions_for_cross_entropy() -> None:
+    logits = np.ones((5, 3))
+    shifted = logits - logits.max(axis=1, keepdims=True)
+    normalizers = np.exp(shifted).sum(axis=1, keepdims=True)
+    row_losses = np.ones(5)
+    loss = row_losses.mean()
+
+    assert_shape(logits.max(axis=1, keepdims=True), (5, 1))
+    assert_shape(shifted, (5, 3))
+    assert_shape(normalizers, (5, 1))
+    assert_shape(loss, ())
+
+
 def test_reduce_matrix_axis_one() -> None:
     a = np.ones((3, 4))
 

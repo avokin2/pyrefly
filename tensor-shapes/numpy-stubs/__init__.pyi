@@ -34,6 +34,23 @@ class dtype[Scalar = Any]:
 class ndarray[Shape: _Shape = _AnyShape, DType = Any]:
     shape: Shape
     dtype: DType
+    @overload
+    def __len__[N](self: ndarray[tuple[Dim[N]]]) -> Dim[N]: ...
+    @overload
+    def __len__[N, M](self: ndarray[tuple[Dim[N], Dim[M]]]) -> Dim[N]: ...
+    def __getitem__[
+        N,
+        M,
+        I,
+        RowIndexScalar: (int32, int64, intp),
+        ColumnIndexScalar: (int32, int64, intp),
+    ](
+        self: ndarray[tuple[Dim[N], Dim[M]], DType],
+        key: tuple[
+            ndarray[tuple[Dim[I]], dtype[RowIndexScalar]],
+            ndarray[tuple[Dim[I]], dtype[ColumnIndexScalar]],
+        ],
+    ) -> ndarray[tuple[Dim[I]], DType]: ...
     # Only 2-D transpose is modeled for the NumPy shape-stub MVP.
     @property
     def T[N, P](
@@ -65,12 +82,29 @@ class ndarray[Shape: _Shape = _AnyShape, DType = Any]:
         other: ndarray[tuple[Dim[M], Dim[P]]],
     ) -> ndarray[tuple[Dim[N], Dim[P]], DType]: ...
     # Narrow method bridge for PCA demos; the free `np.mean` covers general reductions.
+    @overload
     def mean[N, M](
         self: ndarray[tuple[Dim[N], Dim[M]], DType],
         axis: Literal[0],
         *,
         keepdims: Literal[False] = False,
     ) -> ndarray[tuple[Dim[M]], DType]: ...
+    @overload
+    def mean[N](
+        self: ndarray[tuple[Dim[N]], DType],
+    ) -> ndarray[tuple[()], DType]: ...
+    def sum[N, M](
+        self: ndarray[tuple[Dim[N], Dim[M]], DType],
+        axis: Literal[1],
+        *,
+        keepdims: Literal[True],
+    ) -> ndarray[tuple[Dim[N], Dim[1]], DType]: ...
+    def max[N, M](
+        self: ndarray[tuple[Dim[N], Dim[M]], DType],
+        axis: Literal[1],
+        *,
+        keepdims: Literal[True],
+    ) -> ndarray[tuple[Dim[N], Dim[1]], DType]: ...
 
 def abs[Shape: _Shape](x: ndarray[Shape]) -> ndarray[Shape]: ...
 def exp[Shape: _Shape](x: ndarray[Shape]) -> ndarray[Shape]: ...
@@ -97,6 +131,7 @@ def clip[Shape: _Shape](
     a: ndarray[Shape], a_min: int | float, a_max: int | float
 ) -> ndarray[Shape]: ...
 def negative[Shape: _Shape](x: ndarray[Shape]) -> ndarray[Shape]: ...
+def arange[N](stop: Dim[N], /) -> ndarray[tuple[Dim[N]], dtype[intp]]: ...
 @overload
 def expand_dims[N, M, DType](
     a: ndarray[tuple[Dim[N], Dim[M]], DType],

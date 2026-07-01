@@ -38,6 +38,18 @@ def binary_ufunc_ir(x1: ShapedArray, x2: ShapedArray) -> ShapedArray:
     return ShapedArray(shape=broadcast_shape(x1.shape, x2.shape))
 
 @shape_dsl_function
+def matmul_2d_ir(a: ShapedArray, b: ShapedArray) -> ShapedArray:
+    if len(a.shape) != 2 or len(b.shape) != 2:
+        raise Error("matmul expects 2-D arrays")
+    if (
+        isinstance(a.shape[1], int)
+        and isinstance(b.shape[0], int)
+        and a.shape[1] != b.shape[0]
+    ):
+        raise Error("matmul inner dimensions must match")
+    return ShapedArray(shape=[a.shape[0], b.shape[1]])
+
+@shape_dsl_function
 def normalize_axis(rank: int, axis: int) -> int:
     if axis < 0:
         return axis + rank

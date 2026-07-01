@@ -1909,3 +1909,49 @@ def f(x: Tensor[2, 3]) -> None:
     assert_type(replace_leading_dim(x, 4), Tensor[4, 3])
 "#,
 );
+
+testcase!(
+    test_shape_dsl_numpy_matmul_2d_helper,
+    {
+        let mut env = shape_dsl_base_env();
+        env.add_with_path(
+            "numpy_like",
+            "numpy_like.pyi",
+            r#"
+from shape_extensions import shaped_array, uses_shape_dsl
+from shape_extensions.dsl import ShapedArray, shape_dsl_function
+
+class Error(Exception): ...
+
+@shape_dsl_function
+def matmul_2d_ir(a: ShapedArray, b: ShapedArray) -> ShapedArray:
+    if len(a.shape) != 2 or len(b.shape) != 2:
+        raise Error("matmul expects 2-D arrays")
+    if isinstance(a.shape[1], int) and isinstance(b.shape[0], int) and a.shape[1] != b.shape[0]:
+        raise Error("matmul inner dimensions must match")
+    return ShapedArray(shape=[a.shape[0], b.shape[1]])
+
+@shaped_array(shape="Shape")
+class Array[Shape]: ...
+
+@uses_shape_dsl(matmul_2d_ir)
+def matmul(a: Array, b: Array) -> Array: ...
+"#,
+        );
+        env
+    },
+    r#"
+from numpy_like import Array, matmul
+from typing import Literal, assert_type
+
+def f(
+    good_left: Array[tuple[Literal[3], Literal[4]]],
+    good_right: Array[tuple[Literal[4], Literal[5]]],
+    bad_right: Array[tuple[Literal[6], Literal[5]]],
+    vector: Array[tuple[Literal[4]]],
+) -> None:
+    assert_type(matmul(good_left, good_right), Array[tuple[Literal[3], Literal[5]]])
+    matmul(good_left, bad_right)  # E: matmul inner dimensions must match
+    matmul(good_left, vector)  # E: matmul expects 2-D arrays
+"#,
+);

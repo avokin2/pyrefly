@@ -6,7 +6,7 @@
 from typing import Any, overload
 
 import shape_extensions
-from numpy._shapes import binary_ufunc_ir, reduce_ir
+from numpy._shapes import binary_ufunc_ir, matmul_2d_ir, reduce_ir
 from shape_extensions import Dim, uses_shape_dsl
 
 type _Shape = tuple[int, ...]
@@ -40,6 +40,12 @@ class ndarray[Shape: _Shape = _AnyShape, DType = Any]:
     def __neg__(self) -> ndarray[Shape, DType]: ...
     def __pos__(self) -> ndarray[Shape, DType]: ...
     def __pow__(self, other: int | float) -> ndarray[Shape, DType]: ...
+    # TODO: Bridge until operator dunders/bound methods can share the DSL-backed
+    # `np.matmul` rule and diagnostics.
+    def __matmul__[N, M, P](
+        self: ndarray[tuple[Dim[N], Dim[M]], DType],
+        other: ndarray[tuple[Dim[M], Dim[P]]],
+    ) -> ndarray[tuple[Dim[N], Dim[P]], DType]: ...
 
 def abs[Shape: _Shape](x: ndarray[Shape]) -> ndarray[Shape]: ...
 def exp[Shape: _Shape](x: ndarray[Shape]) -> ndarray[Shape]: ...
@@ -74,6 +80,8 @@ def mean(a: ndarray, axis: _Axis = None, *, keepdims: bool = False) -> ndarray: 
 def min(a: ndarray, axis: _Axis = None, *, keepdims: bool = False) -> ndarray: ...
 @uses_shape_dsl(reduce_ir)
 def max(a: ndarray, axis: _Axis = None, *, keepdims: bool = False) -> ndarray: ...
+@uses_shape_dsl(matmul_2d_ir)
+def matmul(a: ndarray, b: ndarray, /) -> ndarray: ...
 
 # TODO(stroxler): Replace these finite tuple-shape constructor overloads with a
 # generic `Shape: tuple[int, ...]` overload once carrier shapes flow through

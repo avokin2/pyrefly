@@ -125,6 +125,15 @@ pub trait SourceDatabase: Send + Sync + fmt::Debug {
     /// Get the handle for the given module path, including its Python platform and version
     /// settings.
     fn handle_from_module_path(&self, module_path: &ModulePath) -> Option<Handle>;
+    /// Returns live source database functionality, when this source database can be queried again.
+    ///
+    /// Implementations of `LiveSourceDatabase` must return `Some(self)`.
+    fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase>;
+}
+
+/// Source database functionality for build-system-backed databases that can be
+/// queried again as the project changes.
+pub trait LiveSourceDatabase: SourceDatabase {
     /// Queries this sourcedb for the provided set of open files. Will short-circuit querying
     /// if there are no changes from the set of files previously queried for, unless `force`
     /// is provided, which will unconditionally requery the source DB.

@@ -856,9 +856,10 @@ impl ConfigFile {
     ) -> Vec<ImportLookupPathPart<'a>> {
         let mut result = vec![];
         if let Some(source_db) = &self.source_db {
-            result.push(ImportLookupPathPart::BuildSystem(
-                source_db.get_target(origin),
-            ));
+            let target = source_db
+                .as_live_source_database()
+                .and_then(|source_db| source_db.get_target(origin));
+            result.push(ImportLookupPathPart::BuildSystem(target));
         }
         result.push(ImportLookupPathPart::SearchPathFromArgs(
             &self.search_path_from_args,
@@ -1108,7 +1109,9 @@ impl ConfigFile {
         }
 
         for source_db in source_dbs {
-            result.extend(source_db.get_paths_to_watch());
+            if let Some(live_source_db) = source_db.as_live_source_database() {
+                result.extend(live_source_db.get_paths_to_watch());
+            }
         }
         result
     }
@@ -1136,6 +1139,10 @@ impl ConfigFile {
             let Some(source_db) = &config.source_db else {
                 continue;
             };
+            // Static source databases do not participate in live rebuild telemetry.
+            if source_db.as_live_source_database().is_none() {
+                continue;
+            }
             sourcedb_configs
                 .entry(source_db)
                 .or_default()
@@ -1162,13 +1169,17 @@ impl ConfigFile {
             telemetry.finish_task(event_telemetry, error);
         }
         for (source_db, configs_and_files) in sourcedb_configs {
+            let live_source_db = source_db
+                .as_live_source_database()
+                .expect("source_db was filtered to live source databases");
             let start = Instant::now();
             let all_files = configs_and_files
                 .iter()
                 .flat_map(|x| x.1.iter())
                 .map(|p| p.module_path_buf())
                 .collect::<SmallSet<_>>();
-            let (sourcedb_rebuild, instance_stats) = source_db.query_source_db(all_files, force);
+            let (sourcedb_rebuild, instance_stats) =
+                live_source_db.query_source_db(all_files, force);
             let changed = match sourcedb_rebuild {
                 Err(error) => {
                     log_telemetry(&telemetry, start, instance_stats, Some(&error));
@@ -1178,7 +1189,7 @@ impl ConfigFile {
                 }
                 Ok(r) => r,
             };
-            let generated_files = source_db.get_generated_files();
+            let generated_files = live_source_db.get_generated_files();
             if !generated_files.is_empty() {
                 let mut write = GENERATED_FILE_CONFIG_OVERRIDE.write();
                 // we don't need any specific config here, any config for this sourcedb will work

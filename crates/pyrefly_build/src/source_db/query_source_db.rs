@@ -36,6 +36,7 @@ use crate::query::QueryResult;
 use crate::query::SourceDbQuerier;
 use crate::query::TargetManifestDatabase;
 use crate::query::path_is_from_stubs_package;
+use crate::source_db::LiveSourceDatabase;
 use crate::source_db::ModulePathCache;
 use crate::source_db::SourceDatabase;
 use crate::source_db::Target;
@@ -420,6 +421,12 @@ impl SourceDatabase for QuerySourceDatabase {
         ))
     }
 
+    fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
+        Some(self)
+    }
+}
+
+impl LiveSourceDatabase for QuerySourceDatabase {
     fn query_source_db(
         &self,
         mut files: SmallSet<InternedPath>,

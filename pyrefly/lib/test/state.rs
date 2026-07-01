@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use dupe::Dupe;
 use pyrefly_build::handle::Handle;
+use pyrefly_build::source_db::LiveSourceDatabase;
 use pyrefly_build::source_db::SourceDatabase;
 use pyrefly_build::source_db::Target;
 use pyrefly_build::source_db::map_db::MapDatabase;
@@ -121,6 +122,12 @@ impl SourceDatabase for MutableShapeExtensionsSourceDb {
         ))
     }
 
+    fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
+        Some(self)
+    }
+}
+
+impl LiveSourceDatabase for MutableShapeExtensionsSourceDb {
     fn query_source_db(
         &self,
         _: SmallSet<InternedPath>,

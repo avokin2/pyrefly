@@ -22,6 +22,7 @@ use starlark_map::small_set::SmallSet;
 use vec1::Vec1;
 
 use crate::handle::Handle;
+use crate::source_db::LiveSourceDatabase;
 use crate::source_db::SourceDatabase;
 use crate::source_db::Target;
 
@@ -93,6 +94,12 @@ impl SourceDatabase for MapDatabase {
         Some(Handle::new(name.dupe(), module_path.dupe(), self.1.dupe()))
     }
 
+    fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
+        Some(self)
+    }
+}
+
+impl LiveSourceDatabase for MapDatabase {
     fn query_source_db(
         &self,
         _: SmallSet<InternedPath>,

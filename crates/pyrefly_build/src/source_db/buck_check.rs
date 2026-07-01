@@ -17,18 +17,14 @@ use pyrefly_python::module_path::ModulePath;
 use pyrefly_python::module_path::ModuleStyle;
 use pyrefly_python::sys_info::SysInfo;
 use pyrefly_util::fs_anyhow;
-use pyrefly_util::interned_path::InternedPath;
-use pyrefly_util::telemetry::TelemetrySourceDbRebuildInstanceStats;
-use pyrefly_util::watch_pattern::WatchPattern;
 use regex::Regex;
 use starlark_map::small_map::SmallMap;
-use starlark_map::small_set::SmallSet;
 use tracing::debug;
 use vec1::Vec1;
 
 use crate::handle::Handle;
+use crate::source_db::LiveSourceDatabase;
 use crate::source_db::SourceDatabase;
-use crate::source_db::Target;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct ManifestItem {
@@ -223,24 +219,8 @@ impl SourceDatabase for BuckCheckSourceDatabase {
         Some(Handle::new(name, module_path.dupe(), self.sys_info.dupe()))
     }
 
-    fn query_source_db(
-        &self,
-        _: SmallSet<InternedPath>,
-        _: bool,
-    ) -> (anyhow::Result<bool>, TelemetrySourceDbRebuildInstanceStats) {
-        (Ok(false), TelemetrySourceDbRebuildInstanceStats::default())
-    }
-
-    fn get_paths_to_watch(&self) -> SmallSet<WatchPattern> {
-        SmallSet::new()
-    }
-
-    fn get_target(&self, _: Option<&Path>) -> Option<Target> {
+    fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
         None
-    }
-
-    fn get_generated_files(&self) -> SmallSet<InternedPath> {
-        SmallSet::new()
     }
 }
 

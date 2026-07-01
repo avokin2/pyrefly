@@ -20,6 +20,7 @@ use lsp_types::SemanticTokensLegend;
 use lsp_types::SemanticTokensResult;
 use lsp_types::TextEdit;
 use pyrefly_build::handle::Handle;
+use pyrefly_build::source_db::LiveSourceDatabase;
 use pyrefly_build::source_db::SourceDatabase;
 use pyrefly_build::source_db::Target;
 use pyrefly_python::module_name::ModuleName;
@@ -94,6 +95,12 @@ impl SourceDatabase for PlaygroundSourceDatabase {
         Some(Handle::new(name.dupe(), path.dupe(), self.sys_info.dupe()))
     }
 
+    fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
+        Some(self)
+    }
+}
+
+impl LiveSourceDatabase for PlaygroundSourceDatabase {
     fn query_source_db(
         &self,
         _: SmallSet<InternedPath>,

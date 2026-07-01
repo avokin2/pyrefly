@@ -24,6 +24,7 @@ use vec1::Vec1;
 
 use crate::handle::Handle;
 use crate::source_db::LiveSourceDatabase;
+use crate::source_db::ModuleEnumerator;
 use crate::source_db::SourceDatabase;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -151,10 +152,6 @@ pub struct BuckCheckSourceDatabase {
 }
 
 impl SourceDatabase for BuckCheckSourceDatabase {
-    fn modules_to_check(&self) -> Vec<Handle> {
-        self.modules_to_check.clone()
-    }
-
     fn may_contain_module(&self, module: ModuleName) -> bool {
         self.lookup.contains_key(&module)
     }
@@ -176,6 +173,12 @@ impl SourceDatabase for BuckCheckSourceDatabase {
 
     fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
         None
+    }
+}
+
+impl ModuleEnumerator for BuckCheckSourceDatabase {
+    fn modules_to_check(&self) -> Vec<Handle> {
+        self.modules_to_check.clone()
     }
 }
 

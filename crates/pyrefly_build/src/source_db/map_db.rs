@@ -23,6 +23,7 @@ use vec1::Vec1;
 
 use crate::handle::Handle;
 use crate::source_db::LiveSourceDatabase;
+use crate::source_db::ModuleEnumerator;
 use crate::source_db::SourceDatabase;
 use crate::source_db::Target;
 
@@ -60,14 +61,6 @@ impl DerefMut for MapDatabase {
 }
 
 impl SourceDatabase for MapDatabase {
-    fn modules_to_check(&self) -> Vec<Handle> {
-        self.0
-            .iter()
-            .flat_map(|(name, paths)| paths.iter().map(move |p| (name, p)))
-            .map(|(name, path)| Handle::new(name.dupe(), path.dupe(), self.1.dupe()))
-            .collect()
-    }
-
     fn may_contain_module(&self, module: ModuleName) -> bool {
         self.0.contains_key(&module)
     }
@@ -96,6 +89,16 @@ impl SourceDatabase for MapDatabase {
 
     fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
         Some(self)
+    }
+}
+
+impl ModuleEnumerator for MapDatabase {
+    fn modules_to_check(&self) -> Vec<Handle> {
+        self.0
+            .iter()
+            .flat_map(|(name, paths)| paths.iter().map(move |p| (name, p)))
+            .map(|(name, path)| Handle::new(name.dupe(), path.dupe(), self.1.dupe()))
+            .collect()
     }
 }
 

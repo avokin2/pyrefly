@@ -17,6 +17,7 @@ use std::time::Duration;
 use dupe::Dupe;
 use pyrefly_build::handle::Handle;
 use pyrefly_build::source_db::LiveSourceDatabase;
+use pyrefly_build::source_db::ModuleEnumerator;
 use pyrefly_build::source_db::SourceDatabase;
 use pyrefly_build::source_db::Target;
 use pyrefly_build::source_db::map_db::MapDatabase;
@@ -78,14 +79,6 @@ impl MutableShapeExtensionsSourceDb {
 }
 
 impl SourceDatabase for MutableShapeExtensionsSourceDb {
-    fn modules_to_check(&self) -> Vec<Handle> {
-        vec![Handle::new(
-            ModuleName::from_str("main"),
-            ModulePath::memory(PathBuf::from("main.py")),
-            self.sys_info.dupe(),
-        )]
-    }
-
     fn may_contain_module(&self, module: ModuleName) -> bool {
         match module.as_str() {
             "shape_extensions" => *self.contains_shape_extensions.lock(),
@@ -124,6 +117,16 @@ impl SourceDatabase for MutableShapeExtensionsSourceDb {
 
     fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
         Some(self)
+    }
+}
+
+impl ModuleEnumerator for MutableShapeExtensionsSourceDb {
+    fn modules_to_check(&self) -> Vec<Handle> {
+        vec![Handle::new(
+            ModuleName::from_str("main"),
+            ModulePath::memory(PathBuf::from("main.py")),
+            self.sys_info.dupe(),
+        )]
     }
 }
 
@@ -388,6 +391,7 @@ fn test_multiple_path() {
             ModulePath::memory(PathBuf::from(path)),
         );
     }
+    let handles = sourcedb.modules_to_check();
     config.source_db = Some(ArcId::new(Box::new(sourcedb)));
     config.configure();
     let config = ArcId::new(config);
@@ -396,7 +400,6 @@ fn test_multiple_path() {
         ConfigFinder::new_constant(config.clone()),
         TEST_THREAD_COUNT,
     );
-    let handles = config.source_db.as_ref().unwrap().modules_to_check();
     let mut transaction = state.new_transaction(Require::Exports, None);
     transaction.set_memory(FILES.map(|(_, path, contents)| {
         (

@@ -21,6 +21,7 @@ use lsp_types::SemanticTokensResult;
 use lsp_types::TextEdit;
 use pyrefly_build::handle::Handle;
 use pyrefly_build::source_db::LiveSourceDatabase;
+use pyrefly_build::source_db::ModuleEnumerator;
 use pyrefly_build::source_db::SourceDatabase;
 use pyrefly_build::source_db::Target;
 use pyrefly_python::module_name::ModuleName;
@@ -70,15 +71,6 @@ impl PlaygroundSourceDatabase {
 }
 
 impl SourceDatabase for PlaygroundSourceDatabase {
-    fn modules_to_check(&self) -> Vec<Handle> {
-        self.module_mappings
-            .iter()
-            .map(|(module_name, module_path)| {
-                Handle::new(*module_name, module_path.dupe(), self.sys_info.dupe())
-            })
-            .collect()
-    }
-
     fn lookup(
         &self,
         module_name: ModuleName,
@@ -97,6 +89,17 @@ impl SourceDatabase for PlaygroundSourceDatabase {
 
     fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
         Some(self)
+    }
+}
+
+impl ModuleEnumerator for PlaygroundSourceDatabase {
+    fn modules_to_check(&self) -> Vec<Handle> {
+        self.module_mappings
+            .iter()
+            .map(|(module_name, module_path)| {
+                Handle::new(*module_name, module_path.dupe(), self.sys_info.dupe())
+            })
+            .collect()
     }
 }
 

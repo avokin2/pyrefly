@@ -324,11 +324,6 @@ impl QuerySourceDatabase {
 }
 
 impl SourceDatabase for QuerySourceDatabase {
-    fn modules_to_check(&self) -> Vec<Handle> {
-        // TODO(connernilsen): implement modules_to_check
-        vec![]
-    }
-
     fn may_contain_module(&self, module: ModuleName) -> bool {
         self.inner.read().known_modules.contains(&module)
     }

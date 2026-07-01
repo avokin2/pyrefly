@@ -6,11 +6,12 @@
 from typing import Any, overload
 
 import shape_extensions
-from numpy._shapes import binary_ufunc_ir
+from numpy._shapes import binary_ufunc_ir, reduce_ir
 from shape_extensions import Dim, uses_shape_dsl
 
 type _Shape = tuple[int, ...]
 type _AnyShape = tuple[Any, ...]
+type _Axis = int | tuple[int, ...] | None
 
 @shape_extensions.shaped_array(shape="Shape")
 class ndarray[Shape: _Shape = _AnyShape, DType = Any]:
@@ -50,6 +51,14 @@ def clip[Shape: _Shape](
     a: ndarray[Shape], a_min: int | float, a_max: int | float
 ) -> ndarray[Shape]: ...
 def negative[Shape: _Shape](x: ndarray[Shape]) -> ndarray[Shape]: ...
+@uses_shape_dsl(reduce_ir)
+def sum(a: ndarray, axis: _Axis = None, *, keepdims: bool = False) -> ndarray: ...
+@uses_shape_dsl(reduce_ir)
+def mean(a: ndarray, axis: _Axis = None, *, keepdims: bool = False) -> ndarray: ...
+@uses_shape_dsl(reduce_ir)
+def min(a: ndarray, axis: _Axis = None, *, keepdims: bool = False) -> ndarray: ...
+@uses_shape_dsl(reduce_ir)
+def max(a: ndarray, axis: _Axis = None, *, keepdims: bool = False) -> ndarray: ...
 
 # TODO(stroxler): Replace these finite tuple-shape constructor overloads with a
 # generic `Shape: tuple[int, ...]` overload once carrier shapes flow through

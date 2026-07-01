@@ -11,4 +11,5 @@ SUITES = {
     "broadcasting": ("test_broadcasting.py",),
     "creation-basics": ("test_creation_basics.py",),
     "math-ufuncs": ("test_math_ufuncs.py",),
+    "reductions": ("test_reductions.py",),
 }

@@ -36,3 +36,45 @@ def broadcast_shape(a: list[int | symint], b: list[int | symint]) -> list[int | 
 @shape_dsl_function
 def binary_ufunc_ir(x1: ShapedArray, x2: ShapedArray) -> ShapedArray:
     return ShapedArray(shape=broadcast_shape(x1.shape, x2.shape))
+
+@shape_dsl_function
+def normalize_axis(rank: int, axis: int) -> int:
+    if axis < 0:
+        return axis + rank
+    return axis
+
+@shape_dsl_function
+def count_axis(axes: list[int], axis: int) -> int:
+    return len([candidate for candidate in axes if candidate == axis])
+
+@shape_dsl_function
+def reduce_shape(
+    shape: list[int | symint],
+    axis: int | list[int] | None,
+    keepdims: bool,
+) -> list[int | symint]:
+    if axis == None:
+        if keepdims:
+            return [1 for _ in range(len(shape))]
+        return []
+    axes = axis if isinstance(axis, list) else [axis]
+    normalized = [normalize_axis(len(shape), axis) for axis in axes]
+    out_of_bounds = [axis for axis in normalized if axis < 0 or axis > len(shape) - 1]
+    if len(out_of_bounds) > 0:
+        raise Error("axis out of bounds")
+    duplicate_axes = [axis for axis in normalized if count_axis(normalized, axis) > 1]
+    if len(duplicate_axes) > 0:
+        raise Error("duplicate axis")
+    return [
+        1 if i in normalized else dim
+        for i, dim in enumerate(shape)
+        if keepdims or not (i in normalized)
+    ]
+
+@shape_dsl_function
+def reduce_ir(
+    a: ShapedArray,
+    axis: int | list[int] | None = None,
+    keepdims: bool = False,
+) -> ShapedArray:
+    return ShapedArray(shape=reduce_shape(a.shape, axis, keepdims))

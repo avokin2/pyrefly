@@ -273,6 +273,7 @@ class BuckExecutor(Executor):
                 "tensor-shapes/numpy:numpy_broadcasting_static_test",
                 "tensor-shapes/numpy:numpy_creation_basics_static_test",
                 "tensor-shapes/numpy:numpy_math_ufuncs_static_test",
+                "tensor-shapes/numpy:numpy_reductions_static_test",
                 "--",
                 "--run-disabled",
                 "--return-zero-on-skips",

@@ -39,6 +39,15 @@ def logistic_irls_step(
     return np.linalg.solve(x.T @ (x * weight), x.T @ (weight * adjusted_response))
 
 
+def pca_full_basis_projection(
+    x: np.ndarray[tuple[Dim[N], Dim[P]]],
+) -> np.ndarray[tuple[Dim[N], Dim[P]]]:
+    x_centered = x - x.mean(axis=0)
+    scatter = x_centered.T @ x_centered
+    _u, _s, vt = np.linalg.svd(scatter, full_matrices=False)
+    return x_centered @ vt.T
+
+
 def test_ordinary_least_squares() -> None:
     x = np.random.randn(5, 3)
     y = np.random.randn(5, 1)
@@ -77,3 +86,19 @@ def test_logistic_irls_step() -> None:
     assert_shape(weight, (5, 1))
     assert_shape(adjusted_response, (5, 1))
     assert_shape(logistic_irls_step(x, y, beta), (3, 1))
+
+
+def test_pca_full_basis_projection() -> None:
+    x = np.random.randn(5, 3)
+    x_centered = x - x.mean(axis=0)
+    scatter = x_centered.T @ x_centered
+    u, s, vt = np.linalg.svd(scatter, full_matrices=False)
+    projection = pca_full_basis_projection(x)
+
+    assert_shape(x, (5, 3))
+    assert_shape(x_centered, (5, 3))
+    assert_shape(scatter, (3, 3))
+    assert_shape(u, (3, 3))
+    assert_shape(s, (3,))
+    assert_shape(vt, (3, 3))
+    assert_shape(projection, (5, 3))

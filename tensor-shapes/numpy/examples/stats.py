@@ -10,6 +10,7 @@ from shape_extensions import assert_shape, Dim, TypeVar
 
 N = TypeVar("N")
 P = TypeVar("P")
+K = TypeVar("K")
 
 
 def ordinary_least_squares(
@@ -46,6 +47,17 @@ def pca_full_basis_projection(
     scatter = x_centered.T @ x_centered
     _u, _s, vt = np.linalg.svd(scatter, full_matrices=False)
     return x_centered @ vt.T
+
+
+def nearest_centroid_labels(
+    x: np.ndarray[tuple[Dim[N], Dim[P]]],
+    centroids: np.ndarray[tuple[Dim[K], Dim[P]]],
+) -> np.ndarray[tuple[Dim[N]]]:
+    point_vectors = np.expand_dims(x, axis=-2)
+    centroid_vectors = np.expand_dims(centroids, axis=-3)
+    deltas = point_vectors - centroid_vectors
+    squared_distances = np.sum(deltas**2, axis=-1)
+    return np.argmin(squared_distances, axis=-1)
 
 
 def test_ordinary_least_squares() -> None:
@@ -102,3 +114,21 @@ def test_pca_full_basis_projection() -> None:
     assert_shape(s, (3,))
     assert_shape(vt, (3, 3))
     assert_shape(projection, (5, 3))
+
+
+def test_nearest_centroid_labels() -> None:
+    x = np.random.randn(5, 3)
+    centroids = np.random.randn(4, 3)
+    point_vectors = np.expand_dims(x, axis=-2)
+    centroid_vectors = np.expand_dims(centroids, axis=-3)
+    deltas = point_vectors - centroid_vectors
+    squared_distances = np.sum(deltas**2, axis=-1)
+    labels = nearest_centroid_labels(x, centroids)
+
+    assert_shape(x, (5, 3))
+    assert_shape(centroids, (4, 3))
+    assert_shape(point_vectors, (5, 1, 3))
+    assert_shape(centroid_vectors, (1, 4, 3))
+    assert_shape(deltas, (5, 4, 3))
+    assert_shape(squared_distances, (5, 4))
+    assert_shape(labels, (5,))

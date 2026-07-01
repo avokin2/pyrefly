@@ -35,6 +35,8 @@ def test_column_broadcasts_with_row_vector() -> None:
 
     assert_shape(column + row, (3, 4))
     assert_shape(row + column, (3, 4))
+    assert_shape(column - row, (3, 4))
+    assert_shape(row - column, (3, 4))
     assert_shape(column * row, (3, 4))
     assert_shape(row * column, (3, 4))
 
@@ -46,3 +48,17 @@ def test_scalar_left_and_division_broadcasting() -> None:
     assert_shape(2.0 * a, (3, 4))
     assert_shape(a / 2.0, (3, 4))
     assert_shape(1.0 / (a + 1.0), (3, 4))
+
+
+def test_subtraction_rejects_incompatible_broadcast() -> None:
+    a = np.ones((3, 4))
+    b = np.ones(5)
+
+    assert_shape(a - np.ones((3, 4)), (3, 4))
+    try:
+        # E: Cannot broadcast tensor shapes
+        a - b
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected NumPy to reject incompatible shapes")

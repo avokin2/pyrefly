@@ -14,8 +14,17 @@ def test_matrix_arithmetic() -> None:
     b = np.full((3, 4), 2.0)
 
     assert_shape(a + b, (3, 4))
+    assert_shape(b - a, (3, 4))
     assert_shape(a * b, (3, 4))
     assert_shape(b**2, (3, 4))
+
+
+def test_column_subtraction_preserves_shape() -> None:
+    outcomes = np.ones((3, 1))
+    probabilities = np.full((3, 1), 0.25)
+
+    assert_shape(outcomes - probabilities, (3, 1))
+    assert_shape(1.0 - probabilities, (3, 1))
 
 
 def test_scalar_rhs_arithmetic() -> None:
@@ -25,8 +34,10 @@ def test_scalar_rhs_arithmetic() -> None:
 
     assert_shape(a * 2.0, (4,))
     assert_shape(a + 1.0, (4,))
+    assert_shape(a - 1.0, (4,))
     assert_shape(a**2, (4,))
     assert_shape(b + 1.0, (3, 4))
+    assert_shape(1.0 - b, (3, 4))
     assert_shape(c * 2.0, (3, 4))
 
 

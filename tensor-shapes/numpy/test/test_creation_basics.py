@@ -47,3 +47,12 @@ def test_eye_square_shape() -> None:
 
 def test_identity_square_shape() -> None:
     assert_shape(np.identity(5), (5, 5))
+
+
+def test_diag_vector_default_and_offsets() -> None:
+    diagonal = np.full(5, 2.0)
+    off_diagonal = np.full(4, -1.0)
+
+    assert_shape(np.diag(diagonal), (5, 5))
+    assert_shape(np.diag(off_diagonal, 1), (5, 5))
+    assert_shape(np.diag(off_diagonal, -1), (5, 5))

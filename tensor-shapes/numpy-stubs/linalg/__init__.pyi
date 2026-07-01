@@ -26,6 +26,9 @@ def norm[N, M, DType](
     axis: Literal[-1],
     keepdims: Literal[True],
 ) -> ndarray[tuple[Dim[N], Dim[M], Dim[1]], DType]: ...
+def eigh[N, DType](
+    a: ndarray[tuple[Dim[N], Dim[N]], DType],
+) -> tuple[ndarray[tuple[Dim[N]], DType], ndarray[tuple[Dim[N], Dim[N]], DType]]: ...
 @overload
 def svd[N, DType](
     a: ndarray[tuple[Dim[N], Dim[N]], DType],

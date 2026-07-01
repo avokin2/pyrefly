@@ -48,6 +48,19 @@ def binary_ufunc_ir(x1: ShapedArray, x2: ShapedArray) -> ShapedArray:
     return ShapedArray(shape=broadcast_shape(x1.shape, x2.shape))
 
 @shape_dsl_function
+def abs_int(k: int) -> int:
+    if k < 0:
+        return 0 - k
+    return k
+
+@shape_dsl_function
+def diag_1d_ir(v: ShapedArray, k: int = 0) -> ShapedArray:
+    if len(v.shape) != 1:
+        raise Error("diag expects a 1-D array")
+    n = v.shape[0] + abs_int(k)
+    return ShapedArray(shape=[n, n])
+
+@shape_dsl_function
 def matmul_2d_ir(a: ShapedArray, b: ShapedArray) -> ShapedArray:
     if len(a.shape) != 2 or len(b.shape) != 2:
         raise Error("matmul expects 2-D arrays")

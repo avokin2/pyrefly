@@ -63,6 +63,33 @@ def test_solve_column_rhs_regression_composition() -> None:
     assert_shape(np.linalg.solve(x.T @ x, x.T @ y), (3, 1))
 
 
+def test_eigh_square_matrix() -> None:
+    hamiltonian = np.eye(5)
+    eigenvalues, eigenvectors = np.linalg.eigh(hamiltonian)
+
+    assert_shape(eigenvalues, (5,))
+    assert_shape(eigenvectors, (5, 5))
+
+
+def particle_in_box_shape_path(
+    n_points: Dim[N],
+) -> tuple[np.ndarray[tuple[Dim[N]]], np.ndarray[tuple[Dim[N], Dim[N]]]]:
+    dx = 1.0 / (n_points + 1)
+    diagonal = np.full(n_points, 2.0 / dx**2)
+    off_diagonal = np.full(n_points - 1, -1.0 / dx**2)
+    hamiltonian = (
+        np.diag(diagonal) + np.diag(off_diagonal, 1) + np.diag(off_diagonal, -1)
+    )
+    return np.linalg.eigh(hamiltonian)
+
+
+def test_particle_in_box_shape_path() -> None:
+    energies, wavefunctions = particle_in_box_shape_path(5)
+
+    assert_shape(energies, (5,))
+    assert_shape(wavefunctions, (5, 5))
+
+
 def test_norm_3d_axis_keepdims_for_nbody() -> None:
     positions = np.ones((5, 3))
     pairwise_deltas = positions[:, None, :] - positions[None, :, :]

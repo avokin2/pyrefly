@@ -6,7 +6,7 @@
 from typing import Any, Literal, overload
 
 import shape_extensions
-from numpy._shapes import binary_ufunc_ir, matmul_2d_ir, reduce_ir
+from numpy._shapes import binary_ufunc_ir, diag_1d_ir, matmul_2d_ir, reduce_ir
 from shape_extensions import Dim, uses_shape_dsl
 
 from . import linalg as linalg, random as random
@@ -56,8 +56,16 @@ class ndarray[Shape: _Shape = _AnyShape, DType = Any]:
     def T[N, P](
         self: ndarray[tuple[Dim[N], Dim[P]], DType],
     ) -> ndarray[tuple[Dim[P], Dim[N]], DType]: ...
+    @overload
     def __add__(self, other: int | float) -> ndarray[Shape, DType]: ...
+    @uses_shape_dsl(binary_ufunc_ir)
+    @overload
+    def __add__(self, other: ndarray) -> ndarray[_AnyShape, DType]: ...
+    @overload
     def __radd__(self, other: int | float) -> ndarray[Shape, DType]: ...
+    @uses_shape_dsl(binary_ufunc_ir)
+    @overload
+    def __radd__(self, other: ndarray) -> ndarray[_AnyShape, DType]: ...
     @uses_shape_dsl(binary_ufunc_ir)
     @overload
     def __sub__(self, other: ndarray) -> ndarray[_AnyShape, DType]: ...
@@ -144,6 +152,10 @@ def fill_diagonal[N, DType](
     val: Any,
     wrap: bool = False,
 ) -> None: ...
+@uses_shape_dsl(diag_1d_ir)
+def diag[DType](
+    v: ndarray[_AnyShape, DType], k: int = 0
+) -> ndarray[_AnyShape, DType]: ...
 def arange[N](stop: Dim[N], /) -> ndarray[tuple[Dim[N]], dtype[intp]]: ...
 @overload
 def expand_dims[N, M, DType](

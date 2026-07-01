@@ -41,6 +41,7 @@ def run_check(
         os.devnull,
         "--python-version",
         "3.13",
+        "--expectations",
         "--search-path",
         str(numpy_stubs_root),
         "--search-path",

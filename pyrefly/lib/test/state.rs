@@ -19,7 +19,6 @@ use pyrefly_build::handle::Handle;
 use pyrefly_build::source_db::LiveSourceDatabase;
 use pyrefly_build::source_db::ModuleEnumerator;
 use pyrefly_build::source_db::SourceDatabase;
-use pyrefly_build::source_db::Target;
 use pyrefly_build::source_db::map_db::MapDatabase;
 use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::module_path::ModulePath;
@@ -29,12 +28,9 @@ use pyrefly_python::sys_info::PythonVersion;
 use pyrefly_python::sys_info::SysInfo;
 use pyrefly_util::arc_id::ArcId;
 use pyrefly_util::events::CategorizedEvents;
-use pyrefly_util::interned_path::InternedPath;
 use pyrefly_util::lock::Mutex;
 use pyrefly_util::prelude::SliceExt;
-use pyrefly_util::telemetry::TelemetrySourceDbRebuildInstanceStats;
 use pyrefly_util::thread_pool::TEST_THREAD_COUNT;
-use pyrefly_util::watch_pattern::WatchPattern;
 use ruff_python_ast::name::Name;
 use starlark_map::small_set::SmallSet;
 use tempfile::TempDir;
@@ -116,7 +112,7 @@ impl SourceDatabase for MutableShapeExtensionsSourceDb {
     }
 
     fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
-        Some(self)
+        None
     }
 }
 
@@ -127,28 +123,6 @@ impl ModuleEnumerator for MutableShapeExtensionsSourceDb {
             ModulePath::memory(PathBuf::from("main.py")),
             self.sys_info.dupe(),
         )]
-    }
-}
-
-impl LiveSourceDatabase for MutableShapeExtensionsSourceDb {
-    fn query_source_db(
-        &self,
-        _: SmallSet<InternedPath>,
-        _: bool,
-    ) -> (anyhow::Result<bool>, TelemetrySourceDbRebuildInstanceStats) {
-        (Ok(true), TelemetrySourceDbRebuildInstanceStats::default())
-    }
-
-    fn get_paths_to_watch(&self) -> SmallSet<WatchPattern> {
-        SmallSet::new()
-    }
-
-    fn get_target(&self, _: Option<&Path>) -> Option<Target> {
-        None
-    }
-
-    fn get_generated_files(&self) -> SmallSet<InternedPath> {
-        SmallSet::new()
     }
 }
 

@@ -14,18 +14,13 @@ use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::module_path::ModulePath;
 use pyrefly_python::module_path::ModuleStyle;
 use pyrefly_python::sys_info::SysInfo;
-use pyrefly_util::interned_path::InternedPath;
-use pyrefly_util::telemetry::TelemetrySourceDbRebuildInstanceStats;
-use pyrefly_util::watch_pattern::WatchPattern;
 use starlark_map::small_map::SmallMap;
-use starlark_map::small_set::SmallSet;
 use vec1::Vec1;
 
 use crate::handle::Handle;
 use crate::source_db::LiveSourceDatabase;
 use crate::source_db::ModuleEnumerator;
 use crate::source_db::SourceDatabase;
-use crate::source_db::Target;
 
 /// A simple [`SourceDatabase`] that can be used for easy setup and testing.
 #[derive(Debug, PartialEq, Eq)]
@@ -88,7 +83,7 @@ impl SourceDatabase for MapDatabase {
     }
 
     fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
-        Some(self)
+        None
     }
 }
 
@@ -99,32 +94,6 @@ impl ModuleEnumerator for MapDatabase {
             .flat_map(|(name, paths)| paths.iter().map(move |p| (name, p)))
             .map(|(name, path)| Handle::new(name.dupe(), path.dupe(), self.1.dupe()))
             .collect()
-    }
-}
-
-impl LiveSourceDatabase for MapDatabase {
-    fn query_source_db(
-        &self,
-        _: SmallSet<InternedPath>,
-        _: bool,
-    ) -> (anyhow::Result<bool>, TelemetrySourceDbRebuildInstanceStats) {
-        (Ok(false), TelemetrySourceDbRebuildInstanceStats::default())
-    }
-
-    fn get_paths_to_watch(&self) -> SmallSet<WatchPattern> {
-        self.0
-            .values()
-            .flatten()
-            .map(|p| WatchPattern::file(p.as_path().to_path_buf()))
-            .collect()
-    }
-
-    fn get_target(&self, _: Option<&Path>) -> Option<Target> {
-        None
-    }
-
-    fn get_generated_files(&self) -> SmallSet<InternedPath> {
-        SmallSet::new()
     }
 }
 

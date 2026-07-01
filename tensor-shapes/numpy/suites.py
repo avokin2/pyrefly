@@ -13,5 +13,6 @@ SUITES = {
     "dtype-properties": ("test_dtype_properties.py",),
     "linalg": ("test_linalg.py",),
     "math-ufuncs": ("test_math_ufuncs.py",),
+    "random": ("test_random.py",),
     "reductions": ("test_reductions.py",),
 }

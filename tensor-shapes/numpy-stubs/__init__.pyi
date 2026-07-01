@@ -9,6 +9,8 @@ import shape_extensions
 from numpy._shapes import binary_ufunc_ir, matmul_2d_ir, reduce_ir
 from shape_extensions import Dim, uses_shape_dsl
 
+from . import random as random
+
 type _Shape = tuple[int, ...]
 type _AnyShape = tuple[Any, ...]
 type _Axis = int | tuple[int, ...] | None

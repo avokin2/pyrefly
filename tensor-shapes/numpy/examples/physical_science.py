@@ -46,6 +46,29 @@ def linear_elastic_displacement(
     return np.linalg.solve(stiffness, force)
 
 
+def gravitational_forces(
+    position: np.ndarray[tuple[Dim[N], Dim[3]]],
+    mass: np.ndarray[tuple[Dim[N]]],
+) -> np.ndarray[tuple[Dim[N], Dim[3]]]:
+    """Compute Newtonian gravitational forces for an n-body system.
+
+    Each row of `position` is a particle's 3-D location, and `mass` stores one
+    mass per particle. Inserting singleton axes creates all target-source
+    particle pairs: `(1, N, 3) - (N, 1, 3)` broadcasts to `(N, N, 3)` vectors
+    pointing from each target particle toward each source particle. The norm
+    keeps a singleton final axis so the `(N, N, 1)` distance scale broadcasts
+    back over the 3-D vector components. In units where the gravitational
+    constant is `G = 1`, multiplying by target and source masses gives pairwise
+    forces, and summing over source particles leaves one total force vector per
+    target particle, with shape `(N, 3)`.
+    """
+    diff = position[None, :, :] - position[:, None, :]
+    distance = np.linalg.norm(diff, axis=-1, keepdims=True)
+    np.fill_diagonal(distance[:, :, 0], 1.0)
+    forces = mass[:, None, None] * diff * (mass[None, :, None] / distance**3)
+    return forces.sum(axis=1)
+
+
 def test_harmonic_oscillator_energy() -> None:
     position = np.random.randn(5, 3)
     velocity = np.random.randn(5, 3)
@@ -68,3 +91,23 @@ def test_linear_elastic_displacement() -> None:
     assert_shape(stiffness, (4, 4))
     assert_shape(force, (4, 1))
     assert_shape(displacement, (4, 1))
+
+
+def test_gravitational_forces() -> None:
+    position = np.random.randn(5, 3)
+    mass = np.ones(5)
+    diff = position[None, :, :] - position[:, None, :]
+    distance = np.linalg.norm(diff, axis=-1, keepdims=True)
+    np.fill_diagonal(distance[:, :, 0], 1.0)
+    forces = mass[:, None, None] * diff * (mass[None, :, None] / distance**3)
+    total_force = gravitational_forces(position, mass)
+
+    assert_shape(position, (5, 3))
+    assert_shape(mass, (5,))
+    assert_shape(diff, (5, 5, 3))
+    assert_shape(distance, (5, 5, 1))
+    assert_shape(distance[:, :, 0], (5, 5))
+    assert_shape(mass[:, None, None], (5, 1, 1))
+    assert_shape(mass[None, :, None], (1, 5, 1))
+    assert_shape(forces, (5, 5, 3))
+    assert_shape(total_force, (5, 3))

@@ -35,6 +35,7 @@ mod enums;
 mod factory_boy;
 mod flow_branching;
 mod flow_looping;
+mod functools;
 mod generic_basic;
 mod generic_callable_degeneracy;
 mod generic_legacy;

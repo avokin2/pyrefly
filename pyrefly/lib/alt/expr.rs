@@ -2549,6 +2549,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     self.parse_symint_type(xs, range, errors)
                 }
                 Type::ClassDef(ref cls)
+                    if cls.has_toplevel_qname("shape_extensions", "ProxyMethod") =>
+                {
+                    self.proxy_method_subscript_infer(cls, xs, range, errors)
+                }
+                Type::ClassDef(ref cls)
                     if let Expr::StringLiteral(ExprStringLiteral { value: key, .. }) = slice
                         && self.get_enum_from_class(cls).is_some() =>
                 {
@@ -3518,6 +3523,49 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             let (ty, _, _) = field.for_variance_inference();
             self.type_mentions_param_as_dimension(ty, param, depth)
         })
+    }
+
+    fn proxy_method_subscript_infer(
+        &self,
+        cls: &Class,
+        xs: &[Expr],
+        range: TextRange,
+        errors: &ErrorCollector,
+    ) -> Type {
+        let target_ty = match xs {
+            [Expr::StringLiteral(lit)] => match Lit::from_string_literal(lit) {
+                Some(lit) => lit.to_explicit_type(),
+                None => {
+                    self.error(
+                        errors,
+                        lit.range(),
+                        ErrorKind::InvalidAnnotation,
+                        "`ProxyMethod` target must be a string literal".to_owned(),
+                    );
+                    self.heap.mk_any_error()
+                }
+            },
+            [arg] => {
+                self.error(
+                    errors,
+                    arg.range(),
+                    ErrorKind::InvalidAnnotation,
+                    "`ProxyMethod` target must be a string literal".to_owned(),
+                );
+                self.heap.mk_any_error()
+            }
+            _ => {
+                self.error(
+                    errors,
+                    range,
+                    ErrorKind::InvalidAnnotation,
+                    "`ProxyMethod` requires exactly one string literal target".to_owned(),
+                );
+                self.heap.mk_any_error()
+            }
+        };
+        self.heap
+            .mk_type_of(self.specialize(cls, vec![target_ty], range, errors))
     }
 
     fn class_subscript_infer(

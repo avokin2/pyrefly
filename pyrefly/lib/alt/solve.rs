@@ -470,6 +470,17 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 }
                 if let Some(ty) = &ann.ty {
                     self.check_legacy_typevar_scoping(ty, x.range(), errors);
+                    if !matches!(target, AnnotationTarget::ClassMember(_))
+                        && Self::annotation_may_contain_proxy_method_type(x, ty)
+                    {
+                        self.error(
+                            errors,
+                            x.range(),
+                            ErrorKind::InvalidAnnotation,
+                            "`ProxyMethod` is only valid as a direct class member annotation"
+                                .to_owned(),
+                        );
+                    }
                 }
                 Arc::new(AnnotationWithTarget {
                     target: target.clone(),
@@ -481,6 +492,29 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 annotation: Annotation::new_type(sf.to_type(self.heap)),
             }),
         }
+    }
+
+    fn annotation_may_contain_proxy_method_type(expr: &Expr, ty: &Type) -> bool {
+        match expr {
+            Expr::Name(_) | Expr::Attribute(_) => Self::is_proxy_method_type_in_annotation(ty),
+            Expr::Subscript(_) | Expr::Tuple(_) => {
+                Self::contains_proxy_method_type_in_annotation(ty)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_proxy_method_type_in_annotation(ty: &Type) -> bool {
+        if let Type::ClassType(cls) = ty {
+            cls.class_object()
+                .has_toplevel_qname("shape_extensions", "ProxyMethod")
+        } else {
+            false
+        }
+    }
+
+    fn contains_proxy_method_type_in_annotation(ty: &Type) -> bool {
+        ty.any(|ty| Self::is_proxy_method_type_in_annotation(ty))
     }
 
     /// Check that got is assignable to want
@@ -3917,6 +3951,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     Some(t) => (
                         match &t.target {
                             AnnotationTarget::Assign(name, _)
+                            | AnnotationTarget::AttrAssign(name)
                             | AnnotationTarget::ClassMember(name) => Some(name.clone()),
                             _ => None,
                         },

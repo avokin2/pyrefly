@@ -74,6 +74,7 @@ pub enum SpecialExport {
     UsesShapeDsl,
     ShapeDslFunction,
     ShapedArray,
+    ProxyMethod,
     Sentinel,
     BuiltinsSentinel,
     AttrsLegacyAttrib,
@@ -144,6 +145,7 @@ impl SpecialExport {
             "uses_shape_dsl" => Some(Self::UsesShapeDsl),
             "shape_dsl_function" => Some(Self::ShapeDslFunction),
             "shaped_array" => Some(Self::ShapedArray),
+            "ProxyMethod" => Some(Self::ProxyMethod),
             "Sentinel" => Some(Self::Sentinel),
             "sentinel" => Some(Self::BuiltinsSentinel),
             "attr" | "attrib" | "ib" => Some(Self::AttrsLegacyAttrib),
@@ -223,6 +225,7 @@ impl SpecialExport {
             Self::UsesShapeDsl => matches!(m.as_str(), "shape_extensions"),
             Self::ShapeDslFunction => matches!(m.as_str(), "shape_extensions.dsl"),
             Self::ShapedArray => matches!(m.as_str(), "shape_extensions"),
+            Self::ProxyMethod => matches!(m.as_str(), "shape_extensions"),
             Self::Sentinel => matches!(m.as_str(), "typing_extensions"),
             Self::BuiltinsSentinel => matches!(m.as_str(), "builtins"),
             Self::AttrsLegacyAttrib | Self::AttrsNextGenField | Self::AttrsNothing => {

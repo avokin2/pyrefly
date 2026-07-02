@@ -2891,6 +2891,8 @@ pub enum AnnotationTarget {
     /// An annotated assignment. For attribute assignments, the name is the attribute name ("attr" in "x.attr")
     /// Does the annotated assignment have an initial value?
     Assign(Name, AnnAssignHasValue),
+    /// An annotated attribute assignment. The name is the attribute name ("attr" in "x.attr").
+    AttrAssign(Name),
     /// A member of a class
     ClassMember(Name),
 }
@@ -2903,6 +2905,7 @@ impl Display for AnnotationTarget {
             Self::KwargsParam(name) => write!(f, "kwargs `{name}`"),
             Self::Return(name) => write!(f, "`{name}` return"),
             Self::Assign(name, _initialized) => write!(f, "variable `{name}`"),
+            Self::AttrAssign(name) => write!(f, "attribute `{name}`"),
             Self::ClassMember(name) => write!(f, "attribute `{name}`"),
         }
     }
@@ -2916,6 +2919,7 @@ impl AnnotationTarget {
             Self::KwargsParam(_) => TypeFormContext::ParameterKwargsAnnotation,
             Self::Return(_) => TypeFormContext::ReturnAnnotation,
             Self::Assign(_, is_initialized) => TypeFormContext::VarAnnotation(*is_initialized),
+            Self::AttrAssign(_) => TypeFormContext::ClassVarAnnotation,
             Self::ClassMember(_) => TypeFormContext::ClassVarAnnotation,
         }
     }
@@ -3025,6 +3029,7 @@ pub enum ClassFieldDefinition {
     MethodLike {
         definition: Idx<Key>,
         has_return_annotation: bool,
+        annotation: Option<Idx<KeyAnnotation>>,
     },
     /// A nested class definition within the class body.
     /// The definition field stores the Idx<Key> that points to the class binding.

@@ -1007,6 +1007,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 );
             }
         }
+        if annotation
+            .ty
+            .as_ref()
+            .is_some_and(Self::is_proxy_method_type)
+        {
+            self.error(
+                errors,
+                range,
+                ErrorKind::InvalidAnnotation,
+                "`ProxyMethod` cannot be declared in typed dictionaries or named tuples".to_owned(),
+            );
+        }
         if let Some(td) = metadata.typed_dict_metadata()
             && let Some(is_total) = td.fields.get(name)
         {

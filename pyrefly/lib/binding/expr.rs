@@ -735,6 +735,7 @@ impl<'a> BindingsBuilder<'a> {
                             false,
                             false,
                             &mut type_usage,
+                            false,
                         );
                         for elt in tup.elts[1..].iter_mut() {
                             self.ensure_expr(
@@ -751,6 +752,7 @@ impl<'a> BindingsBuilder<'a> {
                             false,
                             false,
                             &mut type_usage,
+                            false,
                         );
                     }
                 } else if self.scopes.has_future_annotations()
@@ -774,6 +776,7 @@ impl<'a> BindingsBuilder<'a> {
                         &mut Usage::StaticTypeInformation {
                             is_annotation: false,
                         },
+                        false,
                     );
                 } else {
                     self.ensure_expr(&mut *value, usage);
@@ -1137,6 +1140,23 @@ impl<'a> BindingsBuilder<'a> {
         );
     }
 
+    pub fn ensure_class_member_type(
+        &mut self,
+        x: &mut Expr,
+        tparams_builder: &mut Option<LegacyTParamCollector>,
+    ) {
+        self.ensure_type_impl(
+            x,
+            tparams_builder,
+            false,
+            false,
+            &mut Usage::StaticTypeInformation {
+                is_annotation: true,
+            },
+            true,
+        );
+    }
+
     /// Like `ensure_type`, but with a specific usage context. Used by type alias
     /// construction sites to pass `Usage::TypeAliasRhs`.
     pub fn ensure_type_with_usage(
@@ -1145,7 +1165,7 @@ impl<'a> BindingsBuilder<'a> {
         tparams_builder: &mut Option<LegacyTParamCollector>,
         usage: &mut Usage,
     ) {
-        self.ensure_type_impl(x, tparams_builder, false, false, usage);
+        self.ensure_type_impl(x, tparams_builder, false, false, usage, false);
     }
 
     fn ensure_type_impl(
@@ -1155,6 +1175,7 @@ impl<'a> BindingsBuilder<'a> {
         in_string_literal: bool,
         check_runtime_name: bool,
         usage: &mut Usage,
+        allow_proxy_method: bool,
     ) {
         fn as_forward_ref<'b>(
             literal: &'b ExprStringLiteral,
@@ -1165,6 +1186,18 @@ impl<'a> BindingsBuilder<'a> {
             } else {
                 literal.as_single_part_string()
             }
+        }
+        let expr_range = x.range();
+        let invalid_proxy_method_use = !allow_proxy_method
+            && matches!(usage, Usage::TypeAliasRhs)
+            && self.type_expr_is_proxy_method_node(x);
+        let allow_proxy_method = allow_proxy_method || invalid_proxy_method_use;
+        if invalid_proxy_method_use {
+            self.error(
+                expr_range,
+                ErrorKind::InvalidAnnotation,
+                "`ProxyMethod` is only valid as a direct class member annotation".to_owned(),
+            );
         }
         match x {
             Expr::Name(x) => {
@@ -1188,6 +1221,24 @@ impl<'a> BindingsBuilder<'a> {
                 );
             }
             Expr::Subscript(ExprSubscript { value, slice, .. })
+                if self.as_special_export(value) == Some(SpecialExport::ProxyMethod) =>
+            {
+                self.ensure_type_impl(
+                    &mut *value,
+                    tparams_builder,
+                    in_string_literal,
+                    check_runtime_name,
+                    usage,
+                    true,
+                );
+                self.ensure_expr(
+                    &mut *slice,
+                    &mut Usage::StaticTypeInformation {
+                        is_annotation: false,
+                    },
+                );
+            }
+            Expr::Subscript(ExprSubscript { value, slice, .. })
                 if self.as_special_export(value) == Some(SpecialExport::Annotated)
                     && matches!(&**slice, Expr::Tuple(tup) if !tup.is_empty()) =>
             {
@@ -1198,6 +1249,7 @@ impl<'a> BindingsBuilder<'a> {
                     in_string_literal,
                     check_runtime_name,
                     usage,
+                    allow_proxy_method,
                 );
                 // We can't destructure a mutable Box in the guard, so force unwrapping it here
                 let tup = slice.as_tuple_expr_mut().unwrap();
@@ -1207,6 +1259,7 @@ impl<'a> BindingsBuilder<'a> {
                     in_string_literal,
                     check_runtime_name,
                     usage,
+                    allow_proxy_method,
                 );
                 for e in tup.elts[1..].iter_mut() {
                     self.ensure_expr(
@@ -1218,8 +1271,22 @@ impl<'a> BindingsBuilder<'a> {
                 }
             }
             Expr::Subscript(ExprSubscript { value, slice, .. }) => {
-                self.ensure_type_impl(&mut *value, tparams_builder, in_string_literal, true, usage);
-                self.ensure_type_impl(&mut *slice, tparams_builder, in_string_literal, true, usage);
+                self.ensure_type_impl(
+                    &mut *value,
+                    tparams_builder,
+                    in_string_literal,
+                    true,
+                    usage,
+                    allow_proxy_method,
+                );
+                self.ensure_type_impl(
+                    &mut *slice,
+                    tparams_builder,
+                    in_string_literal,
+                    true,
+                    usage,
+                    allow_proxy_method,
+                );
             }
             Expr::StringLiteral(literal)
                 if let Some(literal) = as_forward_ref(literal, in_string_literal) =>
@@ -1234,7 +1301,14 @@ impl<'a> BindingsBuilder<'a> {
                 match Ast::parse_type_literal(literal) {
                     Ok(expr) => {
                         *x = expr;
-                        self.ensure_type_impl(x, tparams_builder, true, check_runtime_name, usage);
+                        self.ensure_type_impl(
+                            x,
+                            tparams_builder,
+                            true,
+                            check_runtime_name,
+                            usage,
+                            allow_proxy_method,
+                        );
                     }
                     Err(_) => {
                         // We don't need to emit errors here, because the solving logic expects the expression to resolve to a type, and it will fail.
@@ -1364,6 +1438,7 @@ impl<'a> BindingsBuilder<'a> {
                     in_string_literal,
                     check_runtime_name,
                     usage,
+                    allow_proxy_method,
                 );
                 self.ensure_type_impl(
                     right,
@@ -1371,6 +1446,7 @@ impl<'a> BindingsBuilder<'a> {
                     in_string_literal,
                     check_runtime_name,
                     usage,
+                    allow_proxy_method,
                 );
 
                 // Only create the check if we're in an executable file, at least one side
@@ -1400,8 +1476,21 @@ impl<'a> BindingsBuilder<'a> {
                     in_string_literal,
                     check_runtime_name,
                     usage,
+                    allow_proxy_method,
                 )
             }),
+        }
+    }
+
+    fn type_expr_is_proxy_method_node(&self, x: &Expr) -> bool {
+        match x {
+            Expr::Name(_) | Expr::Attribute(_) => {
+                self.as_special_export(x) == Some(SpecialExport::ProxyMethod)
+            }
+            Expr::Subscript(subscript) => {
+                self.as_special_export(&subscript.value) == Some(SpecialExport::ProxyMethod)
+            }
+            _ => false,
         }
     }
 

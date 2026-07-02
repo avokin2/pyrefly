@@ -273,6 +273,10 @@ pub enum NoAccessReason {
     SettingReadOnlyDescriptor(Class),
     /// Calling a method via `super()` when no implementation is available (e.g. abstract protocol or abstract base method).
     SuperMethodNeedsImplementation(Class),
+    /// A proxy method was accessed on the class object rather than an instance.
+    ProxyMethodClassAccess(Class),
+    /// A proxy method declaration exists, but its target cannot be used as an instance method.
+    ProxyMethodTargetInvalid { class: Class, target: Name },
 }
 
 #[derive(Debug)]
@@ -326,6 +330,18 @@ impl NoAccessReason {
                 let class_name = class.name();
                 format!(
                     "Method `{attr_name}` inherited from class `{class_name}` has no implementation and cannot be accessed via `super()`"
+                )
+            }
+            NoAccessReason::ProxyMethodClassAccess(class) => {
+                let class_name = class.name();
+                format!(
+                    "Proxy method `{attr_name}` of class `{class_name}` can only be accessed on instances"
+                )
+            }
+            NoAccessReason::ProxyMethodTargetInvalid { class, target } => {
+                let class_name = class.name();
+                format!(
+                    "Proxy method `{attr_name}` of class `{class_name}` cannot resolve target method `{target}`"
                 )
             }
         }

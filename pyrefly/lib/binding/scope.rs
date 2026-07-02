@@ -2824,6 +2824,7 @@ impl Scopes {
                     } => ClassFieldDefinition::MethodLike {
                         definition: value.idx,
                         has_return_annotation: *has_return_annotation,
+                        annotation: static_info.annotation(),
                     },
                     // Only treat pristine class definitions as nested classes.
                     // A non-pristine `ClassDef` carries the class identity for

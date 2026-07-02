@@ -34,9 +34,11 @@ use vec1::Vec1;
 
 use crate::alt::answers::LookupAnswer;
 use crate::alt::answers_solver::AnswersSolver;
+use crate::alt::attr::NoAccessReason;
 use crate::alt::callable::CallArg;
 use crate::alt::callable::CallKeyword;
 use crate::alt::callable::CallWithTypes;
+use crate::alt::class::class_field::ClassAttribute;
 use crate::alt::class::class_field::DescriptorBase;
 use crate::alt::class::dataclass::ReplaceKind;
 use crate::alt::expr::TypeOrExpr;
@@ -187,6 +189,20 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     ) -> CallTarget {
         self.error_with_context(errors, range, error_kind, msg, context);
         CallTarget::Any(AnyStyle::Error)
+    }
+
+    fn proxy_method_call_error(&self, ty: &Type) -> Option<NoAccessReason> {
+        match ty {
+            Type::ClassType(cls) | Type::SelfType(cls) => {
+                match self.get_instance_attribute(cls, &dunder::CALL) {
+                    Some(ClassAttribute::NoAccess(
+                        error @ NoAccessReason::ProxyMethodTargetInvalid { .. },
+                    )) => Some(error),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     /// We only raise here for calls where we know the callee is the
@@ -587,6 +603,17 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 *target
             }
             CallTargetLookup::Error(..) => {
+                // Re-query `__call__` only on the error path so ordinary calls don't pay for
+                // preserving the original access error through call target resolution.
+                if let Some(error) = self.proxy_method_call_error(&ty) {
+                    self.error(
+                        errors,
+                        range,
+                        ErrorKind::NoAccess,
+                        error.to_error_msg(&dunder::CALL),
+                    );
+                    return CallTarget::Any(AnyStyle::Error);
+                }
                 let expect_message = match call_style {
                     CallStyle::Method(method) => {
                         format!("Expected `{method}` to be a callable")

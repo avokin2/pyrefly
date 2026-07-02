@@ -78,6 +78,12 @@ class Dim[T]:
     pass
 
 
+class ProxyMethod[T]:
+    """Type-checker marker for method forwarding annotations."""
+
+    pass
+
+
 def enable_torchscript_runtime_compat() -> None:
     """Erase shape-only runtime annotations to types TorchScript understands.
 

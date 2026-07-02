@@ -602,7 +602,11 @@ impl<'a> BindingsBuilder<'a> {
         is_initialized: AnnAssignHasValue,
     ) -> Idx<KeyAnnotation> {
         let ann_key = KeyAnnotation::Annotation(ShortIdentifier::new(name));
-        self.ensure_type(annotation, &mut None);
+        if self.scopes.in_class_body() {
+            self.ensure_class_member_type(annotation, &mut None);
+        } else {
+            self.ensure_type(annotation, &mut None);
+        }
         let ann_val = if let Some(special) = SpecialForm::new(&name.id, annotation) {
             // Special case `_: SpecialForm` declarations (this mainly affects some names declared in `typing.pyi`)
             BindingAnnotation::SpecialForm(
@@ -959,7 +963,7 @@ impl<'a> BindingsBuilder<'a> {
                     let ann_key = self.insert_binding(
                         KeyAnnotation::AttrAnnotation(x.annotation.range()),
                         BindingAnnotation::AnnotateExpr(
-                            AnnotationTarget::ClassMember(attr_name.clone()),
+                            AnnotationTarget::AttrAssign(attr_name.clone()),
                             *x.annotation,
                             None,
                         ),

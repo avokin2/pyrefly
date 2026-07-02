@@ -119,7 +119,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    numpy_stubs_root = args.numpy_stubs_root or args.tensor_shapes_root
+    if args.numpy_stubs_root is not None:
+        numpy_stubs_root = args.numpy_stubs_root
+    else:
+        moved_numpy_stubs_root = args.tensor_shapes_root / "pyrefly-numpy-stubs"
+        numpy_stubs_root = (
+            moved_numpy_stubs_root
+            if moved_numpy_stubs_root.exists()
+            else args.tensor_shapes_root
+        )
     if args.shape_extension_root is None:
         moved_shape_extension_root = (
             args.tensor_shapes_root / "pyrefly-shape-extensions"

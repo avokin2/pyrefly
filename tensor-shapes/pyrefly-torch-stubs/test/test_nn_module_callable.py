@@ -7,7 +7,7 @@
 Test that nn.Module instances are callable (automatically redirect to forward method).
 """
 
-from typing import assert_type, TYPE_CHECKING
+from typing import assert_type, Protocol, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
@@ -35,6 +35,24 @@ class GenericModule[N, M](nn.Module):
         return x
 
 
+class ModuleCallback[N, M](Protocol):
+    def __call__(self, x: Tensor[N, M]) -> Tensor[N, M * 2]: ...
+
+
+def use_callback_protocol[N, M](
+    callback: ModuleCallback[N, M], x: Tensor[N, M]
+) -> Tensor[N, M * 2]:
+    return callback(x)
+
+
+def test_module_matches_callback_protocol[N, M](
+    module: SimpleModule[N, M], x: Tensor[N, M]
+):
+    callback: ModuleCallback[N, M] = module
+    result = use_callback_protocol(callback, x)
+    assert_type(result, Tensor[N, M * 2])
+
+
 def test_generic_module_callable[B, C](module: GenericModule[B, C], x: Tensor[B, C]):
     """Test that generic modules are callable"""
     # Call module directly
@@ -47,4 +65,5 @@ def test_generic_module_callable[B, C](module: GenericModule[B, C], x: Tensor[B,
 # For now, test with concrete shapes by calling the generic functions
 # Eventually these will be called with symbolic shapes from real model code
 test_module_callable(SimpleModule(), torch.randn(5, 10))
+test_module_matches_callback_protocol(SimpleModule(), torch.randn(5, 10))
 test_generic_module_callable(GenericModule(), torch.randn(4, 8))

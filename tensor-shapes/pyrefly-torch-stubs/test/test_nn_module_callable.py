@@ -26,8 +26,8 @@ def test_module_callable[N, M](module: SimpleModule[N, M], x: Tensor[N, M]):
     # Should be able to call module directly
     result = module(x)
     assert_type(result, Tensor[N, M * 2])
-    # Should have correct type
-    assert_type(result, Tensor[N, M * 2])
+    call_attr_result = module.__call__(x)
+    assert_type(call_attr_result, Tensor[N, M * 2])
 
 
 class GenericModule[N, M](nn.Module):
@@ -40,8 +40,8 @@ def test_generic_module_callable[B, C](module: GenericModule[B, C], x: Tensor[B,
     # Call module directly
     result = module(x)
     assert_type(result, Tensor[B, C])
-    # Check type
-    assert_type(result, Tensor[B, C])
+    call_attr_result = module.__call__(x)
+    assert_type(call_attr_result, Tensor[B, C])
 
 
 # For now, test with concrete shapes by calling the generic functions

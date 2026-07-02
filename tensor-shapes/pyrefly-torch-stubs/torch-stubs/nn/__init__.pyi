@@ -21,7 +21,7 @@ from typing import (
 )
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim as _Dim, uses_shape_dsl
+    from shape_extensions import Dim as _Dim, ProxyMethod, uses_shape_dsl
     from torch import Tensor
     from torch._shapes import (
         nn_avgpool_forward_ir,
@@ -51,6 +51,7 @@ class Module:
 
     def __init__(self) -> None: ...
     def __getattr__(self, name: str) -> Any: ...
+    __call__: ProxyMethod["forward"]
     def forward(self, *args: Any, **kwargs: Any) -> Any: ...
     def register_buffer(
         self, name: str, tensor: Tensor | None, persistent: bool = True

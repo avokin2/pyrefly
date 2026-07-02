@@ -467,7 +467,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 }
             }
             // NNModule instances delegate call dispatch to their underlying class.
-            // instance_as_dunder_call will find `forward` for nn.Module subclasses.
+            // instance_as_dunder_call resolves the stubbed `__call__` proxy for nn.Module subclasses.
             // We patch the BoundMethod's self object to be the NNModule type so
             // that inject_module_attrs can detect NNModule and inject its fields.
             Type::NNModule(module) => {

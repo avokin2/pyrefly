@@ -5393,33 +5393,16 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
     /// Return `__call__` as a bound method if instances of `cls` have `__call__`.
     /// This is what the runtime automatically does when we try to call an instance.
-    ///
-    /// For nn.Module subclasses, falls back to the `forward` method, since
-    /// PyTorch's `nn.Module.__call__` delegates to `forward` at runtime.
     pub fn instance_as_dunder_call(&self, cls: &ClassType) -> Option<Type> {
         if let Some(attr) = self.get_instance_attribute(cls, &dunder::CALL) {
-            return self.resolve_dunder_call_attr(attr);
-        }
-        // nn.Module subclasses: __call__ delegates to forward at runtime.
-        if self.is_nn_module_subclass(cls) {
-            let forward_name = Name::new("forward");
-            let attr = self.get_instance_attribute(cls, &forward_name)?;
             return self.resolve_dunder_call_attr(attr);
         }
         None
     }
 
     /// Return `__call__` as bound method when called on `Self`.
-    ///
-    /// For nn.Module subclasses, falls back to the `forward` method.
     pub fn self_as_dunder_call(&self, cls: &ClassType) -> Option<Type> {
         if let Some(attr) = self.get_self_attribute(cls, &dunder::CALL) {
-            return self.resolve_dunder_call_attr(attr);
-        }
-        // nn.Module subclasses: fall back to forward.
-        if self.is_nn_module_subclass(cls) {
-            let forward_name = Name::new("forward");
-            let attr = self.get_self_attribute(cls, &forward_name)?;
             return self.resolve_dunder_call_attr(attr);
         }
         None
@@ -5428,8 +5411,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     /// Return `__call__` as a bound method if instances of `type_var` have `__call__`.
     /// We look up `__call__` from the upper bound of `type_var`, but `Self` is substituted with
     /// the `type_var` instead of the upper bound class.
-    ///
-    /// For nn.Module subclasses, falls back to the `forward` method.
     pub fn quantified_instance_as_dunder_call(
         &self,
         quantified: Quantified,
@@ -5438,13 +5419,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         if let Some(attr) =
             self.get_bounded_quantified_attribute(quantified.clone(), upper_bound, &dunder::CALL)
         {
-            return self.resolve_dunder_call_attr(attr);
-        }
-        // nn.Module subclasses: fall back to forward.
-        if self.is_nn_module_subclass(upper_bound) {
-            let forward_name = Name::new("forward");
-            let attr =
-                self.get_bounded_quantified_attribute(quantified, upper_bound, &forward_name)?;
             return self.resolve_dunder_call_attr(attr);
         }
         None

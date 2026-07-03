@@ -3736,7 +3736,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     .with_annotation(annot_range, "declared return type".to_owned())
             };
             if let Some(expr) = &x.expr {
-                self.expr_check(expr, hint.as_ref().map(|t| (t, tcc)), errors)
+                let return_ty = self.expr_check(expr, hint.as_ref().map(|t| (t, tcc)), errors);
+                self.check_any_return(hint.as_ref(), &return_ty, expr.range(), errors);
+                return_ty
             } else if let Some(hint) = hint {
                 let none = self.heap.mk_none();
                 self.check_type(&none, &hint, x.range, errors, tcc);
@@ -3745,11 +3747,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 self.heap.mk_none()
             }
         } else if matches!(hint, Some(Type::TypeGuard(_) | Type::TypeIs(_))) {
+            let declared_hint = hint.as_ref();
             let hint = Some(self.heap.mk_class_type(self.stdlib.bool().clone()));
             let tcc: &dyn Fn() -> TypeCheckContext =
                 &|| TypeCheckContext::of_kind(TypeCheckKind::TypeGuardReturn);
             if let Some(expr) = &x.expr {
-                self.expr_check(expr, hint.as_ref().map(|t| (t, tcc)), errors)
+                let return_ty = self.expr_check(expr, hint.as_ref().map(|t| (t, tcc)), errors);
+                self.check_any_return(declared_hint, &return_ty, expr.range(), errors);
+                return_ty
             } else if let Some(hint) = hint {
                 let none = self.heap.mk_none();
                 self.check_type(&none, &hint, x.range, errors, tcc);
@@ -3764,7 +3769,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     .with_annotation(annot_range, "declared return type".to_owned())
             };
             if let Some(expr) = &x.expr {
-                self.expr_check(expr, hint.as_ref().map(|t| (t, tcc)), errors)
+                let return_ty = self.expr_check(expr, hint.as_ref().map(|t| (t, tcc)), errors);
+                self.check_any_return(hint.as_ref(), &return_ty, expr.range(), errors);
+                return_ty
             } else if let Some(hint) = hint {
                 let none = self.heap.mk_none();
                 self.check_type(&none, &hint, x.range, errors, tcc);
@@ -3772,6 +3779,46 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             } else {
                 self.heap.mk_none()
             }
+        }
+    }
+
+    /// Check if returning an Any-typed expression from a function with a concrete return type,
+    /// and emit the appropriate error (NoAnyReturnExplicit or NoAnyReturnImplicit).
+    fn check_any_return(
+        &self,
+        hint: Option<&Type>,
+        return_ty: &Type,
+        range: TextRange,
+        errors: &ErrorCollector,
+    ) {
+        let Some(declared_ty) = hint else { return };
+        if declared_ty.is_any() {
+            return;
+        }
+        match return_ty {
+            Type::Any(AnyStyle::Explicit) => {
+                self.error(
+                    errors,
+                    range,
+                    ErrorKind::NoAnyReturnExplicit,
+                    format!(
+                        "Returning Any from function declared to return \"{}\"",
+                        self.for_display(declared_ty.clone())
+                    ),
+                );
+            }
+            Type::Any(AnyStyle::Implicit) => {
+                self.error(
+                    errors,
+                    range,
+                    ErrorKind::NoAnyReturnImplicit,
+                    format!(
+                        "Returning implicit Any from function declared to return \"{}\"",
+                        self.for_display(declared_ty.clone())
+                    ),
+                );
+            }
+            _ => {}
         }
     }
 

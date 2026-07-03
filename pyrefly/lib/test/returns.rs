@@ -876,7 +876,6 @@ def _process_null_values(
 // Tests for no-any-return
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_explicit,
     crate::test::util::TestEnv::new().enable_no_any_return_explicit_error(),
     r#"
@@ -887,12 +886,11 @@ def get_explicit_any(x) -> Any:
 
 def f() -> int:
     x = get_explicit_any(3)
-    return x
+    return x  # E: Returning Any from function declared to return "int"
 "#,
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_implicit,
     crate::test::util::TestEnv::new().enable_no_any_return_implicit_error(),
     r#"
@@ -900,12 +898,11 @@ def get_implicit_any(x):
     return x
 
 def f() -> int:
-    return get_implicit_any(3)
+    return get_implicit_any(3)  # E: Returning implicit Any from function declared to return "int"
 "#,
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_explicit_with_union,
     crate::test::util::TestEnv::new().enable_no_any_return_explicit_error(),
     r#"
@@ -913,12 +910,11 @@ from typing import Any
 
 def f() -> int | str:
     x: Any = None
-    return x
+    return x  # E: Returning Any from function declared to return "int | str"
 "#,
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_explicit_with_none,
     crate::test::util::TestEnv::new().enable_no_any_return_explicit_error(),
     r#"
@@ -926,12 +922,11 @@ from typing import Any
 
 def f() -> None:
     x: Any = 3
-    return x
+    return x  # E: Returning Any from function declared to return "None"
 "#,
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_implicit_with_none,
     crate::test::util::TestEnv::new().enable_no_any_return_implicit_error(),
     r#"
@@ -942,12 +937,11 @@ def get_implicit_any(x):
 
 def f() -> None:
     x = get_implicit_any(3)
-    return x
+    return x  # E: Returning implicit Any from function declared to return "None"
 "#,
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_explicit_in_generator,
     crate::test::util::TestEnv::new().enable_no_any_return_explicit_error(),
     r#"
@@ -956,7 +950,7 @@ from typing import Any, Generator
 def f() -> Generator[int, None, str]:
     yield 1
     x: Any = 3
-    return x
+    return x  # E: Returning Any from function declared to return "str"
 "#,
 );
 
@@ -975,7 +969,6 @@ def f() -> Generator[int, None, int]:  # OK
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_explicit_in_async_function,
     crate::test::util::TestEnv::new().enable_no_any_return_explicit_error(),
     r#"
@@ -983,7 +976,7 @@ from typing import Any
 
 async def f() -> int:
     x: Any = 3
-    return x
+    return x  # E: Returning Any from function declared to return "int"
 "#,
 );
 
@@ -1064,7 +1057,6 @@ def f() -> int:
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_implicit_parent_activates_error,
     crate::test::util::TestEnv::new().enable_no_any_return_error(),
     r#"
@@ -1073,12 +1065,11 @@ def get_implicit_any(x):
 
 def f() -> int:
     x = get_implicit_any(3)
-    return x
+    return x  # E: Returning implicit Any from function declared to return "int"
 "#,
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_explicit_parent_activates_error,
     crate::test::util::TestEnv::new().enable_no_any_return_error(),
     r#"
@@ -1089,7 +1080,7 @@ def get_explicit_any(x: int) -> Any:
 
 def f() -> int:
     x: Any = get_explicit_any(3)
-    return x
+    return x  # E: Returning Any from function declared to return "int"
 "#,
 );
 
@@ -1121,7 +1112,6 @@ def f() -> int:
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_explicit_typeguard_reports_declared_guard_type,
     crate::test::util::TestEnv::new().enable_no_any_return_explicit_error(),
     r#"
@@ -1129,12 +1119,11 @@ from typing import Any, TypeGuard
 
 def f(x: object) -> TypeGuard[int]:
     y: Any = True
-    return y
+    return y  # E: Returning Any from function declared to return "TypeGuard[int]"
 "#,
 );
 
 testcase!(
-    bug = "no-any-return is implemented in the following diff",
     test_no_any_return_explicit_typeis_reports_declared_guard_type,
     crate::test::util::TestEnv::new().enable_no_any_return_explicit_error(),
     r#"
@@ -1142,7 +1131,7 @@ from typing import Any, TypeIs
 
 def f(x: object) -> TypeIs[int]:
     y: Any = True
-    return y
+    return y  # E: Returning Any from function declared to return "TypeIs[int]"
 "#,
 );
 

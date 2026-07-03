@@ -23,6 +23,7 @@ impl ConfigOptionMigrater for ErrorCodes {
         mypy_cfg: &Ini,
         pyrefly_cfg: &mut ConfigFile,
     ) -> anyhow::Result<()> {
+        let warn_return_any = util::get_bool_or_default(mypy_cfg, "mypy", "warn_return_any");
         let warn_redundant_casts =
             util::get_bool_or_default(mypy_cfg, "mypy", "warn_redundant_casts");
         let disallow_untyped_defs =
@@ -39,6 +40,7 @@ impl ConfigOptionMigrater for ErrorCodes {
             util::get_bool_or_default(mypy_cfg, "mypy", "allow_redefinitions");
         let strict = util::get_bool_or_default(mypy_cfg, "mypy", "strict");
         let mypy_flags = MypyErrorConfigFlags {
+            warn_return_any,
             warn_redundant_casts,
             disallow_untyped_defs,
             disallow_incomplete_defs,
@@ -356,6 +358,31 @@ mod tests {
     }
 
     #[test]
+    fn test_migrate_from_mypy_warn_return_any() {
+        let mut mypy_cfg = Ini::new();
+        mypy_cfg
+            .read("[mypy]\nwarn_return_any = True".to_owned())
+            .unwrap();
+
+        let mut pyrefly_cfg = ConfigFile::default();
+
+        let error_codes = ErrorCodes;
+        let _ = error_codes.migrate_from_mypy(&mypy_cfg, &mut pyrefly_cfg);
+
+        assert!(pyrefly_cfg.root.errors.is_some());
+        let errors = pyrefly_cfg.root.errors.as_ref().unwrap();
+        assert_eq!(errors.severity(ErrorKind::NoAnyReturn), Severity::Error);
+        assert_eq!(
+            errors.severity(ErrorKind::NoAnyReturnImplicit),
+            Severity::Error
+        );
+        assert_eq!(
+            errors.severity(ErrorKind::NoAnyReturnExplicit),
+            Severity::Error
+        );
+    }
+
+    #[test]
     fn test_migrate_from_mypy_strict_does_not_enable_explicit_any() {
         let mut mypy_cfg = Ini::new();
         mypy_cfg.set("mypy", "strict", Some("True".to_owned()));
@@ -368,6 +395,7 @@ mod tests {
         assert!(pyrefly_cfg.root.errors.is_some());
         let errors = pyrefly_cfg.root.errors.as_ref().unwrap();
         assert_eq!(errors.severity(ErrorKind::RedundantCast), Severity::Warn);
+        assert_eq!(errors.severity(ErrorKind::NoAnyReturn), Severity::Error);
         assert_eq!(errors.severity(ErrorKind::ExplicitAny), Severity::Ignore);
     }
 

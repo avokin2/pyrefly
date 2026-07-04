@@ -1036,7 +1036,7 @@ checksum = "52dfc19153a48bde0cbd630453615c8151bce3a5adfac7a0aebfbf0a1e1f57e3"
 dependencies = [
  "aho-corasick",
  "bstr",
- "log 0.4.33",
+ "log",
  "regex-automata",
  "regex-syntax 0.8.11",
 ]
@@ -1228,7 +1228,7 @@ checksum = "b915661dd01db3f05050265b2477bcc6527b3792388e2749b41623cc592be67d"
 dependencies = [
  "crossbeam-deque",
  "globset",
- "log 0.4.33",
+ "log",
  "memchr",
  "regex-automata",
  "same-file",
@@ -1464,15 +1464,6 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e19e8d5c34a3e0e2223db8e060f9e8264aeeb5c5fc64a4ee9965c062211c024b"
-dependencies = [
- "log 0.4.33",
-]
-
-[[package]]
-name = "log"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
@@ -1484,7 +1475,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6ada348dbc2703cbe7637b2dda05cff84d3da2819c24abcb305dd613e0ba2e"
 dependencies = [
  "crossbeam-channel",
- "log 0.4.33",
+ "log",
  "serde",
  "serde_derive",
  "serde_json",
@@ -1599,7 +1590,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02bd0af71c67b473010cbbc60715ee815645a4dc942899111f494b4b737d6fda"
 dependencies = [
  "libc",
- "log 0.4.33",
+ "log",
  "wasi",
  "windows-sys 0.61.2",
 ]
@@ -1628,7 +1619,7 @@ dependencies = [
  "inotify",
  "kqueue",
  "libc",
- "log 0.4.33",
+ "log",
  "mio",
  "notify-types",
  "walkdir",
@@ -3105,7 +3096,7 @@ dependencies = [
  "futures-core",
  "futures-io",
  "futures-sink",
- "log 0.4.33",
+ "log",
  "pin-project-lite",
  "slab",
  "tokio",
@@ -3284,7 +3275,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b91e5b84611016120197efd7dc93ef76774f4e084cd73c9fb3ea4a86c570c56e"
 dependencies = [
  "getopts",
- "log 0.3.9",
+ "log",
  "phf_codegen",
  "rand 0.8.6",
 ]
@@ -3322,9 +3313,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.23.3"
+version = "1.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "144d6b123cef80b301b8f72a9e2ca4370ddec21950d0a103dd22c437006d2db7"
+checksum = "bf80a72845275afea99e7f2b434723d3bc7e38470fcd1c7ed39a599c73319a53"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
@@ -3335,9 +3326,9 @@ dependencies = [
 
 [[package]]
 name = "uuid-rng-internal"
-version = "1.23.3"
+version = "1.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7150d9f2ad44ac625d243aec4e6692320f818241f3f30e653630d1f729163bac"
+checksum = "13ab16e069e7562ecbdfa2e7858097deff01e13284d62921b6db087d0d66dd76"
 dependencies = [
  "getrandom 0.4.2",
 ]
@@ -3793,7 +3784,7 @@ dependencies = [
  "anyhow",
  "bitflags 2.13.0",
  "indexmap",
- "log 0.4.33",
+ "log",
  "serde",
  "serde_derive",
  "serde_json",
@@ -3812,7 +3803,7 @@ dependencies = [
  "anyhow",
  "id-arena",
  "indexmap",
- "log 0.4.33",
+ "log",
  "semver",
  "serde",
  "serde_derive",

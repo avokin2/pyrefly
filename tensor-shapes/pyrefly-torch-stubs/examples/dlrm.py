@@ -48,7 +48,7 @@ Key patterns exercised:
 - Quantized embeddings for memory-efficient inference
 """
 
-from typing import Any, assert_type, TYPE_CHECKING
+from typing import assert_type, TYPE_CHECKING
 
 import torch
 import torch.nn as nn

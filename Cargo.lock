@@ -1036,7 +1036,7 @@ checksum = "52dfc19153a48bde0cbd630453615c8151bce3a5adfac7a0aebfbf0a1e1f57e3"
 dependencies = [
  "aho-corasick",
  "bstr",
- "log",
+ "log 0.4.33",
  "regex-automata",
  "regex-syntax 0.8.11",
 ]
@@ -1228,7 +1228,7 @@ checksum = "b915661dd01db3f05050265b2477bcc6527b3792388e2749b41623cc592be67d"
 dependencies = [
  "crossbeam-deque",
  "globset",
- "log",
+ "log 0.4.33",
  "memchr",
  "regex-automata",
  "same-file",
@@ -1464,9 +1464,18 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.32"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
+checksum = "e19e8d5c34a3e0e2223db8e060f9e8264aeeb5c5fc64a4ee9965c062211c024b"
+dependencies = [
+ "log 0.4.33",
+]
+
+[[package]]
+name = "log"
+version = "0.4.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "lsp-server"
@@ -1475,7 +1484,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6ada348dbc2703cbe7637b2dda05cff84d3da2819c24abcb305dd613e0ba2e"
 dependencies = [
  "crossbeam-channel",
- "log",
+ "log 0.4.33",
  "serde",
  "serde_derive",
  "serde_json",
@@ -1590,7 +1599,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02bd0af71c67b473010cbbc60715ee815645a4dc942899111f494b4b737d6fda"
 dependencies = [
  "libc",
- "log",
+ "log 0.4.33",
  "wasi",
  "windows-sys 0.61.2",
 ]
@@ -1619,7 +1628,7 @@ dependencies = [
  "inotify",
  "kqueue",
  "libc",
- "log",
+ "log 0.4.33",
  "mio",
  "notify-types",
  "walkdir",
@@ -3096,7 +3105,7 @@ dependencies = [
  "futures-core",
  "futures-io",
  "futures-sink",
- "log",
+ "log 0.4.33",
  "pin-project-lite",
  "slab",
  "tokio",
@@ -3275,7 +3284,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b91e5b84611016120197efd7dc93ef76774f4e084cd73c9fb3ea4a86c570c56e"
 dependencies = [
  "getopts",
- "log",
+ "log 0.3.9",
  "phf_codegen",
  "rand 0.8.6",
 ]
@@ -3784,7 +3793,7 @@ dependencies = [
  "anyhow",
  "bitflags 2.13.0",
  "indexmap",
- "log",
+ "log 0.4.33",
  "serde",
  "serde_derive",
  "serde_json",
@@ -3803,7 +3812,7 @@ dependencies = [
  "anyhow",
  "id-arena",
  "indexmap",
- "log",
+ "log 0.4.33",
  "semver",
  "serde",
  "serde_derive",

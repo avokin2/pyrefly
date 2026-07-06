@@ -2728,8 +2728,37 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 errors,
             );
             self.check_variance_for_class(cls, class_bases.as_ref(), &class_field_map, errors);
+            self.check_self_in_typed_dict(cls, &class_field_map, errors);
         }
         Arc::new(EmptyAnswer)
+    }
+
+    fn check_self_in_typed_dict(
+        &self,
+        cls: &Class,
+        class_field_map: &SmallMap<Name, Arc<ClassField>>,
+        errors: &ErrorCollector,
+    ) {
+        if !self.get_metadata_for_class(cls).is_typed_dict() {
+            return;
+        }
+        let Some(cls_fields) = self.get_class_fields(cls) else {
+            return;
+        };
+        for (name, field) in class_field_map.iter() {
+            // `field_decl_range` is `None` for inherited fields, so we only report
+            // `Self` misuses declared directly in this `TypedDict`.
+            if field.ty().any(|t| matches!(t, Type::SelfType(_)))
+                && let Some(range) = cls_fields.field_decl_range(name)
+            {
+                self.error(
+                    errors,
+                    range,
+                    ErrorKind::InvalidSelfType,
+                    "`Self` is not allowed in a `TypedDict`".to_owned(),
+                );
+            }
+        }
     }
 
     /// Check method and attribute override consistency for a class.

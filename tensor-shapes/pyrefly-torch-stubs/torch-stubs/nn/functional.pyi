@@ -901,7 +901,7 @@ def cosine_similarity(
     ...
 
 def grid_sample[B, C, Hout, Wout](
-    input: Tensor[B, C, ...],
+    input: Tensor[B, C, *tuple[Any, ...]],
     grid: Tensor[B, Hout, Wout, 2],
     mode: str = "bilinear",
     padding_mode: str = "zeros",

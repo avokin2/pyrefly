@@ -68,6 +68,17 @@ def _patch_torch_if_available() -> None:
 _patch_torch_if_available()
 
 
+class SizeTuple:
+    """Integer tuple carrier for shape-like type parameters.
+
+    At runtime this is a no-op marker class. Pyrefly treats `SizeTuple` in type
+    positions as the shape carrier corresponding to `tuple[int, ...]`.
+    """
+
+    def __class_getitem__(cls, params):
+        return cls
+
+
 class Dim[T]:
     """Symbolic integer type for dimension values.
 

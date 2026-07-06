@@ -2544,6 +2544,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 Type::ClassDef(ref cls) if self.is_shaped_array_class(cls) => {
                     Type::type_of(self.parse_registered_shaped_array_type(cls, xs, range, errors))
                 }
+                Type::ClassDef(ref cls) if self.is_size_tuple_class(cls) => {
+                    self.parse_size_tuple_type(xs, errors)
+                }
                 // Dim type parsing: Dim[3], Dim[N], Dim[N+1] syntax
                 Type::ClassDef(ref cls) if self.is_symint_class(cls) => {
                     self.parse_symint_type(xs, range, errors)
@@ -3889,6 +3892,15 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .with_shape_arg_style(ShapedArrayShapeArgStyle::TypeVarTuple { index: shape_idx })
             .to_type()
     }
+
+    fn parse_size_tuple_type(&self, args: &[Expr], errors: &ErrorCollector) -> Type {
+        let Some(dims) = self.parse_dimension_list(args, errors) else {
+            return self.heap.mk_type_of(Type::any_error());
+        };
+        self.heap
+            .mk_type_of(shape_to_tuple_carrier(&ShapedArrayShape::from_types(dims)))
+    }
+
     /// Parse Dim[3], Dim[N], Dim[N+1] into Type::Dim(...)
     fn parse_symint_type(&self, args: &[Expr], range: TextRange, errors: &ErrorCollector) -> Type {
         // Dim takes exactly one argument

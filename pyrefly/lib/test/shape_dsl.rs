@@ -22,6 +22,8 @@ fn shaped_array_env() -> TestEnv {
 from typing import Any, Callable
 
 shaped_array: Any
+class SizeTuple:
+    def __class_getitem__(cls, params: Any) -> Any: ...
 class Dim[T]: ...
 class D: ...
 def assert_shape[T](x: T, shape: tuple[Any, ...]) -> T: ...
@@ -130,6 +132,8 @@ fn shaped_array_env_with_numpy() -> TestEnv {
 from typing import Any, Callable
 
 shaped_array: Any
+class SizeTuple:
+    def __class_getitem__(cls, params: Any) -> Any: ...
 def uses_shape_dsl(ir_fn: Callable[..., Any], *, capture_init: list[str] | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
 "#,
     );
@@ -399,6 +403,38 @@ def f(
 
     wrong_rank2: Array[(2, 4), int] = pep484  # E: `Array[(2, 3), int]` is not assignable to `Array[(2, 4), int]`
     wrong_rank0: Array[(1,), int] = pep484_scalar  # E: `Array[(), int]` is not assignable to `Array[(1,), int]`
+"#,
+);
+
+testcase!(
+    test_shaped_array_sizetuple_bound,
+    shaped_array_env(),
+    r#"
+from typing import Any, Literal, reveal_type
+from shape_extensions import SizeTuple, shaped_array
+
+type _Shape = SizeTuple
+type _AnyShape = tuple[Any, ...]
+
+@shaped_array(shape="Shape")
+class Array[Shape: _Shape = _AnyShape, DType = Any]:
+    shape: Shape
+
+def f(
+    compact: Array[(2, 3), int],
+    pep484: Array[tuple[Literal[2], Literal[3]], int],
+    size_tuple: Array[SizeTuple[2, 3], int],
+    carrier: SizeTuple[2, 3],
+    unbounded: SizeTuple,
+) -> None:
+    reveal_type(compact)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(pep484)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(size_tuple)  # E: revealed type: Array[(2, 3), int]
+    p: Array[tuple[Literal[2], Literal[3]], int] = compact
+    c: Array[(2, 3), int] = pep484
+    st: Array[SizeTuple[2, 3], int] = compact
+    t: tuple[Literal[2], Literal[3]] = carrier
+    u: tuple[int, ...] = unbounded
 "#,
 );
 

@@ -5859,6 +5859,16 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
     }
 
+    pub(crate) fn is_size_tuple_class(&self, cls: &Class) -> bool {
+        cls.has_toplevel_qname("shape_extensions", "SizeTuple")
+    }
+
+    fn bare_size_tuple_carrier(&self) -> Type {
+        self.heap.mk_tuple(Tuple::Unbounded(Box::new(
+            self.heap.mk_class_type(self.stdlib.int().clone()),
+        )))
+    }
+
     /// Untype a `typing.Self` special form by substituting the concrete
     /// `Type::SelfType` for the enclosing class. Called from
     /// `untype_opt`'s `Type::Type[SpecialForm(SelfType)]` arm. The
@@ -5938,6 +5948,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             | Type::Args(_)
             | Type::Kwargs(_)) => Some(ty),
             Type::Type(t) => {
+                if let Type::ClassType(cls) = t.as_ref()
+                    && self.is_size_tuple_class(cls.class_object())
+                {
+                    return Some(self.bare_size_tuple_carrier());
+                }
                 // Canonicalize bare Dim to Type::Dim for consistency.
                 // Subscripted Dim[X] is already converted to Type::Dim in parse_symint_type,
                 // so only the bare case (promoted to ClassType with default targs) reaches here.

@@ -20,8 +20,8 @@ use tempfile::TempDir;
 
 use crate::config::config::ConfigFile;
 use crate::config::finder::ConfigFinder;
-use crate::query::IndexedTypeShapeKind;
 use crate::query::Query;
+use crate::query::SerializedTypeTableEntry;
 use crate::query::TypeShape;
 use crate::test::util::init_test;
 
@@ -62,7 +62,7 @@ fn type_shape_values(types: Vec<(PythonASTRange, TypeShape)>) -> Vec<Value> {
         .collect()
 }
 
-fn indexed_shape_values(type_table: &[IndexedTypeShapeKind]) -> Vec<Value> {
+fn indexed_shape_values(type_table: &[SerializedTypeTableEntry]) -> Vec<Value> {
     type_table
         .iter()
         .map(|type_shape| serde_json::to_value(type_shape).unwrap())
@@ -378,6 +378,28 @@ second: list[int]
     assert_eq!(
         1, list_int_entries,
         "Expected repeated list[int] annotations to share one structural table entry:\n{table:#?}",
+    );
+
+    // Every wire entry carries its structural hash so clients can key a global
+    // (cross-file) hash -> parsed shape cache on it.
+    assert!(
+        table
+            .iter()
+            .all(|shape| shape.get("hash").and_then(Value::as_u64).is_some()),
+        "Expected every type_table entry to carry a u64 hash:\n{table:#?}",
+    );
+    // Structurally distinct shapes must hash differently.
+    let int_hash = table[int_index]
+        .get("hash")
+        .and_then(Value::as_u64)
+        .unwrap();
+    let str_hash = table[str_index]
+        .get("hash")
+        .and_then(Value::as_u64)
+        .unwrap();
+    assert_ne!(
+        int_hash, str_hash,
+        "Expected builtins.int and builtins.str to have distinct structural hashes",
     );
 }
 

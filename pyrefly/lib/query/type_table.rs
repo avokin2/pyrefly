@@ -63,9 +63,21 @@ pub enum IndexedTypeShapeKind {
     },
 }
 
+/// A `type_table` entry as sent on the wire: the shape plus its structural
+/// hash. The hash lets clients keep a cross-file (global) hash -> parsed shape
+/// cache: it is stable across files/requests for structurally-identical shapes
+/// because it incorporates every field the shape is deduped on (name, args,
+/// unspecified arg count, and traits).
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct SerializedTypeTableEntry {
+    #[serde(flatten)]
+    pub kind: IndexedTypeShapeKind,
+    pub hash: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct TypeTableResponseData {
-    pub type_table: Vec<IndexedTypeShapeKind>,
+    pub type_table: Vec<SerializedTypeTableEntry>,
     pub types: Vec<LocatedTypeTableRef>,
 }
 
@@ -106,8 +118,14 @@ impl TypeTableBuilder {
         self.entries[index].hash
     }
 
-    pub(super) fn into_type_table(self) -> Vec<IndexedTypeShapeKind> {
-        self.entries.into_iter().map(|entry| entry.kind).collect()
+    pub(super) fn into_type_table(self) -> Vec<SerializedTypeTableEntry> {
+        self.entries
+            .into_iter()
+            .map(|entry| SerializedTypeTableEntry {
+                kind: entry.kind,
+                hash: entry.hash,
+            })
+            .collect()
     }
 }
 
@@ -127,7 +145,27 @@ fn hash_hashes(h: &mut Xxh64, hashes: &[u64]) {
     }
 }
 
-fn hash_named(name: &str, arg_hashes: &[u64], unspecified_type_arg_count: Option<usize>) -> u64 {
+fn hash_traits(h: &mut Xxh64, traits: &[TypeShapeTrait]) {
+    // Folded into the hash so structurally-distinct shapes that share
+    // name/args (e.g. a plain named class vs. a typed-dict or tuple value of
+    // the same name) get distinct hashes — the same fields `insert`'s equality
+    // check disambiguates on. Keeps the wire hash a complete structural key.
+    h.write_usize(traits.len());
+    for t in traits {
+        h.write_u8(match t {
+            TypeShapeTrait::TypedDict => 0,
+            TypeShapeTrait::PartialTypedDict => 1,
+            TypeShapeTrait::Tuple => 2,
+        });
+    }
+}
+
+fn hash_named(
+    name: &str,
+    arg_hashes: &[u64],
+    unspecified_type_arg_count: Option<usize>,
+    traits: &[TypeShapeTrait],
+) -> u64 {
     let mut h = Xxh64::new(0);
     h.write_u8(HASH_KIND_NAMED);
     hash_bytes(&mut h, name.as_bytes());
@@ -139,6 +177,7 @@ fn hash_named(name: &str, arg_hashes: &[u64], unspecified_type_arg_count: Option
         }
         None => h.write_u8(0),
     }
+    hash_traits(&mut h, traits);
     h.finish()
 }
 
@@ -170,7 +209,7 @@ fn insert_indexed_named(
         .iter()
         .map(|arg| table.hash_at(*arg))
         .collect::<Vec<_>>();
-    let hash = hash_named(&name, &arg_hashes, unspecified_type_arg_count);
+    let hash = hash_named(&name, &arg_hashes, unspecified_type_arg_count, &traits);
     table.insert(
         IndexedTypeShapeKind::Named {
             name,

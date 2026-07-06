@@ -113,6 +113,7 @@ use crate::types::display::TypeDisplayContext;
 mod type_table;
 pub use type_table::IndexedTypeShapeKind;
 pub use type_table::LocatedTypeTableRef;
+pub use type_table::SerializedTypeTableEntry;
 use type_table::TypeTableBuilder;
 pub use type_table::TypeTableResponseData;
 use type_table::located_type_table_refs;

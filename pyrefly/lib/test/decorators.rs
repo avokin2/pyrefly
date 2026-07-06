@@ -325,6 +325,41 @@ assert_type(C().f("any", b"thing"), Any)
 );
 
 testcase!(
+    test_class_decorator_returning_type_any,
+    r#"
+from typing import Any, assert_type
+
+def erase_class(cls: type[Any]) -> type[Any]: ...
+def inferred_type_any(cls: type[Any]): return cls
+def returns_any(cls: type[Any]) -> Any: ...
+
+# Only an explicit `-> type[Any]` return annotation erases the class interface.
+@erase_class
+class C:
+    def __init__(self, x: int) -> None: ...
+
+assert_type(C, type[Any])
+assert_type(C(unknown=1, arbitrary="x"), Any)
+
+# An inferred `type[Any]` return type must not erase the class interface.
+@inferred_type_any
+class D:
+    def __init__(self, x: int) -> None: ...
+
+D(x=1)
+D(x=1, unknown=2)  # E: Unexpected keyword argument `unknown`
+
+# A bare `Any` return type (not `type[Any]`) must not erase the class interface.
+@returns_any
+class E:
+    def __init__(self, x: int) -> None: ...
+
+E(x=1)
+E(x=1, unknown=2)  # E: Unexpected keyword argument `unknown`
+    "#,
+);
+
+testcase!(
     test_decorate_to_generic_callable,
     r#"
 from typing import Any, Callable, TypeVar, assert_type

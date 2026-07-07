@@ -1205,9 +1205,9 @@ class Sam[EmbDim, D, NHead, MlpDim, NumMasks, ES](nn.Module):
         self.prompt_encoder = prompt_encoder
         self.mask_decoder = mask_decoder
 
-    def forward[B, S, N, M](
+    def forward[B, N, M](
         self,
-        images: Tensor[[B, 3, S, S]],
+        images: Tensor[[B, 3, 16 * ES, 16 * ES]],
         points: tuple[Tensor[[B, N, 2]], Tensor[[B, N]]] | None = None,
         boxes: Tensor[[B, M, 4]] | None = None,
         masks: Tensor[[B, 1, 4 * ES, 4 * ES]] | None = None,
@@ -1216,7 +1216,8 @@ class Sam[EmbDim, D, NHead, MlpDim, NumMasks, ES](nn.Module):
         """Run SAM end-to-end.
 
         Args:
-            images: (B, 3, S, S) — input images (square)
+            images: (B, 3, 16*ES, 16*ES) - square inputs whose patch-16
+                embedding grid matches the prompt encoder's ESxES dense output
             points: (coords (B, N, 2), labels (B, N)) or None
             boxes: (B, M, 4) or None
             masks: (B, 1, 4*ES, 4*ES) or None

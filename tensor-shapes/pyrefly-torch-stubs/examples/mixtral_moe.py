@@ -310,9 +310,17 @@ class Attention[D, NHead, NLocalHead, HD](nn.Module):
             assert input_pos is not None
             k, v = self.kv_cache.update(input_pos, k, v)
 
-        k = k.repeat_interleave(self.n_head // self.n_local_heads, dim=1)
+        # GQA repeats each kv head NHead // NLocalHead times. The shape checker
+        # cannot know NHead is divisible by NLocalHead, so NLocalHead * (NHead //
+        # NLocalHead) does not reduce to NHead symbolically; output_size=self.n_head
+        # records the intended result shape.
+        k = k.repeat_interleave(
+            self.n_head // self.n_local_heads, dim=1, output_size=self.n_head
+        )
         assert_type(k, Tensor)  # type: ignore  # union from kv_cache branch join
-        v = v.repeat_interleave(self.n_head // self.n_local_heads, dim=1)
+        v = v.repeat_interleave(
+            self.n_head // self.n_local_heads, dim=1, output_size=self.n_head
+        )
         assert_type(v, Tensor)  # type: ignore  # union from kv_cache branch join
         y = cast(
             Tensor[[B, NHead, SeqLen, HD]],

@@ -33,6 +33,7 @@ use pyrefly_types::quantified::Quantified;
 use pyrefly_types::quantified::QuantifiedIdentity;
 use pyrefly_types::quantified::QuantifiedKind;
 use pyrefly_types::quantified::QuantifiedOrigin;
+use pyrefly_types::tuple::Tuple;
 use pyrefly_types::type_alias::TypeAlias;
 use pyrefly_types::type_alias::TypeAliasData;
 use pyrefly_types::type_var::PreInferenceVariance;
@@ -1806,16 +1807,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     /// Cached per module: the same name always returns the same Quantified.
     pub fn get_or_create_jaxtyping_dim(&self, name: Name, kind: QuantifiedKind) -> Quantified {
         let mut dims = self.jaxtyping_dims.borrow_mut();
+        // Jaxtyping dims have no real source location. Use the current map size as a
+        // collision-free ordinal to distinguish synthetic quantifieds at the same
+        // (default) anchor. Shared with `get_or_create_jaxtyping_shape_carrier`, which
+        // uses the same map, so ordinals stay unique across both.
+        let ordinal = dims.len() as u32;
         dims.entry(name.clone())
             .or_insert_with(|| {
-                // Jaxtyping dims have no real source location. Use a hash of the name
-                // as ordinal to distinguish different dims in the same module.
-                // The slot discriminates from other synthetic quantifieds at the same anchor.
-                let ordinal = {
-                    let mut h = std::collections::hash_map::DefaultHasher::new();
-                    name.hash(&mut h);
-                    h.finish() as u32
-                };
                 let identity = QuantifiedIdentity::new(
                     self.module().name(),
                     AnchorIndex::new(TextRange::default(), ordinal),
@@ -1836,6 +1834,35 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         unreachable!("jaxtyping dimensions cannot be ParamSpec")
                     }
                 }
+            })
+            .clone()
+    }
+
+    /// Get or create a tuple-carrier TypeVar for a jaxtyping variadic shape name.
+    ///
+    /// A variadic jaxtyping shape (`*name`) whose enclosing shaped-array class uses a
+    /// `TypeVar` (SizeTuple) shape parameter needs a carrier TypeVar bounded by
+    /// `tuple[int, ...]`, rather than the `TypeVarTuple` produced for `*Shape` classes.
+    pub fn get_or_create_jaxtyping_shape_carrier(&self, name: Name) -> Quantified {
+        let mut dims = self.jaxtyping_dims.borrow_mut();
+        // See `get_or_create_jaxtyping_dim`: the shared map's size is a collision-free ordinal.
+        let ordinal = dims.len() as u32;
+        dims.entry(name.clone())
+            .or_insert_with(|| {
+                let identity = QuantifiedIdentity::new(
+                    self.module().name(),
+                    AnchorIndex::new(TextRange::default(), ordinal),
+                    QuantifiedOrigin::SyntheticCallableResidual,
+                );
+                Quantified::type_var(
+                    name,
+                    identity,
+                    None,
+                    Restriction::Bound(Type::Tuple(Tuple::Unbounded(Box::new(
+                        self.heap.mk_class_type(self.stdlib.int().clone()),
+                    )))),
+                    PreInferenceVariance::Invariant,
+                )
             })
             .clone()
     }

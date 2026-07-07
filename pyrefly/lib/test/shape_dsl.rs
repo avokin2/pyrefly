@@ -468,6 +468,11 @@ def nested_unpack[S0: SizeTuple, M, N](
     result: Array[[1, 4, *Elements[S0], M, N], int],
 ) -> None:
     reveal_type(prepend_and_append(source, result))  # E: revealed type: Array[[1, 4, *S0, M, N], int]
+
+def gradual_middle(
+    result: Array[[1, *Elements[SizeTuple], 3], int],
+) -> None:
+    reveal_type(result)  # E: revealed type: Array[[1, *tuple[int, ...], 3], int]
 "#,
 );
 
@@ -1399,6 +1404,40 @@ def f(x: np.ndarray[float, 2, 3]) -> None:
     reveal_type(x.shape)  # E: revealed type: tuple[Literal[2], Literal[3]]
     reveal_type(x[0])  # E: revealed type: ndarray[float, 3]
     reveal_type(np.add_leading_axis(x))  # E: revealed type: ndarray[float, 1, 2, 3]
+"#,
+);
+
+testcase!(
+    test_jaxtyping_sizetuple_carrier_shapes,
+    {
+        let mut env = shaped_array_env();
+        add_jaxtyping(&mut env);
+        env.add_with_path(
+            "tclib",
+            "tclib.pyi",
+            r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]:
+    shape: Shape
+"#,
+        );
+        env
+    },
+    r#"
+from jaxtyping import Float
+from tclib import Array
+from typing import Literal, reveal_type
+
+# Jaxtyping shape annotations work on a TypeVar (SizeTuple) shape carrier, not just
+# on torch's TypeVarTuple `*Shape`. The concrete case exercises the tuple-carrier
+# sync path and the `*name` case exercises the synthesized shape-carrier TypeVar.
+def concrete(x: Float[Array, "3 4"]) -> None:
+    reveal_type(x)  # E: revealed type: Shaped[Array, "3 4"]
+
+def named_variadic(x: Float[Array, "*batch channels"]) -> None:
+    reveal_type(x)  # E: revealed type: Shaped[Array, "*batch channels"]
 "#,
 );
 

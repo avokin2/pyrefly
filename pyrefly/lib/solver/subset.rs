@@ -24,6 +24,7 @@ use pyrefly_types::shaped_array::ShapedArrayShape;
 use pyrefly_types::shaped_array::ShapedArrayType;
 use pyrefly_types::shaped_array::is_tuple_carrier_shape_middle;
 use pyrefly_types::shaped_array::shape_to_tuple_carrier;
+use pyrefly_types::shaped_array::shape_to_tuple_carrier_arg;
 use pyrefly_types::shaped_array::tuple_carrier_to_shape;
 use pyrefly_types::special_form::SpecialForm;
 use pyrefly_types::typed_dict::ANONYMOUS_TYPED_DICT;
@@ -1953,10 +1954,10 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                 self.is_subset_shaped_array(got_shaped_array, want_shaped_array)
             }
             // Tensor is subtype of its base class
-            (Type::ShapedArray(tensor), Type::ClassType(cls)) => self.is_subset_eq(
-                &tensor.base_class.clone().to_type(),
-                &Type::ClassType(cls.clone()),
-            ),
+            (Type::ShapedArray(tensor), Type::ClassType(cls)) => {
+                let got = self.shaped_array_as_carrier_class(tensor)?;
+                self.is_subset_eq(&got.to_type(), &Type::ClassType(cls.clone()))
+            }
             // NNModule is subtype of its class
             (Type::NNModule(module), Type::ClassType(cls)) => self.is_subset_eq(
                 &Type::ClassType(module.class.clone()),
@@ -2613,6 +2614,38 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                         .to_owned(),
                 )
             })
+    }
+
+    fn shaped_array_as_carrier_class(
+        &self,
+        shaped_array: &ShapedArrayType,
+    ) -> Result<ClassType, SubsetError> {
+        let (shape_param, _) = self.shape_param_and_arg(shaped_array)?;
+        let shape_arg = match shape_param.kind() {
+            QuantifiedKind::TypeVarTuple => shape_to_tuple_carrier(&shaped_array.shape),
+            QuantifiedKind::TypeVar => shape_to_tuple_carrier_arg(&shaped_array.shape),
+            QuantifiedKind::ParamSpec => {
+                return Err(SubsetError::InternalError(
+                    "ShapedArrayType registered a ParamSpec as its shape parameter".to_owned(),
+                ));
+            }
+        };
+        let targs = shaped_array
+            .base_class
+            .targs()
+            .iter_paired()
+            .map(|(param, arg)| {
+                if param == shape_param {
+                    shape_arg.clone()
+                } else {
+                    arg.clone()
+                }
+            })
+            .collect();
+        Ok(ClassType::new(
+            shaped_array.base_class.class_object().clone(),
+            TArgs::new(Arc::new(shaped_array.base_class.tparams().clone()), targs),
+        ))
     }
 
     fn shape_erased_base_class(

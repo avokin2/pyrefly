@@ -2209,9 +2209,36 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         Vec1::try_from_vec(acc).map(AttributeBase).ok()
     }
 
+    pub(crate) fn try_reproject_class_type_to_shaped_array(
+        &self,
+        cls: &ClassType,
+    ) -> Option<ShapedArrayType> {
+        if !cls
+            .targs()
+            .as_slice()
+            .iter()
+            .any(|arg| matches!(arg, Type::Tuple(_)))
+        {
+            return None;
+        }
+        let shape_param = self.shaped_array_shape_for_class_type(cls)?;
+        if shape_param.kind() != QuantifiedKind::TypeVar {
+            return None;
+        }
+        Some(self.shaped_array_classtype_to_shaped_array_type(cls))
+    }
+
     fn as_attribute_base1(&self, ty: Type, acc: &mut Vec<AttributeBase1>) {
         match ty {
-            Type::ClassType(class_type) => acc.push(AttributeBase1::ClassInstance(class_type)),
+            Type::ClassType(class_type) => {
+                if let Some(shaped_array) =
+                    self.try_reproject_class_type_to_shaped_array(&class_type)
+                {
+                    acc.push(AttributeBase1::ShapedArrayInstance(shaped_array))
+                } else {
+                    acc.push(AttributeBase1::ClassInstance(class_type))
+                }
+            }
             Type::ClassDef(cls) => acc.push(AttributeBase1::ClassObject(ClassBase::ClassDef(
                 self.as_class_type_unchecked(&cls),
             ))),

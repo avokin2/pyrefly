@@ -158,7 +158,11 @@ class ShapedArray:
         r#"
 from shape_extensions import uses_shape_dsl
 from shape_extensions import shaped_array
+from shape_extensions import SizeTuple
 from shape_extensions.dsl import ShapedArray, shape_dsl_function
+from typing import Any
+
+type AnyShape = tuple[Any, ...]
 
 @shape_dsl_function
 def add_leading_axis_ir(x: ShapedArray) -> ShapedArray:
@@ -174,12 +178,16 @@ class ndarray[DType, *Shape]:
 def add_leading_axis[DType, *Shape](x: ndarray[DType, *Shape]) -> ndarray[DType, *Shape]: ...
 
 @shaped_array(shape="Shape")
-class tcarray[Shape, DType]:
+class tcarray[Shape: SizeTuple = AnyShape, DType = int]:
     shape: Shape
     def dtype(self) -> DType: ...
+    @uses_shape_dsl(add_leading_axis_ir)
+    def add_leading_axis(self) -> tcarray[Shape, DType]: ...
 
 @uses_shape_dsl(add_leading_axis_ir)
-def tc_add_leading_axis[Shape, DType](x: tcarray[Shape, DType]) -> tcarray[Shape, DType]: ...
+def tc_add_leading_axis[Shape: SizeTuple, DType](x: tcarray[Shape, DType]) -> tcarray[Shape, DType]: ...
+
+def tc_identity[Shape: SizeTuple, DType](x: tcarray[Shape, DType]) -> tcarray[Shape, DType]: ...
 "#,
     );
     env
@@ -1453,9 +1461,24 @@ def f(x: np.tcarray[[2, 3], int]) -> None:
     # The meta-shape DSL adds a leading axis. The result's raw tuple carrier is
     # re-synced to the computed shape, so both the displayed shape and `.shape`
     # stay coherent; DType is preserved.
-    reveal_type(y)  # E: revealed type: tcarray[[1, 2, 3], int]
+    reveal_type(y)  # E: revealed type: tcarray[[1, 2, 3]]
     reveal_type(y.shape)  # E: revealed type: tuple[Literal[1], Literal[2], Literal[3]]
     reveal_type(y.dtype())  # E: revealed type: int
+"#,
+);
+
+testcase!(
+    test_tuple_carrier_generic_return_feeds_meta_shape,
+    shaped_array_env_with_numpy(),
+    r#"
+import numpy as np
+from typing import reveal_type
+
+def f(x: np.tcarray[[2, 3], int]) -> None:
+    z = np.tc_identity(np.tc_identity(x))
+    reveal_type(z)  # E: revealed type: tcarray[[2, 3]]
+    y = np.tc_add_leading_axis(np.tc_identity(x))
+    reveal_type(y)  # E: revealed type: tcarray[[1, 2, 3]]
 "#,
 );
 

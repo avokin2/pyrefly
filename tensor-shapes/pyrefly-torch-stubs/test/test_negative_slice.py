@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from torch import Tensor
 
 
-def test_negative_slice[B, T, V](logits: Tensor[B, T, V]):
+def test_negative_slice[B, T, V](logits: Tensor[[B, T, V]]):
     """Test slicing with negative index"""
     temp = logits[:, -1, :]
-    assert_type(temp, Tensor[B, V])
+    assert_type(temp, Tensor[[B, V]])

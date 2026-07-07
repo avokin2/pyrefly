@@ -267,9 +267,10 @@ class TypeVar:
 
     __class__ = typing.TypeVar
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, *, bound=None):
         self.__name__ = name
         self.name = name
+        self.__bound__ = bound
 
     def __repr__(self):
         return self.name

@@ -24,13 +24,13 @@ class MultiHead[D](nn.Module):
             [nn.Parameter(torch.randn(d, d)) for _ in range(n_heads)]
         )
 
-    def forward[B](self, x: Tensor[B, D]) -> Tensor[B, D]:
+    def forward[B](self, x: Tensor[[B, D]]) -> Tensor[[B, D]]:
         return x
 
 
 def test_parameter_list_len():
     """ParameterList supports len()."""
     m = MultiHead(64, 4)
-    x: Tensor[8, 64] = torch.randn(8, 64)
+    x: Tensor[[8, 64]] = torch.randn(8, 64)
     out = m(x)
-    assert_type(out, Tensor[8, 64])
+    assert_type(out, Tensor[[8, 64]])

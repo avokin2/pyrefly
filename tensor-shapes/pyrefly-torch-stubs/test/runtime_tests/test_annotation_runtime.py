@@ -7,10 +7,10 @@
 
 """Runtime behavior of tensor type annotations.
 
-Tests how pyrefly's native tensor syntax (Tensor[N, 3], Tensor[N+1, M]) behaves
+Tests how pyrefly's native tensor syntax (Tensor[[N, 3]], Tensor[[N+1, M]]) behaves
 at Python runtime. Two independent issues with standard Python typing:
 
-1. torch.Tensor is not natively subscriptable — Tensor[3, 4] fails.
+1. torch.Tensor is not natively subscriptable — Tensor[[3, 4]] fails.
    SOLVED: shape_extensions patches __class_getitem__ on import.
 
 2. PEP 695 TypeVar doesn't support arithmetic — N + 1, N * 2, etc. fail.
@@ -39,25 +39,25 @@ class TestSubscriptRuntime(unittest.TestCase):
     """torch.Tensor subscripting behavior at runtime.
 
     torch.Tensor is not natively subscriptable, but importing shape_extensions
-    patches __class_getitem__ so that Tensor[3, 4] evaluates to Tensor
+    patches __class_getitem__ so that Tensor[[3, 4]] evaluates to Tensor
     (a no-op) instead of crashing.
     """
 
     def test_concrete_subscript(self):
-        """Tensor[3, 4] — works after shape_extensions patches __class_getitem__."""
+        """Tensor[[3, 4]] — works after shape_extensions patches __class_getitem__."""
 
-        def f(x: torch.Tensor[3, 4]) -> torch.Tensor[3, 4]:
+        def f(x: torch.Tensor[[3, 4]]) -> torch.Tensor[[3, 4]]:
             return x
 
         self.assertTrue(callable(f))
 
     def test_tensor_subscript_erases_to_tensor(self):
-        self.assertIs(torch.Tensor[3, 4], torch.Tensor)
+        self.assertIs(torch.Tensor[[3, 4]], torch.Tensor)
 
     def test_typevar_subscript(self):
-        """Tensor[N, 3] — TypeVar in subscript, works after patch."""
+        """Tensor[[N, 3]] — TypeVar in subscript, works after patch."""
 
-        def f[N](x: torch.Tensor[N, 3]) -> torch.Tensor[N, 3]:
+        def f[N](x: torch.Tensor[[N, 3]]) -> torch.Tensor[[N, 3]]:
             return x
 
         self.assertTrue(callable(f))
@@ -90,7 +90,7 @@ class TestTorchScriptRuntimeCompat(unittest.TestCase):
     def test_tensor_subscript_still_erases_to_tensor(self):
         enable_torchscript_runtime_compat()
 
-        self.assertIs(torch.Tensor[3, 4], torch.Tensor)
+        self.assertIs(torch.Tensor[[3, 4]], torch.Tensor)
 
 
 class TestTypeVarArithmetic(unittest.TestCase):
@@ -151,14 +151,14 @@ class TestCombined(unittest.TestCase):
     """TypeVar arithmetic inside Tensor subscript."""
 
     def test_tensor_typevar_arithmetic(self):
-        """Tensor[N+1, 3] — arithmetic is evaluated before subscript, so
+        """Tensor[[N+1, 3]] — arithmetic is evaluated before subscript, so
         the error is 'unsupported operand' not 'not subscriptable'."""
         with self.assertRaisesRegex(
             TypeError,
             r"unsupported operand type\(s\) for \+: 'typing.TypeVar' and 'int'",
         ):
 
-            def f[N](x: torch.Tensor[N + 1, 3]) -> torch.Tensor[N, 3]:
+            def f[N](x: torch.Tensor[[N + 1, 3]]) -> torch.Tensor[[N, 3]]:
                 return x
 
 
@@ -188,13 +188,13 @@ class TestSymbolicArithExprRuntime(unittest.TestCase):
         f()
 
     def test_tensor_annotations_with_bracket_form(self):
-        def f[N, M](x: torch.Tensor[D[N] + D[M], 3]) -> torch.Tensor[D[N] * 2, 3]:
+        def f[N, M](x: torch.Tensor[[D[N] + D[M], 3]]) -> torch.Tensor[[D[N] * 2, 3]]:
             return x
 
         self.assertTrue(callable(f))
 
     def test_tensor_annotations_with_call_form(self):
-        def f[N, M](x: torch.Tensor[D(N) + D(M), 3]) -> torch.Tensor[D(N) // 2, 3]:
+        def f[N, M](x: torch.Tensor[[D(N) + D(M), 3]]) -> torch.Tensor[[D(N) // 2, 3]]:
             return x
 
         self.assertTrue(callable(f))
@@ -244,10 +244,10 @@ class TestClassAnnotationRuntime(unittest.TestCase):
     """Classes with class-level and method-level TypeVars."""
 
     def test_class_concrete_subscript(self):
-        """Class method with Tensor[3, 4] — works after shape_extensions patch."""
+        """Class method with Tensor[[3, 4]] — works after shape_extensions patch."""
 
         class Layer:
-            def forward(self, x: torch.Tensor[3, 4]) -> torch.Tensor[3, 4]:
+            def forward(self, x: torch.Tensor[[3, 4]]) -> torch.Tensor[[3, 4]]:
                 return x
 
         self.assertTrue(hasattr(Layer, "forward"))
@@ -256,14 +256,14 @@ class TestClassAnnotationRuntime(unittest.TestCase):
         """Class-level (N, M) and method-level (B) TypeVars — works after patch."""
 
         class Layer[N, M]:
-            def forward[B](self, x: torch.Tensor[B, N]) -> torch.Tensor[B, M]:
+            def forward[B](self, x: torch.Tensor[[B, N]]) -> torch.Tensor[[B, M]]:
                 return x  # type: ignore[return-value]
 
         self.assertTrue(hasattr(Layer, "forward"))
 
     def test_class_typevar_arithmetic(self):
         """Class-level TypeVar with arithmetic in method annotation.
-        Tensor[N, 3] works after patch, but N+1 still crashes because
+        Tensor[[N, 3]] works after patch, but N+1 still crashes because
         PEP 695 TypeVar doesn't support arithmetic."""
         with self.assertRaisesRegex(
             TypeError,
@@ -271,7 +271,7 @@ class TestClassAnnotationRuntime(unittest.TestCase):
         ):
 
             class PadLayer[N]:
-                def forward(self, x: torch.Tensor[N, 3]) -> torch.Tensor[N + 1, 3]:
+                def forward(self, x: torch.Tensor[[N, 3]]) -> torch.Tensor[[N + 1, 3]]:
                     return x  # type: ignore[return-value]
 
 

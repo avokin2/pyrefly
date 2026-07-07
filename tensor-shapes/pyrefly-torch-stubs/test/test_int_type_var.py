@@ -8,20 +8,21 @@
 shape_extensions.TypeVar is treated identically to typing.TypeVar in pyrefly.
 This test verifies that:
 1. TypeVar("N") works for shape annotations
-2. TypeVarTuple("Ns") works for variadic shapes
+2. SizeTuple carriers work for variadic shapes
 3. Generic works with shape_extensions.TypeVar for class-level type parameters
 4. Shape arithmetic (N+1, N*2) works in annotations
 """
 
 from typing import assert_type, Generic, TYPE_CHECKING
 
+from shape_extensions import Elements, SizeTuple
+
 if TYPE_CHECKING:
-    from shape_extensions import TypeVar, TypeVarTuple
+    from shape_extensions import TypeVar
     from torch import Tensor
 
 N = TypeVar("N")
 M = TypeVar("M")
-Ns = TypeVarTuple("Ns")
 
 
 # ============================================================================
@@ -29,12 +30,12 @@ Ns = TypeVarTuple("Ns")
 # ============================================================================
 
 
-def test_typevar_identity(x: Tensor[N, M]) -> Tensor[N, M]:
+def test_typevar_identity(x: Tensor[[N, M]]) -> Tensor[[N, M]]:
     """TypeVar in input and output — same shape"""
     return x
 
 
-def test_typevar_single(x: Tensor[N]) -> Tensor[N]:
+def test_typevar_single(x: Tensor[[N]]) -> Tensor[[N]]:
     """Single TypeVar dimension"""
     return x
 
@@ -43,9 +44,9 @@ def test_typevar_inference():
     """TypeVar binds to concrete dims via inference"""
     import torch
 
-    t: Tensor[3, 4] = torch.randn(3, 4)
+    t: Tensor[[3, 4]] = torch.randn(3, 4)
     result = test_typevar_identity(t)
-    assert_type(result, Tensor[3, 4])
+    assert_type(result, Tensor[[3, 4]])
 
 
 # ============================================================================
@@ -53,22 +54,22 @@ def test_typevar_inference():
 # ============================================================================
 
 
-def test_typevar_add(x: Tensor[N, M]) -> Tensor[N + 1, M]:
+def test_typevar_add(x: Tensor[[N, M]]) -> Tensor[[N + 1, M]]:
     """N + 1 in return type"""
     return x  # type: ignore[bad-return]
 
 
-def test_typevar_mul(x: Tensor[N, M]) -> Tensor[N * 2, M]:
+def test_typevar_mul(x: Tensor[[N, M]]) -> Tensor[[N * 2, M]]:
     """N * 2 in return type"""
     return x  # type: ignore[bad-return]
 
 
-def test_typevar_sub(x: Tensor[N, M]) -> Tensor[N - 1, M]:
+def test_typevar_sub(x: Tensor[[N, M]]) -> Tensor[[N - 1, M]]:
     """N - 1 in return type"""
     return x  # type: ignore[bad-return]
 
 
-def test_typevar_two_vars(x: Tensor[N, M]) -> Tensor[N + M, 3]:
+def test_typevar_two_vars(x: Tensor[[N, M]]) -> Tensor[[N + M, 3]]:
     """N + M in return type"""
     return x  # type: ignore[bad-return]
 
@@ -81,7 +82,7 @@ def test_typevar_two_vars(x: Tensor[N, M]) -> Tensor[N + M, 3]:
 class SameShapeLayer(Generic[N]):
     """Class generic over single TypeVar"""
 
-    def forward(self, x: Tensor[N]) -> Tensor[N]:
+    def forward(self, x: Tensor[[N]]) -> Tensor[[N]]:
         return x
 
 
@@ -90,57 +91,61 @@ def test_class_generic():
     layer = SameShapeLayer()
     import torch
 
-    x: Tensor[3] = torch.randn(3)
+    x: Tensor[[3]] = torch.randn(3)
     result = layer.forward(x)
-    assert_type(result, Tensor[3])
+    assert_type(result, Tensor[[3]])
 
 
 # ============================================================================
-# TypeVarTuple in function signatures
+# SizeTuple carrier in function signatures
 # ============================================================================
 
 
-def test_typevartuple_identity(x: Tensor[*Ns]) -> Tensor[*Ns]:
-    """TypeVarTuple preserves shape"""
+def test_sizetuple_identity[Ns: SizeTuple](x: Tensor[Ns]) -> Tensor[Ns]:
+    """SizeTuple carrier preserves shape"""
     return x
 
 
-def test_typevartuple_inference():
-    """TypeVarTuple binds to concrete dims via inference"""
+def test_sizetuple_inference():
+    """SizeTuple carrier binds to concrete dims via inference"""
     import torch
 
-    t: Tensor[10, 20] = torch.randn(10, 20)
-    result = test_typevartuple_identity(t)
-    assert_type(result, Tensor[10, 20])
+    t: Tensor[[10, 20]] = torch.randn(10, 20)
+    result = test_sizetuple_identity(t)
+    assert_type(result, Tensor[[10, 20]])
 
 
-def test_typevartuple_with_fixed_dim(x: Tensor[*Ns, N]) -> Tensor[*Ns, N]:
-    """TypeVarTuple mixed with TypeVar"""
+def test_sizetuple_with_fixed_dim[Ns: SizeTuple, N](
+    x: Tensor[[*Elements[Ns], N]],
+) -> Tensor[[*Elements[Ns], N]]:
+    """SizeTuple carrier mixed with TypeVar"""
     return x
 
 
-def test_typevartuple_with_arithmetic(x: Tensor[*Ns, N]) -> Tensor[*Ns, N + 1]:
-    """TypeVarTuple with TypeVar arithmetic"""
+def test_sizetuple_with_arithmetic[Ns: SizeTuple, N](
+    x: Tensor[[*Elements[Ns], N]],
+) -> Tensor[[*Elements[Ns], N + 1]]:
+    """SizeTuple carrier with TypeVar arithmetic"""
     return x  # type: ignore[bad-return]
 
 
 # ============================================================================
-# TypeVarTuple with Generic for class-level variadic type parameters
+# SizeTuple carrier with Generic for class-level shape parameters
 # ============================================================================
 
 
-class VariadicLayer(Generic[*Ns]):
-    """Class generic over TypeVarTuple"""
+class VariadicLayer:
+    """Layer with a generic SizeTuple carrier method"""
 
-    def forward(self, x: Tensor[*Ns]) -> Tensor[*Ns]:
+    def forward[Shape: SizeTuple](self, x: Tensor[Shape]) -> Tensor[Shape]:
         return x
 
 
-def test_class_typevartuple():
-    """Generic class with TypeVarTuple — shape preserved"""
+def test_class_sizetuple_carrier():
+    """Generic class with SizeTuple carrier — shape preserved"""
     layer = VariadicLayer()
     import torch
 
-    x: Tensor[2, 3, 4] = torch.randn(2, 3, 4)
+    x: Tensor[[2, 3, 4]] = torch.randn(2, 3, 4)
     result = layer.forward(x)
-    assert_type(result, Tensor[2, 3, 4])
+    assert_type(result, Tensor[[2, 3, 4]])

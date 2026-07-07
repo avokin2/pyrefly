@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 def test_starred_unpack[B, T, NHeads, HeadDim](
-    x: Tensor[B, T, NHeads, HeadDim],
+    x: Tensor[[B, T, NHeads, HeadDim]],
 ) -> None:
     # First check that tuple slicing works
     sizes = x.size()
@@ -22,4 +22,4 @@ def test_starred_unpack[B, T, NHeads, HeadDim](
 
     # Starred unpacking now preserves element types
     result = x.float().reshape(*sliced, -1, 2)
-    assert_type(result, Tensor[B, T, NHeads, HeadDim // 2, 2])
+    assert_type(result, Tensor[[B, T, NHeads, HeadDim // 2, 2]])

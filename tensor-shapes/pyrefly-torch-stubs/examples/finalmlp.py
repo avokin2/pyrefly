@@ -88,12 +88,12 @@ class MLP[InD, OutD](nn.Module):
         self.layers = nn.ModuleList(layer_blocks)
         self.output_dim = output_dim
 
-    def forward[B](self, x: Tensor[B, InD]) -> Tensor[B, OutD]:
+    def forward[B](self, x: Tensor[[B, InD]]) -> Tensor[[B, OutD]]:
         for layer in self.layers:
             x = layer(x)
         # typed interface: Sequential(*list) + ModuleList[nn.Module] loop erases shapes
-        result: Tensor[B, OutD] = x  # type: ignore[bad-assignment]
-        assert_type(result, Tensor[B, OutD])
+        result: Tensor[[B, OutD]] = x  # type: ignore[bad-assignment]
+        assert_type(result, Tensor[[B, OutD]])
         return result
 
 
@@ -127,29 +127,33 @@ class InteractionAggregation[XD, YD, OutD, NH](nn.Module):
         )
         self.bilinear_out = nn.Linear(num_heads, output_dim)
 
-    def forward[B](self, x: Tensor[B, XD], y: Tensor[B, YD]) -> Tensor[B, OutD]:
+    def forward[B](self, x: Tensor[[B, XD]], y: Tensor[[B, YD]]) -> Tensor[[B, OutD]]:
         out = self.w_x(x) + self.w_y(y)
-        assert_type(out, Tensor[B, OutD])
+        assert_type(out, Tensor[[B, OutD]])
 
         head_x_dim = x.size(1) // self.num_heads
         head_y_dim = y.size(1) // self.num_heads
-        bilinear_terms: list[Tensor[B]] = []
+        bilinear_terms: list[Tensor[[B]]] = []
         for i in range(self.num_heads):
             x_h = x[:, i * head_x_dim : (i + 1) * head_x_dim]
-            assert_type(x_h, Tensor[B, Any])  # slicing with int indices loses head dim
+            assert_type(
+                x_h, Tensor[[B, Any]]
+            )  # slicing with int indices loses head dim
             y_h = y[:, i * head_y_dim : (i + 1) * head_y_dim]
-            assert_type(y_h, Tensor[B, Any])  # slicing with int indices loses head dim
+            assert_type(
+                y_h, Tensor[[B, Any]]
+            )  # slicing with int indices loses head dim
             interaction = (x_h @ self.bilinear_W[i] * y_h).sum(dim=-1)
-            assert_type(interaction, Tensor[B])
+            assert_type(interaction, Tensor[[B]])
             bilinear_terms.append(interaction)
 
         # annotation fallback: stack from dynamic loop can't infer collection size
-        bilinear_out: Tensor[B, NH] = torch.stack(bilinear_terms, dim=-1)
-        assert_type(bilinear_out, Tensor[B, NH])
+        bilinear_out: Tensor[[B, NH]] = torch.stack(bilinear_terms, dim=-1)
+        assert_type(bilinear_out, Tensor[[B, NH]])
         projected = self.bilinear_out(bilinear_out)
-        assert_type(projected, Tensor[B, OutD])
+        assert_type(projected, Tensor[[B, OutD]])
         out = out + projected
-        assert_type(out, Tensor[B, OutD])
+        assert_type(out, Tensor[[B, OutD]])
 
         return out
 
@@ -210,21 +214,21 @@ class FinalMLPLayer[
         self.projector = nn.LazyLinear(num_output_features * output_emb_dim)
         self.layer_norm = nn.LayerNorm(output_emb_dim)
 
-    def forward[B](self, input_embs: Tensor[B, F, D]) -> Tensor[B, K, D]:
+    def forward[B](self, input_embs: Tensor[[B, F, D]]) -> Tensor[[B, K, D]]:
         flat = input_embs.flatten(start_dim=1)
-        assert_type(flat, Tensor[B, D * F])
+        assert_type(flat, Tensor[[B, D * F]])
         mlp1_out = self.mlp1(flat)
-        assert_type(mlp1_out, Tensor[B, M1Out])
+        assert_type(mlp1_out, Tensor[[B, M1Out]])
         mlp2_out = self.mlp2(flat)
-        assert_type(mlp2_out, Tensor[B, M2Out])
+        assert_type(mlp2_out, Tensor[[B, M2Out]])
         fused = self.fusion(mlp1_out, mlp2_out)
-        assert_type(fused, Tensor[B, M1Out])
+        assert_type(fused, Tensor[[B, M1Out]])
         projected = self.projector(fused)
-        assert_type(projected, Tensor[B, D * K])
+        assert_type(projected, Tensor[[B, D * K]])
         out = projected.view(-1, self.num_output_features, self.output_emb_dim)
-        assert_type(out, Tensor[B, K, D])
+        assert_type(out, Tensor[[B, K, D]])
         result = self.layer_norm(out)
-        assert_type(result, Tensor[B, K, D])
+        assert_type(result, Tensor[[B, K, D]])
         return result
 
 
@@ -270,24 +274,24 @@ class FinalMLPBackbone[
     def output_dim(self) -> int:
         return self._output_dim
 
-    def forward[B](self, input_embs: Tensor[B, F, D]) -> Tensor[B, K * D]:
+    def forward[B](self, input_embs: Tensor[[B, F, D]]) -> Tensor[[B, K * D]]:
         x = self.first_layer(input_embs)
-        assert_type(x, Tensor[B, K, D])
+        assert_type(x, Tensor[[B, K, D]])
         for layer in self.rest_layers:
             x = layer(x)
-        assert_type(x, Tensor[B, K, D])
+        assert_type(x, Tensor[[B, K, D]])
         result = x.flatten(1)
-        assert_type(result, Tensor[B, D * K])
+        assert_type(result, Tensor[[B, D * K]])
         return result
 
 
 def test_interaction_aggregation():
     """Test bilinear interaction aggregation: (x_dim=128, y_dim=64) -> output_dim=128."""
     module = InteractionAggregation(128, 64, 128, 1)
-    x: Tensor[4, 128] = torch.randn(4, 128)
-    y: Tensor[4, 64] = torch.randn(4, 64)
+    x: Tensor[[4, 128]] = torch.randn(4, 128)
+    y: Tensor[[4, 64]] = torch.randn(4, 64)
     out = module(x, y)
-    assert_type(out, Tensor[4, 128])
+    assert_type(out, Tensor[[4, 128]])
 
 
 def test_finalmlp_layer():
@@ -301,9 +305,9 @@ def test_finalmlp_layer():
         num_output_features=16,
     )
     layer = FinalMLPLayer(32, 8, 16, 8, config)
-    x: Tensor[4, 32, 8] = torch.randn(4, 32, 8)
+    x: Tensor[[4, 32, 8]] = torch.randn(4, 32, 8)
     out = layer(x)
-    assert_type(out, Tensor[4, 16, 8])
+    assert_type(out, Tensor[[4, 16, 8]])
 
 
 def test_finalmlp_backbone():
@@ -318,6 +322,6 @@ def test_finalmlp_backbone():
         num_output_features=16,
     )
     backbone = FinalMLPBackbone(32, 8, config)
-    x: Tensor[2, 32, 8] = torch.randn(2, 32, 8)
+    x: Tensor[[2, 32, 8]] = torch.randn(2, 32, 8)
     out = backbone(x)
-    assert_type(out, Tensor[2, 128])
+    assert_type(out, Tensor[[2, 128]])

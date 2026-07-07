@@ -16,14 +16,14 @@ if TYPE_CHECKING:
 
 def test_arange():
     x = torch.arange(0, 3)
-    assert_type(x, Tensor[3])
+    assert_type(x, Tensor[[3]])
 
 
 def test_arange_symbolic[N](t: Dim[N]):
     x = torch.arange(0, t)
-    assert_type(x, Tensor[N])
+    assert_type(x, Tensor[[N]])
 
 
 def test_arange_single_arg[N](t: Dim[N]):
     x = torch.arange(t)
-    assert_type(x, Tensor[N])
+    assert_type(x, Tensor[[N]])

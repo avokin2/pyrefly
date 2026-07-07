@@ -1,12 +1,7 @@
-# Portions (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 #
-# This source code is adapted from pytorch/benchmark (TorchBenchmark),
-# which is licensed under the BSD 3-Clause License:
-# https://github.com/pytorch/benchmark/blob/main/LICENSE
-#
-# Original model: pytorch-labs/gpt-fast (mixtral-moe/model.py)
-#
-# This adaptation adds tensor shape type annotations for pyrefly.
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 
 # ## Inventory
 # - [x] find_multiple — utility, no tensors
@@ -36,10 +31,11 @@
 # - [x] apply_rotary_emb — standalone function
 
 from dataclasses import dataclass
-from typing import Any, assert_type, TYPE_CHECKING
+from typing import Any, assert_type, cast, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
+from shape_extensions import Elements, SizeTuple
 from torch.nn import functional as F
 
 if TYPE_CHECKING:
@@ -59,14 +55,18 @@ class RMSNorm[D](nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
 
-    def _norm[*Bs](self, x: Tensor[*Bs, D]) -> Tensor[*Bs, D]:
+    def _norm[Bs: SizeTuple](
+        self, x: Tensor[[*Elements[Bs], D]]
+    ) -> Tensor[[*Elements[Bs], D]]:
         return x * torch.rsqrt(torch.mean(x * x, dim=-1, keepdim=True) + self.eps)
 
-    def forward[*Bs](self, x: Tensor[*Bs, D]) -> Tensor[*Bs, D]:
+    def forward[Bs: SizeTuple](
+        self, x: Tensor[[*Elements[Bs], D]]
+    ) -> Tensor[[*Elements[Bs], D]]:
         output = self._norm(x.float()).type_as(x)
-        assert_type(output, Tensor[*Bs, D])
+        assert_type(output, Tensor[[*Elements[Bs], D]])
         result = output * self.weight
-        assert_type(result, Tensor[*Bs, D])
+        assert_type(result, Tensor[[*Elements[Bs], D]])
         return result
 
 
@@ -89,14 +89,14 @@ class KVCache[B, NHead, MaxSeq, HD](nn.Module):
 
     def update[S](
         self,
-        input_pos: Tensor[S],
-        k_val: Tensor[B, NHead, S, HD],
-        v_val: Tensor[B, NHead, S, HD],
-    ) -> tuple[Tensor[B, NHead, MaxSeq, HD], Tensor[B, NHead, MaxSeq, HD]]:
+        input_pos: Tensor[[S]],
+        k_val: Tensor[[B, NHead, S, HD]],
+        v_val: Tensor[[B, NHead, S, HD]],
+    ) -> tuple[Tensor[[B, NHead, MaxSeq, HD]], Tensor[[B, NHead, MaxSeq, HD]]]:
         k_out = self.k_cache
-        assert_type(k_out, Tensor[B, NHead, MaxSeq, HD])
+        assert_type(k_out, Tensor[[B, NHead, MaxSeq, HD]])
         v_out = self.v_cache
-        assert_type(v_out, Tensor[B, NHead, MaxSeq, HD])
+        assert_type(v_out, Tensor[[B, NHead, MaxSeq, HD]])
         k_out[:, :, input_pos] = k_val
         v_out[:, :, input_pos] = v_val
         return k_out, v_out
@@ -115,20 +115,20 @@ class ConditionalFeedForward[NExp, Inter, D](nn.Module):
         self.w3 = nn.Parameter(torch.empty(num_experts, intermediate_size, dim))
 
     def forward[T, A](
-        self, x: Tensor[T, D], expert_indices: Tensor[T, A]
-    ) -> Tensor[T, A, D]:
+        self, x: Tensor[[T, D]], expert_indices: Tensor[[T, A]]
+    ) -> Tensor[[T, A, D]]:
         w1_weights = self.w1[expert_indices]
-        assert_type(w1_weights, Tensor[T, A, Inter, D])
+        assert_type(w1_weights, Tensor[[T, A, Inter, D]])
         w3_weights = self.w3[expert_indices]
-        assert_type(w3_weights, Tensor[T, A, Inter, D])
+        assert_type(w3_weights, Tensor[[T, A, Inter, D]])
         w2_weights = self.w2[expert_indices]
-        assert_type(w2_weights, Tensor[T, A, D, Inter])
+        assert_type(w2_weights, Tensor[[T, A, D, Inter]])
         x1 = F.silu(torch.einsum("ti,taoi -> tao", x, w1_weights))
-        assert_type(x1, Tensor[T, A, Inter])
+        assert_type(x1, Tensor[[T, A, Inter]])
         x3 = torch.einsum("ti, taoi -> tao", x, w3_weights)
-        assert_type(x3, Tensor[T, A, Inter])
+        assert_type(x3, Tensor[[T, A, Inter]])
         expert_outs = torch.einsum("tao, taio -> tai", (x1 * x3), w2_weights)
-        assert_type(expert_outs, Tensor[T, A, D])
+        assert_type(expert_outs, Tensor[[T, A, D]])
         return expert_outs
 
 
@@ -146,22 +146,22 @@ class MOEFeedForward[D, NExp, A, Inter](nn.Module):
         self.dim = dim
         self.num_activated_experts = num_activated_experts
 
-    def forward[T](self, x: Tensor[T, D]) -> Tensor[T, D]:
+    def forward[T](self, x: Tensor[[T, D]]) -> Tensor[[T, D]]:
         scores = self.gate(x)
-        assert_type(scores, Tensor[T, NExp])
+        assert_type(scores, Tensor[[T, NExp]])
         expert_weights = F.softmax(scores, dim=-1)
-        assert_type(expert_weights, Tensor[T, NExp])
+        assert_type(expert_weights, Tensor[[T, NExp]])
         expert_weights, expert_indices = torch.topk(
             expert_weights, self.num_activated_experts, dim=-1
         )
-        assert_type(expert_weights, Tensor[T, A])
-        assert_type(expert_indices, Tensor[T, A])
+        assert_type(expert_weights, Tensor[[T, A]])
+        assert_type(expert_indices, Tensor[[T, A]])
         expert_weights = expert_weights / expert_weights.sum(dim=-1, keepdim=True)
-        assert_type(expert_weights, Tensor[T, A])
+        assert_type(expert_weights, Tensor[[T, A]])
         expert_outs = self.cond_ffn(x, expert_indices)
-        assert_type(expert_outs, Tensor[T, A, D])
+        assert_type(expert_outs, Tensor[[T, A, D]])
         result = torch.einsum("tai,ta -> ti", expert_outs, expert_weights)
-        assert_type(result, Tensor[T, D])
+        assert_type(result, Tensor[[T, D]])
         return result
 
 
@@ -231,7 +231,7 @@ def precompute_freqs_cis(seq_len: int, n_elem: int, base: float = 10000) -> Tens
     return cache.to(dtype=torch.bfloat16)
 
 
-def apply_rotary_emb[*S](x: Tensor[*S], freqs_cis: Tensor) -> Tensor[*S]:
+def apply_rotary_emb[S: SizeTuple](x: Tensor[S], freqs_cis: Tensor) -> Tensor[S]:
     xshaped = x.float().reshape(*x.shape[:-1], -1, 2)  # type: ignore[bad-argument-type]
     freqs_cis = freqs_cis.view(1, xshaped.size(1), 1, xshaped.size(3), 2)
     x_out2 = torch.stack(
@@ -274,37 +274,37 @@ class Attention[D, NHead, NLocalHead, HD](nn.Module):
 
     def forward[B, SeqLen](
         self,
-        x: Tensor[B, SeqLen, D],
+        x: Tensor[[B, SeqLen, D]],
         freqs_cis: Tensor,
         mask: Tensor,
         input_pos: Tensor | None = None,
-    ) -> Tensor[B, SeqLen, D]:
+    ) -> Tensor[[B, SeqLen, D]]:
         bsz, seqlen, _dim = x.shape
 
         kv_size = self.n_local_heads * self.head_dim
         q, k, v = self.wqkv(x).split((self.dim, kv_size, kv_size), dim=-1)
-        assert_type(q, Tensor[B, SeqLen, D])
-        assert_type(k, Tensor[B, SeqLen, HD * NLocalHead])
-        assert_type(v, Tensor[B, SeqLen, HD * NLocalHead])
+        assert_type(q, Tensor[[B, SeqLen, D]])
+        assert_type(k, Tensor[[B, SeqLen, HD * NLocalHead]])
+        assert_type(v, Tensor[[B, SeqLen, HD * NLocalHead]])
 
         q = q.view(bsz, seqlen, self.n_head, self.head_dim)
-        assert_type(q, Tensor[B, SeqLen, NHead, HD])
+        assert_type(q, Tensor[[B, SeqLen, NHead, HD]])
         k = k.view(bsz, seqlen, self.n_local_heads, self.head_dim)
-        assert_type(k, Tensor[B, SeqLen, NLocalHead, HD])
+        assert_type(k, Tensor[[B, SeqLen, NLocalHead, HD]])
         v = v.view(bsz, seqlen, self.n_local_heads, self.head_dim)
-        assert_type(v, Tensor[B, SeqLen, NLocalHead, HD])
+        assert_type(v, Tensor[[B, SeqLen, NLocalHead, HD]])
 
         q = apply_rotary_emb(q, freqs_cis)
-        assert_type(q, Tensor[B, SeqLen, NHead, HD])
+        assert_type(q, Tensor[[B, SeqLen, NHead, HD]])
         k = apply_rotary_emb(k, freqs_cis)
-        assert_type(k, Tensor[B, SeqLen, NLocalHead, HD])
+        assert_type(k, Tensor[[B, SeqLen, NLocalHead, HD]])
 
         q = q.transpose(1, 2)
-        assert_type(q, Tensor[B, NHead, SeqLen, HD])
+        assert_type(q, Tensor[[B, NHead, SeqLen, HD]])
         k = k.transpose(1, 2)
-        assert_type(k, Tensor[B, NLocalHead, SeqLen, HD])
+        assert_type(k, Tensor[[B, NLocalHead, SeqLen, HD]])
         v = v.transpose(1, 2)
-        assert_type(v, Tensor[B, NLocalHead, SeqLen, HD])
+        assert_type(v, Tensor[[B, NLocalHead, SeqLen, HD]])
 
         if self.kv_cache is not None:
             assert input_pos is not None
@@ -314,14 +314,16 @@ class Attention[D, NHead, NLocalHead, HD](nn.Module):
         assert_type(k, Tensor)  # type: ignore  # union from kv_cache branch join
         v = v.repeat_interleave(self.n_head // self.n_local_heads, dim=1)
         assert_type(v, Tensor)  # type: ignore  # union from kv_cache branch join
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0)
-        assert_type(y, Tensor)  # type: ignore  # A1: NLocalHead*(NHead//NLocalHead) != NHead
+        y = cast(
+            Tensor[[B, NHead, SeqLen, HD]],
+            F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0),
+        )
 
         y = y.transpose(1, 2).contiguous().view(bsz, seqlen, self.dim)
-        assert_type(y, Tensor[B, SeqLen, D])
+        assert_type(y, Tensor[[B, SeqLen, D]])
 
         y = self.wo(y)
-        assert_type(y, Tensor[B, SeqLen, D])
+        assert_type(y, Tensor[[B, SeqLen, D]])
         return y
 
 
@@ -347,25 +349,25 @@ class TransformerBlock[D, NHead, NLocalHead, HD, NExp, A, Inter](nn.Module):
 
     def forward[B, SeqLen](
         self,
-        x: Tensor[B, SeqLen, D],
+        x: Tensor[[B, SeqLen, D]],
         input_pos: Tensor | None,
         freqs_cis: Tensor,
         mask: Tensor,
-    ) -> Tensor[B, SeqLen, D]:
+    ) -> Tensor[[B, SeqLen, D]]:
         attn_out = self.attention(self.attention_norm(x), freqs_cis, mask, input_pos)
-        assert_type(attn_out, Tensor[B, SeqLen, D])
+        assert_type(attn_out, Tensor[[B, SeqLen, D]])
         h = x + attn_out
-        assert_type(h, Tensor[B, SeqLen, D])
+        assert_type(h, Tensor[[B, SeqLen, D]])
         h_normed = self.ffn_norm(h)
-        assert_type(h_normed, Tensor[B, SeqLen, D])
+        assert_type(h_normed, Tensor[[B, SeqLen, D]])
         h_flat = h_normed.view(-1, h_normed.shape[-1])
-        assert_type(h_flat, Tensor[B * SeqLen, D])
+        assert_type(h_flat, Tensor[[B * SeqLen, D]])
         ffn_out = self.block_sparse_moe(h_flat)
-        assert_type(ffn_out, Tensor[B * SeqLen, D])
+        assert_type(ffn_out, Tensor[[B * SeqLen, D]])
         ffn_out = ffn_out.view(h.shape)
-        assert_type(ffn_out, Tensor[B, SeqLen, D])
+        assert_type(ffn_out, Tensor[[B, SeqLen, D]])
         out = h + ffn_out
-        assert_type(out, Tensor[B, SeqLen, D])
+        assert_type(out, Tensor[[B, SeqLen, D]])
         return out
 
 
@@ -436,9 +438,9 @@ class Transformer(nn.Module):
             x = layer(x, input_pos, freqs_cis, mask)
         assert_type(x, Tensor)  # type: ignore  # Unknown — loop widens
         x = self.norm(x)
-        assert_type(x, Tensor)  # type: ignore  # Tensor[Unknown, Unknown, Unknown]
+        assert_type(x, Tensor)  # type: ignore  # Tensor[[Unknown, Unknown, Unknown]]
         logits = self.output(x)
-        assert_type(logits, Tensor)  # type: ignore  # Tensor[Unknown, Unknown, Unknown]
+        assert_type(logits, Tensor)  # type: ignore  # Tensor[[Unknown, Unknown, Unknown]]
         return logits
 
     @classmethod
@@ -448,39 +450,39 @@ class Transformer(nn.Module):
 
 def test_rmsnorm() -> None:
     norm = RMSNorm(64)
-    x: Tensor[2, 10, 64] = torch.randn(2, 10, 64)
+    x: Tensor[[2, 10, 64]] = torch.randn(2, 10, 64)
     out = norm(x)
-    assert_type(out, Tensor[2, 10, 64])
+    assert_type(out, Tensor[[2, 10, 64]])
 
 
 def test_conditional_feed_forward() -> None:
     cff = ConditionalFeedForward(8, 256, 64)
-    x: Tensor[5, 64] = torch.randn(5, 64)
-    indices: Tensor[5, 2] = torch.randint(0, 8, (5, 2))
+    x: Tensor[[5, 64]] = torch.randn(5, 64)
+    indices: Tensor[[5, 2]] = torch.randint(0, 8, (5, 2))
     out = cff(x, indices)
-    assert_type(out, Tensor[5, 2, 64])
+    assert_type(out, Tensor[[5, 2, 64]])
 
 
 def test_moe_feed_forward() -> None:
     moe = MOEFeedForward(64, 8, 2, 256)
-    x: Tensor[5, 64] = torch.randn(5, 64)
+    x: Tensor[[5, 64]] = torch.randn(5, 64)
     out = moe(x)
-    assert_type(out, Tensor[5, 64])
+    assert_type(out, Tensor[[5, 64]])
 
 
 def test_attention() -> None:
     attn = Attention(64, 8, 4, 8)
-    x: Tensor[2, 10, 64] = torch.randn(2, 10, 64)
+    x: Tensor[[2, 10, 64]] = torch.randn(2, 10, 64)
     freqs: Tensor = torch.randn(10, 4, 2)
     mask: Tensor = torch.ones(1, 1, 10, 10)
     out = attn(x, freqs, mask)
-    assert_type(out, Tensor[2, 10, 64])
+    assert_type(out, Tensor[[2, 10, 64]])
 
 
 def test_transformer_block() -> None:
     block = TransformerBlock(64, 8, 4, 8, 8, 2, 256, 1e-5)
-    x: Tensor[2, 10, 64] = torch.randn(2, 10, 64)
+    x: Tensor[[2, 10, 64]] = torch.randn(2, 10, 64)
     freqs: Tensor = torch.randn(10, 4, 2)
     mask: Tensor = torch.ones(1, 1, 10, 10)
     out = block(x, None, freqs, mask)
-    assert_type(out, Tensor[2, 10, 64])
+    assert_type(out, Tensor[[2, 10, 64]])

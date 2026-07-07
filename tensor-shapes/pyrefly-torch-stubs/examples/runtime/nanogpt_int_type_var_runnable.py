@@ -11,7 +11,7 @@ https://github.com/openai/gpt-2/blob/master/src/model.py
 2) huggingface/transformers PyTorch implementation:
 https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
 
-Runnable variant using TypeVar/TypeVarTuple from shape_extensions and Generic instead
+Runnable variant using TypeVar from shape_extensions and Generic instead
 of PEP 695 syntax. All assert_type calls removed for runtime safety.
 """
 
@@ -24,7 +24,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init
 import torch.optim
-from shape_extensions import Dim, TypeVar, TypeVarTuple
+from shape_extensions import Dim, Elements, SizeTuple, TypeVar
 from torch import Tensor
 from torch.nn import functional as F
 
@@ -37,7 +37,7 @@ NHead = TypeVar("NHead")
 NLayer = TypeVar("NLayer")
 B = TypeVar("B")
 T = TypeVar("T")
-Bs = TypeVarTuple("Bs")
+Bs = TypeVar("Bs", bound=SizeTuple)
 
 
 class LayerNorm(nn.Module, Generic[M]):
@@ -48,7 +48,7 @@ class LayerNorm(nn.Module, Generic[M]):
         self.weight = nn.Parameter(torch.ones(ndim))
         self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
 
-    def forward(self, input: Tensor[*Bs, M]) -> Tensor[*Bs, M]:
+    def forward(self, input: Tensor[[*Elements[Bs], M]]) -> Tensor[[*Elements[Bs], M]]:
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
 
@@ -94,7 +94,7 @@ class CausalSelfAttention(nn.Module, Generic[NEmbedding, NHead, BlockSize]):
                 )
             )
 
-    def forward(self, x: Tensor[B, T, NEmbedding]) -> Tensor[B, T, NEmbedding]:
+    def forward(self, x: Tensor[[B, T, NEmbedding]]) -> Tensor[[B, T, NEmbedding]]:
         b, t, c = (
             x.size()
         )  # batch size, sequence length, embedding dimensionality (n_embd)
@@ -152,7 +152,7 @@ class MLP(nn.Module, Generic[NEmbedding]):
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
-    def forward(self, x: Tensor[B, T, NEmbedding]) -> Tensor[B, T, NEmbedding]:
+    def forward(self, x: Tensor[[B, T, NEmbedding]]) -> Tensor[[B, T, NEmbedding]]:
         h = self.c_fc(x)
         h = self.gelu(h)
         x = self.c_proj(h)
@@ -170,7 +170,7 @@ class Block(nn.Module, Generic[NEmbedding, NHead, BlockSize]):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x: Tensor[B, T, NEmbedding]) -> Tensor[B, T, NEmbedding]:
+    def forward(self, x: Tensor[[B, T, NEmbedding]]) -> Tensor[[B, T, NEmbedding]]:
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
@@ -267,8 +267,10 @@ class GPT(nn.Module, Generic[VocabSize, BlockSize, NEmbedding, NHead, NLayer]):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(
-        self, idx: Tensor[B, T], targets: Tensor[B, T] | None = None
-    ) -> tuple[Tensor[B, T, VocabSize] | Tensor[B, 1, VocabSize], Tensor[()] | None]:
+        self, idx: Tensor[[B, T]], targets: Tensor[[B, T]] | None = None
+    ) -> tuple[
+        Tensor[[B, T, VocabSize]] | Tensor[[B, 1, VocabSize]], Tensor[[]] | None
+    ]:
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, (
@@ -282,7 +284,7 @@ class GPT(nn.Module, Generic[VocabSize, BlockSize, NEmbedding, NHead, NLayer]):
         tok_pos_emb = tok_emb + pos_emb
         x = self.transformer.drop(tok_pos_emb)
         for block in self.transformer.h:
-            _x: Tensor[B, T, NEmbedding] = x
+            _x: Tensor[[B, T, NEmbedding]] = x
             x = block(_x)
 
         x = self.transformer.ln_f(x)
@@ -429,11 +431,11 @@ class GPT(nn.Module, Generic[VocabSize, BlockSize, NEmbedding, NHead, NLayer]):
     @torch.no_grad()
     def generate(
         self,
-        idx: Tensor[B, Any],
+        idx: Tensor[[B, Any]],
         max_new_tokens: int,
         temperature: float = 1.0,
         top_k: int | None = None,
-    ) -> Tensor[B, Any]:
+    ) -> Tensor[[B, Any]]:
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -459,7 +461,7 @@ class GPT(nn.Module, Generic[VocabSize, BlockSize, NEmbedding, NHead, NLayer]):
             # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1)
             # append sampled index to the running sequence and continue
-            _idx: Tensor[B, Any] = idx
+            _idx: Tensor[[B, Any]] = idx
             idx = torch.cat((_idx, idx_next), dim=1)
 
         return idx

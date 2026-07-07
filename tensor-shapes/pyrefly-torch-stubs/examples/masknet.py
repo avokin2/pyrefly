@@ -78,23 +78,23 @@ class MaskBlock[InD, HidD, RedD, OutD](nn.Module):
         self.hidden_dropout = nn.Dropout(p=dropout_rate) if dropout_rate > 0 else None
 
     def forward[B](
-        self, V_emb: Tensor[B, InD], V_hidden: Tensor[B, HidD]
-    ) -> Tensor[B, OutD]:
+        self, V_emb: Tensor[[B, InD]], V_hidden: Tensor[[B, HidD]]
+    ) -> Tensor[[B, OutD]]:
         V_mask = self.mask_layer(V_emb)
-        assert_type(V_mask, Tensor[B, HidD])
+        assert_type(V_mask, Tensor[[B, HidD]])
         masked = V_mask * V_hidden
-        assert_type(masked, Tensor[B, HidD])
+        assert_type(masked, Tensor[[B, HidD]])
         v_out = self.hidden_linear(masked)
-        assert_type(v_out, Tensor[B, OutD])
+        assert_type(v_out, Tensor[[B, OutD]])
         if self.hidden_norm is not None:
             v_out = self.hidden_norm(v_out)
-            assert_type(v_out, Tensor[B, OutD])
+            assert_type(v_out, Tensor[[B, OutD]])
         # getattr(nn, activation)() returns nn.Module — forward returns Any
-        v_out: Tensor[B, OutD] = self.hidden_act(v_out)
-        assert_type(v_out, Tensor[B, OutD])
+        v_out: Tensor[[B, OutD]] = self.hidden_act(v_out)
+        assert_type(v_out, Tensor[[B, OutD]])
         if self.hidden_dropout is not None:
             v_out = self.hidden_dropout(v_out)
-            assert_type(v_out, Tensor[B, OutD])
+            assert_type(v_out, Tensor[[B, OutD]])
         return v_out
 
 
@@ -129,16 +129,16 @@ class SerialMaskNet[InD, OutD](nn.Module):
         self.output_dim = output_dim
 
     def forward[B](
-        self, V_emb: Tensor[B, InD], V_hidden: Tensor[B, InD]
-    ) -> Tensor[B, OutD]:
+        self, V_emb: Tensor[[B, InD]], V_hidden: Tensor[[B, InD]]
+    ) -> Tensor[[B, OutD]]:
         v_out: Tensor = V_hidden
         assert_type(v_out, Tensor)
         for block in self.mask_blocks:
             # ModuleList iteration — blocks constructed with int from list, returns Unknown
             v_out = block(V_emb, v_out)  # type: ignore[assignment]
-        # Annotation fallback: last block outputs Tensor[B, OutD]
-        result: Tensor[B, OutD] = v_out  # type: ignore[assignment]
-        assert_type(result, Tensor[B, OutD])
+        # Annotation fallback: last block outputs Tensor[[B, OutD]]
+        result: Tensor[[B, OutD]] = v_out  # type: ignore[assignment]
+        assert_type(result, Tensor[[B, OutD]])
         return result
 
 
@@ -190,18 +190,18 @@ class ParallelMaskNet[InD: Dim[Any], BlkD: Dim[Any] = 64, OutD: Dim[Any] = 64](
         self.output_dim = output_dim
 
     def forward[B](
-        self, V_emb: Tensor[B, InD], V_hidden: Tensor[B, InD]
-    ) -> Tensor[B, OutD]:
+        self, V_emb: Tensor[[B, InD]], V_hidden: Tensor[[B, InD]]
+    ) -> Tensor[[B, OutD]]:
         block_out = [
             self.mask_blocks[i](V_emb, V_hidden) for i in range(self.num_blocks)
         ]
-        assert_type(block_out, list[Tensor[B, BlkD]])
+        assert_type(block_out, list[Tensor[[B, BlkD]]])
         # torch.cat with list — DSL can't infer size from dynamic list
         concat_out: Tensor = torch.cat(block_out, dim=-1)
         assert_type(concat_out, Tensor)
         # Sequential(*list) | Identity — both erase types
-        result: Tensor[B, OutD] = self.dnn(concat_out)  # type: ignore[assignment]
-        assert_type(result, Tensor[B, OutD])
+        result: Tensor[[B, OutD]] = self.dnn(concat_out)  # type: ignore[assignment]
+        assert_type(result, Tensor[[B, OutD]])
         return result
 
 
@@ -280,7 +280,7 @@ class MaskNetBackbone[F, D, OutD: Dim[Any]](nn.Module):
     def output_dim(self) -> Dim[OutD]:
         return self._output_dim
 
-    def forward[B](self, input_embs: Tensor[B, F, D]) -> Tensor[B, OutD]:
+    def forward[B](self, input_embs: Tensor[[B, F, D]]) -> Tensor[[B, OutD]]:
         # LCE compression: [B, F, D] -> [B, compression_num, D]
         if self.lce is not None:
             # lce compresses F to compression_num (int from config — Unknown)
@@ -288,7 +288,7 @@ class MaskNetBackbone[F, D, OutD: Dim[Any]](nn.Module):
 
         # Per-field LayerNorm to produce V_hidden — cat with list from unbind loses shapes
         feat_list = input_embs.unbind(dim=1)
-        assert_type(feat_list, tuple[Tensor[B, D], ...])
+        assert_type(feat_list, tuple[Tensor[[B, D]], ...])
         V_hidden: Tensor = torch.cat(
             [self.emb_norm[i](feat) for i, feat in enumerate(feat_list)], dim=1
         )
@@ -298,8 +298,8 @@ class MaskNetBackbone[F, D, OutD: Dim[Any]](nn.Module):
         V_emb = input_embs.flatten(start_dim=1)
 
         # mask_net is nn.Module — forward returns Any
-        result: Tensor[B, OutD] = self.mask_net(V_emb, V_hidden)  # type: ignore[assignment]
-        assert_type(result, Tensor[B, OutD])
+        result: Tensor[[B, OutD]] = self.mask_net(V_emb, V_hidden)  # type: ignore[assignment]
+        assert_type(result, Tensor[[B, OutD]])
         return result
 
 
@@ -311,10 +311,10 @@ class MaskNetBackbone[F, D, OutD: Dim[Any]](nn.Module):
 def test_mask_block():
     """Test MaskBlock: input(128) x hidden(128) -> output(64)."""
     block = MaskBlock(128, 128, 64, 64)
-    v_emb: Tensor[4, 128] = torch.randn(4, 128)
-    v_hidden: Tensor[4, 128] = torch.randn(4, 128)
+    v_emb: Tensor[[4, 128]] = torch.randn(4, 128)
+    v_hidden: Tensor[[4, 128]] = torch.randn(4, 128)
     out = block(v_emb, v_hidden)
-    assert_type(out, Tensor[4, 64])
+    assert_type(out, Tensor[[4, 64]])
 
 
 def test_serial_masknet():
@@ -324,10 +324,10 @@ def test_serial_masknet():
         output_dim=64,
         hidden_units=[128, 64],
     )
-    v_emb: Tensor[4, 128] = torch.randn(4, 128)
-    v_hidden: Tensor[4, 128] = torch.randn(4, 128)
+    v_emb: Tensor[[4, 128]] = torch.randn(4, 128)
+    v_hidden: Tensor[[4, 128]] = torch.randn(4, 128)
     out = net(v_emb, v_hidden)
-    assert_type(out, Tensor[4, 64])
+    assert_type(out, Tensor[[4, 64]])
 
 
 def test_parallel_masknet():
@@ -339,19 +339,19 @@ def test_parallel_masknet():
         block_dim=64,
         dnn_hidden_units=[128, 32],
     )
-    v_emb: Tensor[4, 128] = torch.randn(4, 128)
-    v_hidden: Tensor[4, 128] = torch.randn(4, 128)
+    v_emb: Tensor[[4, 128]] = torch.randn(4, 128)
+    v_hidden: Tensor[[4, 128]] = torch.randn(4, 128)
     out = net(v_emb, v_hidden)
-    assert_type(out, Tensor[4, 32])
+    assert_type(out, Tensor[[4, 32]])
 
 
 def test_masknet_backbone_serial():
     """End-to-end: SerialMaskNet backbone [B, 10, 16] -> [B, 256]."""
     config = MaskNetConfig(model_type="SerialMaskNet", hidden_units=[512, 256])
     model = MaskNetBackbone(num_features=10, emb_dim=16, output_dim=256, config=config)
-    x: Tensor[4, 10, 16] = torch.randn(4, 10, 16)
+    x: Tensor[[4, 10, 16]] = torch.randn(4, 10, 16)
     out = model(x)
-    assert_type(out, Tensor[4, 256])
+    assert_type(out, Tensor[[4, 256]])
 
 
 def test_masknet_backbone_parallel():
@@ -363,6 +363,6 @@ def test_masknet_backbone_parallel():
         hidden_units=[64],
     )
     model = MaskNetBackbone(num_features=10, emb_dim=16, output_dim=64, config=config)
-    x: Tensor[4, 10, 16] = torch.randn(4, 10, 16)
+    x: Tensor[[4, 10, 16]] = torch.randn(4, 10, 16)
     out = model(x)
-    assert_type(out, Tensor[4, 64])
+    assert_type(out, Tensor[[4, 64]])

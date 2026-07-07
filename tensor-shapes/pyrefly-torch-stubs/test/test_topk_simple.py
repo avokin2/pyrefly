@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from torch import Tensor
 
 
-def test_topk_basic[B, V](logits: Tensor[B, V]):
+def test_topk_basic[B, V](logits: Tensor[[B, V]]):
     """Test topk with a shaped tensor"""
     v, _ = torch.topk(logits, 5)
-    assert_type(v, Tensor[B, 5])
+    assert_type(v, Tensor[[B, 5]])

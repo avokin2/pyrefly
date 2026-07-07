@@ -16,20 +16,20 @@ if TYPE_CHECKING:
 
 
 # Does torch.matmul work?
-def test_matmul_function[N, M, K](a: Tensor[N, M], b: Tensor[M, K]):
+def test_matmul_function[N, M, K](a: Tensor[[N, M]], b: Tensor[[M, K]]):
     """Test torch.matmul with symbolic dimensions"""
     c = torch.matmul(a, b)
-    assert_type(c, Tensor[N, K])
+    assert_type(c, Tensor[[N, K]])
 
 
 test_matmul_function(torch.randn(5, 10), torch.randn(10, 7))
 
 
 # Does @ work?
-def test_at_operator[N, M, K](a: Tensor[N, M], b: Tensor[M, K]):
+def test_at_operator[N, M, K](a: Tensor[[N, M]], b: Tensor[[M, K]]):
     """Test @ operator with symbolic dimensions"""
     c = a @ b
-    assert_type(c, Tensor[N, K])
+    assert_type(c, Tensor[[N, K]])
 
 
 test_at_operator(torch.randn(5, 10), torch.randn(10, 7))

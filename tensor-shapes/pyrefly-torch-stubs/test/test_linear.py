@@ -29,4 +29,4 @@ def test_linear_arith[N](n: Dim[N]):
     linear = Linear(n, n * 2)
     t = torch.randn(4, 3, n)
     d = linear(t)
-    assert_type(d, Tensor[4, 3, N * 2])
+    assert_type(d, Tensor[[4, 3, N * 2]])

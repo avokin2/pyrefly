@@ -54,10 +54,10 @@ class HyperNet[IN, OUT](nn.Module):
         layers.append(nn.Linear(in_dim, output_dim))
         self.net = nn.Sequential(*layers)
 
-    def forward[B](self, x: Tensor[B, IN]) -> Tensor[B, OUT]:
+    def forward[B](self, x: Tensor[[B, IN]]) -> Tensor[[B, OUT]]:
         # Sequential(*list) returns bare Tensor
-        out: Tensor[B, OUT] = self.net(x)
-        assert_type(out, Tensor[B, OUT])
+        out: Tensor[[B, OUT]] = self.net(x)
+        assert_type(out, Tensor[[B, OUT]])
         return out
 
 
@@ -131,55 +131,55 @@ class APGLinear[IN, OUT, CD, RK, OP](nn.Module):
             dropout=hypernet_dropout,
         )
 
-        self.bias: Tensor[1, OUT] | None
+        self.bias: Tensor[[1, OUT]] | None
         if self.use_bias and not self.generate_bias:
             self.bias = nn.Parameter(torch.zeros(1, output_dim))
         else:
             self.bias = None
 
     def forward[B](
-        self, input_h: Tensor[B, IN], condition_z: Tensor[B, CD]
-    ) -> Tensor[B, OUT]:
-        # weight_S: Tensor[B, Unknown] — int() arithmetic in hypernet_output_dim
+        self, input_h: Tensor[[B, IN]], condition_z: Tensor[[B, CD]]
+    ) -> Tensor[[B, OUT]]:
+        # weight_S: Tensor[[B, Unknown]] — int() arithmetic in hypernet_output_dim
         weight_S = self.hypernet(condition_z)
         bias = self.bias
-        assert_type(bias, Tensor[1, OUT] | None)
+        assert_type(bias, Tensor[[1, OUT]] | None)
 
         if self.generate_bias:
             if self.use_bias:
                 bias = weight_S[:, : self.output_dim]
-                assert_type(bias, Tensor[B, OUT])
-            # weight_S: Tensor[B, Any] — upstream Unknown contagion
+                assert_type(bias, Tensor[[B, OUT]])
+            # weight_S: Tensor[[B, Any]] — upstream Unknown contagion
             weight_S = weight_S[:, self.output_dim :]
 
         if self.rank_k is not None:
-            # weight_S: Tensor[Any, RK, RK] — batch dim Any from upstream
+            # weight_S: Tensor[[Any, RK, RK]] — batch dim Any from upstream
             weight_S = weight_S.reshape(-1, self.rank_k, self.rank_k)
             if self.overparam_p is not None:
                 U = torch.matmul(self.U_l, self.U_r)
-                assert_type(U, Tensor[IN, RK])
+                assert_type(U, Tensor[[IN, RK]])
                 V = torch.matmul(self.V_l, self.V_r)
-                assert_type(V, Tensor[RK, OUT])
+                assert_type(V, Tensor[[RK, OUT]])
             else:
                 U = self.U
-                assert_type(U, Tensor[IN, RK])
+                assert_type(U, Tensor[[IN, RK]])
                 V = self.V
-                assert_type(V, Tensor[RK, OUT])
+                assert_type(V, Tensor[[RK, OUT]])
             h = torch.matmul(input_h, U)
-            assert_type(h, Tensor[B, RK])
+            assert_type(h, Tensor[[B, RK]])
             h = torch.bmm(h.unsqueeze(1), weight_S).squeeze(1)
-            assert_type(h, Tensor[B, RK])
+            assert_type(h, Tensor[[B, RK]])
             out = torch.matmul(h, V)
-            assert_type(out, Tensor[B, OUT])
+            assert_type(out, Tensor[[B, OUT]])
         else:
-            # weight_S: Tensor[Any, IN, OUT] — batch dim Any from upstream
+            # weight_S: Tensor[[Any, IN, OUT]] — batch dim Any from upstream
             weight_S = weight_S.reshape(-1, self.input_dim, self.output_dim)
             out = torch.bmm(input_h.unsqueeze(1), weight_S).squeeze(1)
-            assert_type(out, Tensor[B, OUT])
+            assert_type(out, Tensor[[B, OUT]])
 
         if bias is not None:
             out = out + bias
-            assert_type(out, Tensor[B, OUT])
+            assert_type(out, Tensor[[B, OUT]])
         return out
 
 
@@ -253,8 +253,8 @@ class APGMLP[InDim, OutDim](nn.Module):
         self.output_dim = output_dim
 
     def forward[B](
-        self, x: Tensor[B, InDim], condition_z: Tensor | None = None
-    ) -> Tensor[B, OutDim]:
+        self, x: Tensor[[B, InDim]], condition_z: Tensor | None = None
+    ) -> Tensor[[B, OutDim]]:
         # ModuleList iteration with heterogeneous modules → Any
         h: Tensor = x
         for idx in range(self.num_layers):
@@ -269,8 +269,8 @@ class APGMLP[InDim, OutDim](nn.Module):
             drop = self.drops[idx]
             if drop is not None:
                 h = drop(h)
-        out: Tensor[B, OutDim] = h  # annotation fallback
-        assert_type(out, Tensor[B, OutDim])
+        out: Tensor[[B, OutDim]] = h  # annotation fallback
+        assert_type(out, Tensor[[B, OutDim]])
         return out
 
 
@@ -356,7 +356,7 @@ class APGBackbone[F, D, OutD](nn.Module):
     def output_dim(self) -> Dim[OutD]:
         return self._output_dim
 
-    def forward[B](self, input_embs: Tensor[B, F, D]) -> Tensor[B, OutD]:
+    def forward[B](self, input_embs: Tensor[[B, F, D]]) -> Tensor[[B, OutD]]:
         # ModuleList iteration in loop → All locals Any
         x: Tensor = input_embs
         for i in range(self.num_stacked_layers):
@@ -370,8 +370,8 @@ class APGBackbone[F, D, OutD](nn.Module):
             else:
                 x = out
 
-        result: Tensor[B, OutD] = x  # annotation fallback
-        assert_type(result, Tensor[B, OutD])
+        result: Tensor[[B, OutD]] = x  # annotation fallback
+        assert_type(result, Tensor[[B, OutD]])
         return result
 
 
@@ -379,7 +379,7 @@ def test_hypernet() -> None:
     net = HyperNet(input_dim=32, output_dim=64, hidden_units=[128])
     x = torch.randn(8, 32)
     out = net(x)
-    assert_type(out, Tensor[8, 64])
+    assert_type(out, Tensor[[8, 64]])
 
 
 def test_apg_linear_full_rank() -> None:
@@ -387,7 +387,7 @@ def test_apg_linear_full_rank() -> None:
     h = torch.randn(4, 16)
     z = torch.randn(4, 16)
     out = layer(h, z)
-    assert_type(out, Tensor[4, 8])
+    assert_type(out, Tensor[[4, 8]])
 
 
 def test_apg_linear_low_rank() -> None:
@@ -401,7 +401,7 @@ def test_apg_linear_low_rank() -> None:
     h = torch.randn(4, 16)
     z = torch.randn(4, 16)
     out = layer(h, z)
-    assert_type(out, Tensor[4, 8])
+    assert_type(out, Tensor[[4, 8]])
 
 
 def test_apg_backbone() -> None:
@@ -414,4 +414,4 @@ def test_apg_backbone() -> None:
     )
     embs = torch.randn(4, 10, 32)
     out = backbone(embs)
-    assert_type(out, Tensor[4, 256])
+    assert_type(out, Tensor[[4, 256]])

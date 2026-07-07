@@ -21,27 +21,27 @@ class Block[N](Module):
         super().__init__()
         self.x = x
 
-    def forward[B, T](self, x: Tensor[B, T, N]) -> Tensor[B, T, N]:
+    def forward[B, T](self, x: Tensor[[B, T, N]]) -> Tensor[[B, T, N]]:
         return x
 
 
-def test_modulelist(modules: ModuleList[Block[4]], x: Tensor[2, 3, 4]):
+def test_modulelist(modules: ModuleList[Block[4]], x: Tensor[[2, 3, 4]]):
     y = modules[0](x)
-    assert_type(y, Tensor[2, 3, 4])
+    assert_type(y, Tensor[[2, 3, 4]])
 
 
 def test_modulelist_symbolic[B, T, N](
-    modules: ModuleList[Block[N]], x: Tensor[B, T, N]
+    modules: ModuleList[Block[N]], x: Tensor[[B, T, N]]
 ):
     y = modules[0](x)
-    assert_type(y, Tensor[B, T, N])
+    assert_type(y, Tensor[[B, T, N]])
 
 
 def test_modulelist_symbolic_loop[B, T, N](
-    modules: ModuleList[Block[N]], x: Tensor[B, T, N]
+    modules: ModuleList[Block[N]], x: Tensor[[B, T, N]]
 ):
-    assert_type(x, Tensor[B, T, N])
+    assert_type(x, Tensor[[B, T, N]])
     y = x
     for block in modules:
         y = block(y)
-    assert_type(y, Tensor[B, T, N])
+    assert_type(y, Tensor[[B, T, N]])

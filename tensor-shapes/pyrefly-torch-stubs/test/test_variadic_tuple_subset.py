@@ -23,6 +23,7 @@ from typing import assert_type, Callable, TYPE_CHECKING
 
 import torch.nn as nn
 import torch.nn.functional as F
+from shape_extensions import Elements, SizeTuple
 
 if TYPE_CHECKING:
     from shape_extensions import Dim
@@ -51,9 +52,11 @@ class TwoReluCalls[D](nn.Module):
         self.fc1 = nn.Linear(d, 256)
         self.fc2 = nn.Linear(256, 256)
 
-    def forward[*Bs](self, x: Tensor[*Bs, D]) -> Tensor[*Bs, 256]:
+    def forward[Bs: SizeTuple](
+        self, x: Tensor[[*Elements[Bs], D]]
+    ) -> Tensor[[*Elements[Bs], 256]]:
         h = F.relu(self.fc1(x))
-        assert_type(h, Tensor[*Bs, 256])
+        assert_type(h, Tensor[[*Elements[Bs], 256]])
         return F.relu(self.fc2(h))
 
 
@@ -63,7 +66,9 @@ class NestedVariadic[D](nn.Module):
         super().__init__()
         self.fc = nn.Linear(d, 256)
 
-    def forward[*Bs](self, x: Tensor[*Bs, D]) -> Tensor[*Bs, 256]:
+    def forward[Bs: SizeTuple](
+        self, x: Tensor[[*Elements[Bs], D]]
+    ) -> Tensor[[*Elements[Bs], 256]]:
         return F.dropout(F.relu(self.fc(x)), p=0.5, training=True)
 
 

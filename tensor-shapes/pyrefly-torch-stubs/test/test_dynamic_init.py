@@ -27,15 +27,15 @@ if TYPE_CHECKING:
 class DynamicLinear[N, M](nn.Module):
     """Linear layer with runtime dimension parameters"""
 
-    weight: Tensor[M, N]
+    weight: Tensor[[M, N]]
 
     def __init__(self, in_features: Dim[N], out_features: Dim[M]):
         super().__init__()
         # Now N and M are bound via Literal params, so we can create tensors
         self.weight = torch.randn(out_features, in_features)
 
-    def forward[B](self, x: Tensor[B, N]) -> Tensor[B, M]:
-        weight_t: Tensor[N, M] = self.weight.transpose(0, 1)
+    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
+        weight_t: Tensor[[N, M]] = self.weight.transpose(0, 1)
         return torch.matmul(x, weight_t)
 
 
@@ -43,9 +43,9 @@ def test_dynamic_init():
     """Test dynamic initialization with Literal parameters"""
     layer = DynamicLinear(64, 128)
 
-    x: Tensor[32, 64] = torch.randn(32, 64)
+    x: Tensor[[32, 64]] = torch.randn(32, 64)
     y = layer(x)
-    assert_type(y, Tensor[32, 128])
+    assert_type(y, Tensor[[32, 128]])
 
 
 # ============================================================================
@@ -62,23 +62,23 @@ def test_multiple_instances():
     # Instance 1: 64 -> 128
     layer1 = DynamicLinear(64, 128)
 
-    x1: Tensor[8, 64] = torch.randn(8, 64)
+    x1: Tensor[[8, 64]] = torch.randn(8, 64)
     y1 = layer1(x1)
-    assert_type(y1, Tensor[8, 128])
+    assert_type(y1, Tensor[[8, 128]])
 
     # Instance 2: 256 -> 512 (different dimensions!)
     layer2 = DynamicLinear(256, 512)
 
-    x2: Tensor[16, 256] = torch.randn(16, 256)
+    x2: Tensor[[16, 256]] = torch.randn(16, 256)
     y2 = layer2(x2)
-    assert_type(y2, Tensor[16, 512])
+    assert_type(y2, Tensor[[16, 512]])
 
     # Instance 3: 32 -> 64 (yet another set of dimensions)
     layer3 = DynamicLinear(32, 64)
 
-    x3: Tensor[4, 32] = torch.randn(4, 32)
+    x3: Tensor[[4, 32]] = torch.randn(4, 32)
     y3 = layer3(x3)
-    assert_type(y3, Tensor[4, 64])
+    assert_type(y3, Tensor[[4, 64]])
 
 
 # ============================================================================
@@ -103,8 +103,8 @@ class ModelConfig[N, M, K]:
 class ConfiguredModel[N, M, K](nn.Module):
     """Model configured via generic config object"""
 
-    w1: Tensor[M, N]
-    w2: Tensor[K, M]
+    w1: Tensor[[M, N]]
+    w2: Tensor[[K, M]]
 
     def __init__(self, config: ModelConfig[N, M, K]):
         super().__init__()
@@ -113,13 +113,13 @@ class ConfiguredModel[N, M, K](nn.Module):
         self.w1 = torch.randn(config.hidden_dim, config.input_dim)
         self.w2 = torch.randn(config.output_dim, config.hidden_dim)
 
-    def forward[B](self, x: Tensor[B, N]) -> Tensor[B, K]:
-        w1_t: Tensor[N, M] = self.w1.transpose(0, 1)
-        h: Tensor[B, M] = torch.matmul(x, w1_t)
-        h_relu: Tensor[B, M] = torch.relu(h)
+    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, K]]:
+        w1_t: Tensor[[N, M]] = self.w1.transpose(0, 1)
+        h: Tensor[[B, M]] = torch.matmul(x, w1_t)
+        h_relu: Tensor[[B, M]] = torch.relu(h)
 
-        w2_t: Tensor[M, K] = self.w2.transpose(0, 1)
-        y: Tensor[B, K] = torch.matmul(h_relu, w2_t)
+        w2_t: Tensor[[M, K]] = self.w2.transpose(0, 1)
+        y: Tensor[[B, K]] = torch.matmul(h_relu, w2_t)
         return y
 
 
@@ -131,9 +131,9 @@ def test_config_pattern():
     # Create model from config
     model = ConfiguredModel(config)
 
-    x: Tensor[16, 64] = torch.randn(16, 64)
+    x: Tensor[[16, 64]] = torch.randn(16, 64)
     y = model(x)
-    assert_type(y, Tensor[16, 32])
+    assert_type(y, Tensor[[16, 32]])
 
 
 def test_config_multiple_instances():
@@ -142,25 +142,25 @@ def test_config_multiple_instances():
     config1 = ModelConfig(64, 128, 32)
     model1 = ConfiguredModel(config1)
 
-    x1: Tensor[8, 64] = torch.randn(8, 64)
+    x1: Tensor[[8, 64]] = torch.randn(8, 64)
     y1 = model1(x1)
-    assert_type(y1, Tensor[8, 32])
+    assert_type(y1, Tensor[[8, 32]])
 
     # Instance 2: 256 -> 512 -> 128 (different dimensions!)
     config2 = ModelConfig(256, 512, 128)
     model2 = ConfiguredModel(config2)
 
-    x2: Tensor[16, 256] = torch.randn(16, 256)
+    x2: Tensor[[16, 256]] = torch.randn(16, 256)
     y2 = model2(x2)
-    assert_type(y2, Tensor[16, 128])
+    assert_type(y2, Tensor[[16, 128]])
 
     # Instance 3: 32 -> 64 -> 16 (yet another set)
     config3 = ModelConfig(32, 64, 16)
     model3 = ConfiguredModel(config3)
 
-    x3: Tensor[4, 32] = torch.randn(4, 32)
+    x3: Tensor[[4, 32]] = torch.randn(4, 32)
     y3 = model3(x3)
-    assert_type(y3, Tensor[4, 16])
+    assert_type(y3, Tensor[[4, 16]])
 
 
 # ============================================================================

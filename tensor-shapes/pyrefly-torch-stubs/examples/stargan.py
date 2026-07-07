@@ -68,7 +68,7 @@ class ResidualBlock[C](nn.Module):
             nn.InstanceNorm2d(dim, affine=True, track_running_stats=True),
         )
 
-    def forward[B, H, W](self, x: Tensor[B, C, H, W]) -> Tensor[B, C, H, W]:
+    def forward[B, H, W](self, x: Tensor[[B, C, H, W]]) -> Tensor[[B, C, H, W]]:
         return x + self.conv_block(x)
 
 
@@ -131,16 +131,16 @@ class Generator[CDim](nn.Module):
         )
 
     def forward[B, S](
-        self, x: Tensor[B, 3, S, S], c: Tensor[B, CDim]
-    ) -> Tensor[B, 3, S, S]:
+        self, x: Tensor[[B, 3, S, S]], c: Tensor[[B, CDim]]
+    ) -> Tensor[[B, 3, S, S]]:
         # Condition injection: broadcast (B, CDim) → (B, CDim, S, S)
         h, w = x.shape[2], x.shape[3]
         c_4d = c.view(c.size(0), c.size(1), 1, 1)
-        assert_type(c_4d, Tensor[B, CDim, 1, 1])
+        assert_type(c_4d, Tensor[[B, CDim, 1, 1]])
         c_spatial = c_4d.expand(-1, -1, h, w)
-        assert_type(c_spatial, Tensor[B, CDim, S, S])
+        assert_type(c_spatial, Tensor[[B, CDim, S, S]])
         x_c = torch.cat((x, c_spatial), dim=1)
-        assert_type(x_c, Tensor[B, 3 + CDim, S, S])
+        assert_type(x_c, Tensor[[B, 3 + CDim, S, S]])
         out = self.main(x_c)
         # A1: conv chain produces 4*(S//4), can't prove = S
         return out  # type: ignore[bad-return]
@@ -160,7 +160,7 @@ class Discriminator[CDim, S](nn.Module):
           src: Conv2d(2048, 1, 3, 1, 1) → (B, 1, S//64, S//64)
           cls: Conv2d(2048, CDim, k=S//64) → (B, CDim, 1, 1) → view → (B, CDim)
 
-    (B, 3, S, S) → (Tensor[B, 1, S//64, S//64], Tensor[B, CDim])
+    (B, 3, S, S) → (Tensor[[B, 1, S//64, S//64]], Tensor[[B, CDim]])
     """
 
     def __init__(self, c_dim: Dim[CDim], image_size: Dim[S]) -> None:
@@ -184,8 +184,8 @@ class Discriminator[CDim, S](nn.Module):
         self.conv_cls = nn.Conv2d(2048, c_dim, kernel_size=image_size // 64)
 
     def forward[B](
-        self, x: Tensor[B, 3, S, S]
-    ) -> tuple[Tensor[B, 1, S // 64, S // 64], Tensor[B, CDim]]:
+        self, x: Tensor[[B, 3, S, S]]
+    ) -> tuple[Tensor[[B, 1, S // 64, S // 64]], Tensor[[B, CDim]]]:
         h = self.main(x)
         out_src = self.conv_src(h)
         out_cls = self.conv_cls(h)
@@ -202,42 +202,42 @@ class Discriminator[CDim, S](nn.Module):
 def test_residual_block():
     """Test shape-preserving residual block."""
     block = ResidualBlock(256)
-    x: Tensor[4, 256, 32, 32] = torch.randn(4, 256, 32, 32)
+    x: Tensor[[4, 256, 32, 32]] = torch.randn(4, 256, 32, 32)
     out = block(x)
-    assert_type(out, Tensor[4, 256, 32, 32])
+    assert_type(out, Tensor[[4, 256, 32, 32]])
 
 
 def test_generator():
     """Test generator: image + condition → translated image."""
     gen = Generator(5)
-    img: Tensor[4, 3, 128, 128] = torch.randn(4, 3, 128, 128)
-    cond: Tensor[4, 5] = torch.randn(4, 5)
+    img: Tensor[[4, 3, 128, 128]] = torch.randn(4, 3, 128, 128)
+    cond: Tensor[[4, 5]] = torch.randn(4, 5)
     out = gen(img, cond)
-    assert_type(out, Tensor[4, 3, 128, 128])
+    assert_type(out, Tensor[[4, 3, 128, 128]])
 
 
 def test_generator_different_cdim():
     """Test generator with different condition dimension."""
     gen = Generator(10)
-    img: Tensor[2, 3, 128, 128] = torch.randn(2, 3, 128, 128)
-    cond: Tensor[2, 10] = torch.randn(2, 10)
+    img: Tensor[[2, 3, 128, 128]] = torch.randn(2, 3, 128, 128)
+    cond: Tensor[[2, 10]] = torch.randn(2, 10)
     out = gen(img, cond)
-    assert_type(out, Tensor[2, 3, 128, 128])
+    assert_type(out, Tensor[[2, 3, 128, 128]])
 
 
 def test_discriminator():
     """Test discriminator: image → (patch_src, domain_cls)."""
     disc = Discriminator(5, 128)
-    img: Tensor[4, 3, 128, 128] = torch.randn(4, 3, 128, 128)
+    img: Tensor[[4, 3, 128, 128]] = torch.randn(4, 3, 128, 128)
     src, cls = disc(img)
-    assert_type(src, Tensor[4, 1, 2, 2])
-    assert_type(cls, Tensor[4, 5])
+    assert_type(src, Tensor[[4, 1, 2, 2]])
+    assert_type(cls, Tensor[[4, 5]])
 
 
 def test_discriminator_different_cdim():
     """Test discriminator with different condition dimension."""
     disc = Discriminator(10, 128)
-    img: Tensor[2, 3, 128, 128] = torch.randn(2, 3, 128, 128)
+    img: Tensor[[2, 3, 128, 128]] = torch.randn(2, 3, 128, 128)
     src, cls = disc(img)
-    assert_type(src, Tensor[2, 1, 2, 2])
-    assert_type(cls, Tensor[2, 10])
+    assert_type(src, Tensor[[2, 1, 2, 2]])
+    assert_type(cls, Tensor[[2, 10]])

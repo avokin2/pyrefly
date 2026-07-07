@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from torch import Tensor
 
 
-def test_shaped_matmul_shapeless[N](a: Tensor[N, N], b: Tensor):
+def test_shaped_matmul_shapeless[N](a: Tensor[[N, N]], b: Tensor):
     """Shaped tensor @ shapeless tensor"""
     result1 = a.matmul(b)
     assert_type(result1, Tensor)

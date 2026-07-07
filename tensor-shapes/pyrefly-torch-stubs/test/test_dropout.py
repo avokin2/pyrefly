@@ -18,9 +18,9 @@ drop = Dropout(0.0)
 
 def test_dropout():
     x = drop(torch.randn(2, 3))
-    assert_type(x, Tensor[2, 3])
+    assert_type(x, Tensor[[2, 3]])
 
 
-def test_arange_symbolic[N, M](t: Tensor[N, M]):
+def test_arange_symbolic[N, M](t: Tensor[[N, M]]):
     x = drop(t)
-    assert_type(x, Tensor[N, M])
+    assert_type(x, Tensor[[N, M]])

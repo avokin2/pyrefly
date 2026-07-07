@@ -51,30 +51,32 @@ def test_foo():
 class GenericDenseLayer(nn.Module):
     """DenseNet layer: adds 32 channels via concatenation."""
 
-    def forward[B, C, H, W](self, x: Tensor[B, C, H, W]) -> Tensor[B, C + 32, H, W]: ...  # type: ignore[return-type]
+    def forward[B, C, H, W](
+        self, x: Tensor[[B, C, H, W]]
+    ) -> Tensor[[B, C + 32, H, W]]: ...  # type: ignore[return-type]
 
 
 @overload
 def dense_chain[B, C, H, W](
-    x: Tensor[B, C, H, W],
+    x: Tensor[[B, C, H, W]],
     layer: GenericDenseLayer,
     depth: Dim[1],
-) -> Tensor[B, C + 32, H, W]: ...
+) -> Tensor[[B, C + 32, H, W]]: ...
 
 
 @overload
 def dense_chain[I, B, C, H, W](
-    x: Tensor[B, C, H, W],
+    x: Tensor[[B, C, H, W]],
     layer: GenericDenseLayer,
     depth: Dim[I],
-) -> Tensor[B, C + I * 32, H, W]: ...
+) -> Tensor[[B, C + I * 32, H, W]]: ...
 
 
 def dense_chain[I, B, C, H, W](
-    x: Tensor[B, C, H, W],
+    x: Tensor[[B, C, H, W]],
     layer: GenericDenseLayer,
     depth: Dim[I],
-) -> Tensor[B, C + 32, H, W] | Tensor[B, C + I * 32, H, W]:
+) -> Tensor[[B, C + 32, H, W]] | Tensor[[B, C + I * 32, H, W]]:
     if depth == 1:
         return layer(x)
     y = layer(x)
@@ -84,14 +86,14 @@ def dense_chain[I, B, C, H, W](
 def test_dense_chain():
     """Test DenseNet-style linear channel accumulation with overloads."""
     layer = GenericDenseLayer()
-    x: Tensor[2, 64, 32, 32] = torch.randn(2, 64, 32, 32)
+    x: Tensor[[2, 64, 32, 32]] = torch.randn(2, 64, 32, 32)
     y = dense_chain(x, layer, 6)
-    assert_type(y, Tensor[2, 256, 32, 32])  # 64 + 6*32 = 256
+    assert_type(y, Tensor[[2, 256, 32, 32]])  # 64 + 6*32 = 256
 
 
 def test_dense_chain_one():
     """Test base case: depth=1 applies one layer."""
     layer = GenericDenseLayer()
-    x: Tensor[2, 64, 32, 32] = torch.randn(2, 64, 32, 32)
+    x: Tensor[[2, 64, 32, 32]] = torch.randn(2, 64, 32, 32)
     y = dense_chain(x, layer, 1)
-    assert_type(y, Tensor[2, 96, 32, 32])  # 64 + 32 = 96
+    assert_type(y, Tensor[[2, 96, 32, 32]])  # 64 + 32 = 96

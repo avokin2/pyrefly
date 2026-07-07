@@ -7,7 +7,7 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-This variant uses TypeVar and TypeVarTuple from shape_extensions instead of PEP 695
+This variant uses TypeVar from shape_extensions instead of PEP 695
 syntax, providing runtime-safe type variable declarations that support arithmetic.
 """
 
@@ -26,7 +26,7 @@ from torch.nn.attention.flex_attention import (
 
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim, TypeVar, TypeVarTuple
+    from shape_extensions import Dim, Elements, SizeTuple, TypeVar
     from torch import Tensor
 
 # Module-level type variable declarations
@@ -45,7 +45,7 @@ B = TypeVar("B")
 T = TypeVar("T")
 S = TypeVar("S")
 SeqLen = TypeVar("SeqLen")
-Bs = TypeVarTuple("Bs")
+Bs = TypeVar("Bs", bound=SizeTuple)
 
 
 class RopeScalingDict(TypedDict, total=False):
@@ -237,7 +237,9 @@ transformer_configs: dict[str, ModelArgsDict[Any, Any, Any, Any, Any, Any, Any]]
 }
 
 
-def apply_rope_scaling(freqs: Tensor[D], rope_scaling: RopeScalingDict) -> Tensor[D]:
+def apply_rope_scaling(
+    freqs: Tensor[[D]], rope_scaling: RopeScalingDict
+) -> Tensor[[D]]:
     factor = rope_scaling["factor"]
     low_freq_factor = rope_scaling["low_freq_factor"]
     high_freq_factor = rope_scaling["high_freq_factor"]
@@ -267,32 +269,32 @@ def precompute_freqs_cis(
     base: int = 10000,
     dtype: torch.dtype = torch.bfloat16,
     rope_scaling: RopeScalingDict | None = None,
-) -> Tensor[SeqLen, HeadDim // 2, 2]:
+) -> Tensor[[SeqLen, HeadDim // 2, 2]]:
     freqs = 1.0 / (
         base ** (torch.arange(0, n_elem, 2)[: (n_elem // 2)].float() / n_elem)
     )
-    assert_type(freqs, Tensor[HeadDim // 2])
+    assert_type(freqs, Tensor[[HeadDim // 2]])
     if rope_scaling is not None:
         freqs = apply_rope_scaling(freqs, rope_scaling)
     t = torch.arange(seq_len, device=freqs.device)
-    assert_type(t, Tensor[SeqLen])
+    assert_type(t, Tensor[[SeqLen]])
     freqs = torch.outer(t, freqs)
-    assert_type(freqs, Tensor[SeqLen, HeadDim // 2])
+    assert_type(freqs, Tensor[[SeqLen, HeadDim // 2]])
     freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
-    assert_type(freqs_cis, Tensor[SeqLen, HeadDim // 2])
+    assert_type(freqs_cis, Tensor[[SeqLen, HeadDim // 2]])
     # Use tuple instead of list for stack (meta-shape requires tuple)
     cache = torch.stack((freqs_cis.real, freqs_cis.imag), dim=-1)
-    assert_type(cache, Tensor[SeqLen, HeadDim // 2, 2])
+    assert_type(cache, Tensor[[SeqLen, HeadDim // 2, 2]])
     return cache.to(dtype=dtype)
 
 
 def apply_rotary_emb(
-    x: Tensor[B, T, NHeads, HeadDim], freqs_cis: Tensor[T, HeadDim // 2, 2]
-) -> Tensor[B, T, NHeads, HeadDim]:
+    x: Tensor[[B, T, NHeads, HeadDim]], freqs_cis: Tensor[[T, HeadDim // 2, 2]]
+) -> Tensor[[B, T, NHeads, HeadDim]]:
     xshaped = x.float().reshape(*x.size()[:-1], -1, 2)
-    assert_type(xshaped, Tensor[B, T, NHeads, HeadDim // 2, 2])
+    assert_type(xshaped, Tensor[[B, T, NHeads, HeadDim // 2, 2]])
     freqs_cis_reshaped = freqs_cis.view(1, xshaped.size(1), 1, xshaped.size(3), 2)
-    assert_type(freqs_cis_reshaped, Tensor[1, T, 1, HeadDim // 2, 2])
+    assert_type(freqs_cis_reshaped, Tensor[[1, T, 1, HeadDim // 2, 2]])
     # Use tuple instead of list so stack meta-shape can extract element shapes
     stack_input = (
         xshaped[..., 0] * freqs_cis_reshaped[..., 0]
@@ -301,17 +303,17 @@ def apply_rotary_emb(
         + xshaped[..., 0] * freqs_cis_reshaped[..., 1],
     )
     x_out2 = torch.stack(stack_input, -1)
-    assert_type(x_out2, Tensor[B, T, NHeads, HeadDim // 2, 2])
+    assert_type(x_out2, Tensor[[B, T, NHeads, HeadDim // 2, 2]])
 
     x_out2 = x_out2.flatten(3)
     # Note: Type system computes (HeadDim // 2) * 2, which is algebraically equal to HeadDim (Issue 7)
-    # reveal_type: Tensor[B, T, NHeads, ((HeadDim // 2) * 2)]
+    # reveal_type: Tensor[[B, T, NHeads, ((HeadDim // 2) * 2)]]
     return x_out2.type_as(x)  # type: ignore[bad-return]  # Issue 7: algebraic equivalence
 
 
 class KVCache(nn.Module, Generic[MaxBatchSize, MaxSeqLen, NHeads, HeadDim]):
-    k_cache: Tensor[MaxBatchSize, NHeads, MaxSeqLen, HeadDim]
-    v_cache: Tensor[MaxBatchSize, NHeads, MaxSeqLen, HeadDim]
+    k_cache: Tensor[[MaxBatchSize, NHeads, MaxSeqLen, HeadDim]]
+    v_cache: Tensor[[MaxBatchSize, NHeads, MaxSeqLen, HeadDim]]
 
     def __init__(
         self,
@@ -328,12 +330,12 @@ class KVCache(nn.Module, Generic[MaxBatchSize, MaxSeqLen, NHeads, HeadDim]):
 
     def update(
         self,
-        input_pos: Tensor[S] | None,
-        k_val: Tensor[B, NHeads, S, HeadDim],
-        v_val: Tensor[B, NHeads, S, HeadDim],
+        input_pos: Tensor[[S]] | None,
+        k_val: Tensor[[B, NHeads, S, HeadDim]],
+        v_val: Tensor[[B, NHeads, S, HeadDim]],
     ) -> tuple[
-        Tensor[MaxBatchSize, NHeads, MaxSeqLen, HeadDim],
-        Tensor[MaxBatchSize, NHeads, MaxSeqLen, HeadDim],
+        Tensor[[MaxBatchSize, NHeads, MaxSeqLen, HeadDim]],
+        Tensor[[MaxBatchSize, NHeads, MaxSeqLen, HeadDim]],
     ]:
         # input_pos: [S], k_val: [B, H, S, D]
         assert input_pos is not None
@@ -360,7 +362,7 @@ class FeedForward(nn.Module, Generic[D, IntermediateSize]):
         self.w2 = nn.Linear(config.intermediate_size, config.dim, bias=False)
         assert_type(self.w2, nn.Linear[IntermediateSize, D])
 
-    def forward(self, x: Tensor[B, T, D]) -> Tensor[B, T, D]:
+    def forward(self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
@@ -369,12 +371,12 @@ class RMSNorm(nn.Module, Generic[D]):
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
-        assert_type(self.weight, Tensor[D])
+        assert_type(self.weight, Tensor[[D]])
 
     def _norm(self, x):
         return x * torch.rsqrt(torch.mean(x * x, dim=-1, keepdim=True) + self.eps)
 
-    def forward(self, x: Tensor[*Bs, D]) -> Tensor[*Bs, D]:
+    def forward(self, x: Tensor[[*Elements[Bs], D]]) -> Tensor[[*Elements[Bs], D]]:
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
 
@@ -410,11 +412,11 @@ class Attention(nn.Module, Generic[D, NHead, NLocalHeads]):
 
     def forward(
         self,
-        x: Tensor[B, T, D],
-        freqs_cis: Tensor[T, (D // NHead) // 2, 2],
+        x: Tensor[[B, T, D]],
+        freqs_cis: Tensor[[T, (D // NHead) // 2, 2]],
         mask: BlockMask,
-        input_pos: Tensor[T] | None = None,
-    ) -> Tensor[B, T, D]:
+        input_pos: Tensor[[T]] | None = None,
+    ) -> Tensor[[B, T, D]]:
         bsz, seqlen, _ = x.size()
         assert_type(bsz, Dim[B])
         assert_type(seqlen, Dim[T])
@@ -423,16 +425,16 @@ class Attention(nn.Module, Generic[D, NHead, NLocalHeads]):
         assert_type(kv_size, Dim[NLocalHeads * (D // NHead)])
         # Using tuple instead of list to preserve individual element types for meta-shape inference
         q, k, v = self.wqkv(x).split((self.dim, kv_size, kv_size), dim=-1)
-        assert_type(q, Tensor[B, T, D])
-        assert_type(k, Tensor[B, T, (NLocalHeads * (D // NHead))])
-        assert_type(v, Tensor[B, T, (NLocalHeads * (D // NHead))])
+        assert_type(q, Tensor[[B, T, D]])
+        assert_type(k, Tensor[[B, T, (NLocalHeads * (D // NHead))]])
+        assert_type(v, Tensor[[B, T, (NLocalHeads * (D // NHead))]])
 
         q = q.view(bsz, seqlen, self.n_head, self.head_dim)
-        assert_type(q, Tensor[B, T, NHead, (D // NHead)])
+        assert_type(q, Tensor[[B, T, NHead, (D // NHead)]])
         k = k.view(bsz, seqlen, self.n_local_heads, self.head_dim)
-        assert_type(k, Tensor[B, T, NLocalHeads, (D // NHead)])
+        assert_type(k, Tensor[[B, T, NLocalHeads, (D // NHead)]])
         v = v.view(bsz, seqlen, self.n_local_heads, self.head_dim)
-        assert_type(v, Tensor[B, T, NLocalHeads, (D // NHead)])
+        assert_type(v, Tensor[[B, T, NLocalHeads, (D // NHead)]])
 
         q = apply_rotary_emb(q, freqs_cis)
         k = apply_rotary_emb(k, freqs_cis)
@@ -440,9 +442,9 @@ class Attention(nn.Module, Generic[D, NHead, NLocalHeads]):
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
-        assert_type(q, Tensor[B, NHead, T, (D // NHead)])
-        assert_type(k, Tensor[B, NLocalHeads, T, (D // NHead)])
-        assert_type(v, Tensor[B, NLocalHeads, T, (D // NHead)])
+        assert_type(q, Tensor[[B, NHead, T, (D // NHead)]])
+        assert_type(k, Tensor[[B, NLocalHeads, T, (D // NHead)]])
+        assert_type(v, Tensor[[B, NLocalHeads, T, (D // NHead)]])
 
         if self.kv_cache is not None:
             k, v = self.kv_cache.update(input_pos, k, v)
@@ -450,10 +452,10 @@ class Attention(nn.Module, Generic[D, NHead, NLocalHeads]):
         y = flex_attention(
             q, k, v, block_mask=mask, enable_gqa=(self.n_head != self.n_local_heads)
         )
-        assert_type(y, Tensor[B, NHead, T, (D // NHead)])
+        assert_type(y, Tensor[[B, NHead, T, (D // NHead)]])
 
         y = y.transpose(1, 2).contiguous().view(bsz, seqlen, self.dim)
-        assert_type(y, Tensor[B, T, D])
+        assert_type(y, Tensor[[B, T, D]])
 
         y = self.wo(y)
         return y
@@ -486,7 +488,7 @@ class Transformer(
         self.output = nn.Linear(config.dim, config.vocab_size, bias=False)
         assert_type(self.output, nn.Linear[D, VocabSize])
 
-        self.freqs_cis: Tensor[BlockSize, (D // NHead) // 2, 2] | None = None
+        self.freqs_cis: Tensor[[BlockSize, (D // NHead) // 2, 2]] | None = None
         self.mask_cache: Optional[Tensor] = None
         self.max_batch_size = -1
         self.max_seq_length = -1
@@ -526,23 +528,23 @@ class Transformer(
         )
 
     def forward(
-        self, mask: BlockMask, idx: Tensor[B, T], input_pos: Tensor[T] | None = None
-    ) -> Tensor[B, T, VocabSize]:
+        self, mask: BlockMask, idx: Tensor[[B, T]], input_pos: Tensor[[T]] | None = None
+    ) -> Tensor[[B, T, VocabSize]]:
         assert self.freqs_cis is not None, "Caches must be initialized first"
         assert input_pos is not None, "input_pos must be provided"
         assert mask.mask_mod is not None, "mask_mod must be set"
         mask.mask_mod = self.get_mask_mod(mask.mask_mod, input_pos[0])
         freqs_cis = self.freqs_cis[input_pos]
-        assert_type(freqs_cis, Tensor[T, (D // NHead) // 2, 2])
+        assert_type(freqs_cis, Tensor[[T, (D // NHead) // 2, 2]])
         x = self.tok_embeddings(idx)
-        assert_type(x, Tensor[B, T, D])
+        assert_type(x, Tensor[[B, T, D]])
 
         for _i, layer in enumerate(self.layers):
             x = layer(x, input_pos, freqs_cis, mask)
         x = self.norm(x)
-        assert_type(x, Tensor[B, T, D])
+        assert_type(x, Tensor[[B, T, D]])
         logits = self.output(x)
-        assert_type(logits, Tensor[B, T, VocabSize])
+        assert_type(logits, Tensor[[B, T, VocabSize]])
         return logits
 
     @classmethod
@@ -571,11 +573,11 @@ class TransformerBlock(nn.Module, Generic[D, NHead, IntermediateSize, NLocalHead
 
     def forward(
         self,
-        x: Tensor[B, T, D],
-        input_pos: Tensor[T],
-        freqs_cis: Tensor[T, (D // NHead) // 2, 2],
+        x: Tensor[[B, T, D]],
+        input_pos: Tensor[[T]],
+        freqs_cis: Tensor[[T, (D // NHead) // 2, 2]],
         mask: BlockMask,
-    ) -> Tensor[B, T, D]:
+    ) -> Tensor[[B, T, D]]:
         h = x + self.attention(self.attention_norm(x), freqs_cis, mask, input_pos)
         out = h + self.feed_forward(self.ffn_norm(h))
         return out

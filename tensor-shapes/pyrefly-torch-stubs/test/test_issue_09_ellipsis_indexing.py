@@ -10,24 +10,24 @@ if TYPE_CHECKING:
 
 
 def test_ellipsis_indexing[B, T, NHeads, HeadDim](
-    x: Tensor[B, T, NHeads, HeadDim, 2],
+    x: Tensor[[B, T, NHeads, HeadDim, 2]],
 ) -> None:
     # Ellipsis indexing now works correctly
     result = x[..., 0]
-    assert_type(result, Tensor[B, T, NHeads, HeadDim])
+    assert_type(result, Tensor[[B, T, NHeads, HeadDim]])
 
     # Explicit colon slices also work
     result_explicit = x[:, :, :, :, 0]
-    assert_type(result_explicit, Tensor[B, T, NHeads, HeadDim])
+    assert_type(result_explicit, Tensor[[B, T, NHeads, HeadDim]])
 
 
 def test_ellipsis_multiple_indices[B, T, NHeads, HeadDim](
-    x: Tensor[B, T, NHeads, HeadDim, 2],
+    x: Tensor[[B, T, NHeads, HeadDim, 2]],
 ) -> None:
     # Ellipsis with multiple integer indices
     result = x[..., 0, 0]
-    assert_type(result, Tensor[B, T, NHeads])
+    assert_type(result, Tensor[[B, T, NHeads]])
 
     # Explicit colon slices also work
     result_explicit = x[:, :, :, 0, 0]
-    assert_type(result_explicit, Tensor[B, T, NHeads])
+    assert_type(result_explicit, Tensor[[B, T, NHeads]])

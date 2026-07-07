@@ -17,49 +17,49 @@ if TYPE_CHECKING:
 
 
 class SimpleModule[N, M](nn.Module):
-    def forward(self, x: Tensor[N, M]) -> Tensor[N, M * 2]:
+    def forward(self, x: Tensor[[N, M]]) -> Tensor[[N, M * 2]]:
         return torch.cat([x, x], dim=1)
 
 
-def test_module_callable[N, M](module: SimpleModule[N, M], x: Tensor[N, M]):
+def test_module_callable[N, M](module: SimpleModule[N, M], x: Tensor[[N, M]]):
     """Test that we can call module(x) instead of module.forward(x)"""
     # Should be able to call module directly
     result = module(x)
-    assert_type(result, Tensor[N, M * 2])
+    assert_type(result, Tensor[[N, M * 2]])
     call_attr_result = module.__call__(x)
-    assert_type(call_attr_result, Tensor[N, M * 2])
+    assert_type(call_attr_result, Tensor[[N, M * 2]])
 
 
 class GenericModule[N, M](nn.Module):
-    def forward(self, x: Tensor[N, M]) -> Tensor[N, M]:
+    def forward(self, x: Tensor[[N, M]]) -> Tensor[[N, M]]:
         return x
 
 
 class ModuleCallback[N, M](Protocol):
-    def __call__(self, x: Tensor[N, M]) -> Tensor[N, M * 2]: ...
+    def __call__(self, x: Tensor[[N, M]]) -> Tensor[[N, M * 2]]: ...
 
 
 def use_callback_protocol[N, M](
-    callback: ModuleCallback[N, M], x: Tensor[N, M]
-) -> Tensor[N, M * 2]:
+    callback: ModuleCallback[N, M], x: Tensor[[N, M]]
+) -> Tensor[[N, M * 2]]:
     return callback(x)
 
 
 def test_module_matches_callback_protocol[N, M](
-    module: SimpleModule[N, M], x: Tensor[N, M]
+    module: SimpleModule[N, M], x: Tensor[[N, M]]
 ):
     callback: ModuleCallback[N, M] = module
     result = use_callback_protocol(callback, x)
-    assert_type(result, Tensor[N, M * 2])
+    assert_type(result, Tensor[[N, M * 2]])
 
 
-def test_generic_module_callable[B, C](module: GenericModule[B, C], x: Tensor[B, C]):
+def test_generic_module_callable[B, C](module: GenericModule[B, C], x: Tensor[[B, C]]):
     """Test that generic modules are callable"""
     # Call module directly
     result = module(x)
-    assert_type(result, Tensor[B, C])
+    assert_type(result, Tensor[[B, C]])
     call_attr_result = module.__call__(x)
-    assert_type(call_attr_result, Tensor[B, C])
+    assert_type(call_attr_result, Tensor[[B, C]])
 
 
 # For now, test with concrete shapes by calling the generic functions

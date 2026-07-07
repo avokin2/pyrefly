@@ -419,8 +419,14 @@ impl TypeConverter<'_> {
     }
 
     /// Convert a `typing.Callable` to a TSP `FunctionType` with synthesized declaration.
+    ///
+    /// Like [`convert_function`](Self::convert_function), the parameter and
+    /// return types are carried in `specialized_types` so the consumer can
+    /// reconstruct the signature; a synthesized callable has no source
+    /// declaration, so this is the only channel for its parameter types.
     fn convert_callable(&self, callable: &Callable) -> TspType {
         let ret = self.convert(&callable.ret);
+        let specialized_types = self.specialized_types(callable, &ret);
         TspType::Function(TspFunctionType {
             bound_to_type: None,
             declaration: Declaration::Synthesized(SynthesizedDeclaration {
@@ -431,7 +437,7 @@ impl TypeConverter<'_> {
             id: next_id(),
             kind: TypeKind::Function,
             return_type: Some(Box::new(ret)),
-            specialized_types: None,
+            specialized_types,
             type_alias_info: None,
         })
     }
@@ -1677,17 +1683,11 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_callable_drops_parameter_types() {
-        // BUG: unlike `convert_function`, `convert_callable` emits
-        // `specialized_types: None`, so a `typing.Callable`'s parameter types
-        // are dropped from the TSP output. For a return annotation like
-        // `Callable[[int], str]`, the consumer (Pylance) cannot recover the
-        // parameter types and renders them as Unknown/Any.
-        //
-        // This test documents the current (broken) behavior: the return type
-        // survives, but the parameter list does not. Once `convert_callable`
-        // populates `specialized_types` (next diff), the assertions below flip
-        // to require the parameter types to be present.
+    fn test_convert_callable_populates_specialized_types() {
+        // A `typing.Callable`'s parameter and return types are carried in
+        // `specialized_types`, mirroring `convert_function`. For a return
+        // annotation like `Callable[[int], str]`, the consumer can recover the
+        // parameter types instead of rendering them as Unknown/Any.
         let callable = Callable::list(
             ParamList::new(vec![Param::Pos(
                 Name::new_static("a"),
@@ -1700,15 +1700,16 @@ mod tests {
         match convert_type(&ty) {
             TspType::Function(f) => {
                 assert!(f.flags.contains(TypeFlags::CALLABLE));
-                // The return type is converted and preserved.
                 assert!(f.return_type.is_some(), "return type should be preserved");
-                // BUG: the single `int`-position parameter is lost because
-                // `specialized_types` is None.
-                assert!(
-                    f.specialized_types.is_none(),
-                    "convert_callable currently drops parameter types (specialized_types == None); \
-                     when this stops being true, update convert_callable's regression assertions"
-                );
+                let specialized = f
+                    .specialized_types
+                    .expect("Callable parameter types must be carried in specialized_types");
+                assert_eq!(specialized.parameter_types.len(), 1);
+                match &specialized.parameter_types[0] {
+                    TspType::BuiltInType(b) => assert_eq!(b.name, "none"),
+                    other => panic!("expected BuiltInType, got {other:?}"),
+                }
+                assert!(specialized.return_type.is_some());
             }
             other => panic!("expected Function, got {other:?}"),
         }

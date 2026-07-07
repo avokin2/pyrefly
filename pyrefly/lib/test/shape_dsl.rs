@@ -411,7 +411,7 @@ testcase!(
     shaped_array_env(),
     r#"
 from typing import Any, Literal, reveal_type
-from shape_extensions import SizeTuple, shaped_array
+from shape_extensions import Dim, SizeTuple, shaped_array
 
 type _Shape = SizeTuple
 type _AnyShape = tuple[Any, ...]
@@ -420,20 +420,25 @@ type _AnyShape = tuple[Any, ...]
 class Array[Shape: _Shape = _AnyShape, DType = Any]:
     shape: Shape
 
-def f(
+def f[N](
     compact: Array[(2, 3), int],
     pep484: Array[tuple[Literal[2], Literal[3]], int],
     size_tuple: Array[SizeTuple[2, 3], int],
+    mixed_size_tuple: Array[SizeTuple[2, 3, Dim[N]], int],
     carrier: SizeTuple[2, 3],
+    mixed_carrier: SizeTuple[2, 3, Dim[N]],
     unbounded: SizeTuple,
 ) -> None:
     reveal_type(compact)  # E: revealed type: Array[(2, 3), int]
     reveal_type(pep484)  # E: revealed type: Array[(2, 3), int]
     reveal_type(size_tuple)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(mixed_size_tuple)  # E: revealed type: Array[(2, 3, N), int]
     p: Array[tuple[Literal[2], Literal[3]], int] = compact
     c: Array[(2, 3), int] = pep484
     st: Array[SizeTuple[2, 3], int] = compact
+    mst: Array[tuple[Literal[2], Literal[3], Dim[N]], int] = mixed_size_tuple
     t: tuple[Literal[2], Literal[3]] = carrier
+    mt: tuple[Literal[2], Literal[3], Dim[N]] = mixed_carrier
     u: tuple[int, ...] = unbounded
 "#,
 );

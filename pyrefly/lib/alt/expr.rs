@@ -3255,6 +3255,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 {
                     return self.parse_dimension_expr(&x.slice, errors);
                 }
+                if let Type::ClassDef(ref cls) = base
+                    && self.is_symint_class(cls)
+                {
+                    let xs = Ast::unpack_slice(&x.slice);
+                    return match xs {
+                        [arg] => self.parse_dimension_expr(arg, errors),
+                        _ => {
+                            self.error(
+                                errors,
+                                expr.range(),
+                                ErrorKind::BadSpecialization,
+                                format!("Expected 1 type argument for `Dim`, got {}", xs.len()),
+                            );
+                            None
+                        }
+                    };
+                }
             }
             Expr::Call(ExprCall {
                 func, arguments, ..

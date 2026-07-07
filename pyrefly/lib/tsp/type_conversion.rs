@@ -1677,6 +1677,44 @@ mod tests {
     }
 
     #[test]
+    fn test_convert_callable_drops_parameter_types() {
+        // BUG: unlike `convert_function`, `convert_callable` emits
+        // `specialized_types: None`, so a `typing.Callable`'s parameter types
+        // are dropped from the TSP output. For a return annotation like
+        // `Callable[[int], str]`, the consumer (Pylance) cannot recover the
+        // parameter types and renders them as Unknown/Any.
+        //
+        // This test documents the current (broken) behavior: the return type
+        // survives, but the parameter list does not. Once `convert_callable`
+        // populates `specialized_types` (next diff), the assertions below flip
+        // to require the parameter types to be present.
+        let callable = Callable::list(
+            ParamList::new(vec![Param::Pos(
+                Name::new_static("a"),
+                PyreflyType::None,
+                Required::Required,
+            )]),
+            PyreflyType::Ellipsis,
+        );
+        let ty = PyreflyType::Callable(Box::new(callable));
+        match convert_type(&ty) {
+            TspType::Function(f) => {
+                assert!(f.flags.contains(TypeFlags::CALLABLE));
+                // The return type is converted and preserved.
+                assert!(f.return_type.is_some(), "return type should be preserved");
+                // BUG: the single `int`-position parameter is lost because
+                // `specialized_types` is None.
+                assert!(
+                    f.specialized_types.is_none(),
+                    "convert_callable currently drops parameter types (specialized_types == None); \
+                     when this stops being true, update convert_callable's regression assertions"
+                );
+            }
+            other => panic!("expected Function, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_function_declaration_resolves_special_function_via_export() {
         // `typing.overload` is FunctionKind::Overload (not a Def). The export
         // resolver should give it a real declaration location.

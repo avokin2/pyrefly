@@ -152,25 +152,24 @@ def g(arg: Mapping) -> None:
 );
 
 functools_testcase!(
-    bug = "pyrefly does not validate singledispatch function signatures; all four malformed-dispatcher cases are missed (false negatives)",
     test_singledispatch_dispatcher_bad_signatures,
     r#"
 from functools import singledispatch
 
 @singledispatch
-def f() -> None: # WANT: Singledispatch function requires at least one argument
+def f() -> None: # E: Singledispatch function requires at least one parameter
     pass
 
 @singledispatch
-def g(**kwargs) -> None: # WANT: First argument to singledispatch function must be a positional argument
+def g(**kwargs) -> None: # E: First parameter of a singledispatch function must be positional
     pass
 
 @singledispatch
-def h(*, x) -> None: # WANT: First argument to singledispatch function must be a positional argument
+def h(*, x) -> None: # E: First parameter of a singledispatch function must be positional
     pass
 
 @singledispatch
-def i(*, x=1) -> None: # WANT: First argument to singledispatch function must be a positional argument
+def i(*, x=1) -> None: # E: First parameter of a singledispatch function must be positional
     pass
 "#,
 );
@@ -308,16 +307,13 @@ f()
 
 // Edge case
 functools_testcase!(
-    bug = "singledispatch with no positional args or a keyword-only first arg should be rejected; pyrefly emits no error",
     test_singledispatch_malformed_dispatcher,
     r#"
 from functools import singledispatch
 @singledispatch
-# WANT: error: Singledispatch function requires at least one argument
-def f() -> None: ...
+def f() -> None: ...  # E: Singledispatch function requires at least one parameter
 @singledispatch
-# WANT: error: First argument to singledispatch function cannot be keyword-only
-def g(*, x: int) -> None: ...
+def g(*, x: int) -> None: ...  # E: First parameter of a singledispatch function must be positional
 "#,
 );
 

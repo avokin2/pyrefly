@@ -53,6 +53,7 @@ use crate::alt::answers_solver::AnswersSolver;
 use crate::alt::call::CallStyle;
 use crate::alt::call::CallTarget;
 use crate::alt::callable::CallArg;
+use crate::alt::singledispatch::DispatcherDef;
 use crate::alt::types::decorated_function::DecoratedFunction;
 use crate::alt::types::decorated_function::Decorator;
 use crate::alt::types::decorated_function::SpecialDecorator;
@@ -848,6 +849,16 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         for (x, range) in def.decorators.iter().rev() {
             ty = self.apply_function_decorator(x.clone(), ty, &def.metadata, *range, errors);
         }
+        self.validate_singledispatch_dispatcher_signature(
+            &ty,
+            DispatcherDef {
+                params: &def.params,
+                id_range: def.id_range(),
+                defining_cls: def.defining_cls.as_ref(),
+                is_staticmethod: def.metadata.flags.is_staticmethod,
+            },
+            errors,
+        );
         Arc::new(ty)
     }
 

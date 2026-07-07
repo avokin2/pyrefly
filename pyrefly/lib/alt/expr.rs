@@ -51,6 +51,7 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprBinOp;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprGenerator;
+use ruff_python_ast::ExprList;
 use ruff_python_ast::ExprNumberLiteral;
 use ruff_python_ast::ExprSlice;
 use ruff_python_ast::ExprStarred;
@@ -3808,13 +3809,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 // Single tuple-carrier parameter mode: ordinary class specialization,
                 // then project the carrier into a shape.
                 //
-                // The registered shape slot additionally accepts a compact
-                // tuple literal as an alternate surface form:
-                // `Array[(2, 3), DType]` normalizes to
+                // The registered shape slot additionally accepts a list literal
+                // as a compact carrier form:
+                // `Array[[2, 3], DType]` normalizes to
                 // `Array[tuple[Literal[2], Literal[3]], DType]`. This rewrite is
                 // scoped to the registered shape argument only -- it is purely
-                // syntax normalization for that slot, NOT general support for
-                // tuple literals in arbitrary type positions.
+                // syntax normalization for that slot, NOT general support for list
+                // literals in arbitrary type positions.
                 let tparams = self.get_class_tparams(cls);
                 let shape_idx = tparams
                     .iter()
@@ -3829,13 +3830,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     .iter()
                     .enumerate()
                     .map(|(i, arg)| match arg {
-                        Expr::Tuple(tuple) if i == shape_idx => {
+                        Expr::List(ExprList { elts, .. }) if i == shape_idx => {
                             // Compact carrier: parse the elements with the shared
                             // dimension parser (which emits precise per-element
                             // diagnostics), then rebuild the equivalent tuple
                             // carrier. On a bad dimension the error is already
                             // reported, so this slot degrades to an error type.
-                            match self.parse_dimension_list(&tuple.elts, errors) {
+                            match self.parse_dimension_list(elts, errors) {
                                 Some(dims) => {
                                     shape_to_tuple_carrier(&ShapedArrayShape::from_types(dims))
                                 }

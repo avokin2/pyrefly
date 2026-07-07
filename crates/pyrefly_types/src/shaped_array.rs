@@ -554,7 +554,7 @@ impl Display for ShapedArrayShape {
 // ============================================================================
 //
 // A "tuple carrier" is the user-facing spelling of a shape that NumPy-style
-// syntax such as `ndarray[(3, 4, 5), DType]` or
+// syntax such as `ndarray[[3, 4, 5], DType]` or
 // `ndarray[tuple[Literal[3], Literal[4], Literal[5]], DType]` produces, where
 // each dimension is written as `Literal[n]` or `Dim[x]`. Internally we store
 // dimensions directly as `Type::Size`, `Type::Quantified`, `Type::Var`, or

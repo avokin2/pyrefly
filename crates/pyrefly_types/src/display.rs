@@ -468,12 +468,9 @@ impl<'a> TypeDisplayContext<'a> {
         }
         match shaped_array.shape.as_tuple() {
             Tuple::Concrete(dims) => {
-                output.write_str("(")?;
+                output.write_str("[")?;
                 self.fmt_type_sequence(dims.iter(), ", ", false, output)?;
-                if dims.len() == 1 {
-                    output.write_str(",")?;
-                }
-                output.write_str(")")
+                output.write_str("]")
             }
             Tuple::Unbounded(_) => {
                 unreachable!("shaped-array unbounded shapes must be tuple[Any, ...]")
@@ -483,7 +480,7 @@ impl<'a> TypeDisplayContext<'a> {
                 if prefix.is_empty() && suffix.is_empty() && is_tuple_carrier_shape_middle(middle) {
                     return self.fmt_helper_generic(middle, false, output);
                 }
-                output.write_str("(")?;
+                output.write_str("[")?;
                 let unpacked_middle = Type::Unpack(Box::new(middle.clone()));
                 self.fmt_type_sequence(
                     prefix
@@ -494,10 +491,7 @@ impl<'a> TypeDisplayContext<'a> {
                     false,
                     output,
                 )?;
-                if prefix.is_empty() && suffix.is_empty() {
-                    output.write_str(",")?;
-                }
-                output.write_str(")")
+                output.write_str("]")
             }
         }
     }

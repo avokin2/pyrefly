@@ -5,13 +5,11 @@
 
 from typing import overload
 
-from shape_extensions import Dim, SizeTuple
+from shape_extensions import Dim
 
 from .. import dtype, float64, ndarray
 
 @overload
-def randn[N](d0: Dim[N], /) -> ndarray[SizeTuple[N], dtype[float64]]: ...
+def randn[N](d0: Dim[N], /) -> ndarray[[N], dtype[float64]]: ...
 @overload
-def randn[N, M](
-    d0: Dim[N], d1: Dim[M], /
-) -> ndarray[SizeTuple[N, M], dtype[float64]]: ...
+def randn[N, M](d0: Dim[N], d1: Dim[M], /) -> ndarray[[N, M], dtype[float64]]: ...

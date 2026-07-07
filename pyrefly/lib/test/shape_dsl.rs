@@ -345,7 +345,7 @@ class ShapeIsParamSpec[**Shape, DType]: ...
 );
 
 testcase!(
-    test_shaped_array_compact_tuple_carrier,
+    test_shaped_array_compact_list_carrier,
     shaped_array_env(),
     r#"
 from typing import Literal, reveal_type
@@ -359,16 +359,16 @@ class Array[Shape, DType]:
 class DTypeFirstArray[DType, Shape]: ...
 
 def f(
-    compact: Array[(2, 3), int],
+    compact: Array[[2, 3], int],
     pep484: Array[tuple[Literal[2], Literal[3]], int],
-    scalar: Array[(), int],
-    dtype_first: DTypeFirstArray[int, (2, 3)],
+    scalar: Array[[], int],
+    dtype_first: DTypeFirstArray[int, [2, 3]],
 ) -> None:
     # Compact and PEP-484 forms reveal identically.
-    reveal_type(compact)  # E: revealed type: Array[(2, 3), int]
-    reveal_type(pep484)  # E: revealed type: Array[(2, 3), int]
-    reveal_type(scalar)  # E: revealed type: Array[(), int]
-    reveal_type(dtype_first)  # E: revealed type: DTypeFirstArray[int, (2, 3)]
+    reveal_type(compact)  # E: revealed type: Array[[2, 3], int]
+    reveal_type(pep484)  # E: revealed type: Array[[2, 3], int]
+    reveal_type(scalar)  # E: revealed type: Array[[], int]
+    reveal_type(dtype_first)  # E: revealed type: DTypeFirstArray[int, [2, 3]]
     reveal_type(compact.dtype())  # E: revealed type: int
 "#,
 );
@@ -384,25 +384,25 @@ from shape_extensions import shaped_array
 class Array[Shape, DType]: ...
 
 def f(
-    compact: Array[(2, 3), int],
+    compact: Array[[2, 3], int],
     pep484: Array[tuple[Literal[2], Literal[3]], int],
-    compact_scalar: Array[(), int],
+    compact_scalar: Array[[], int],
     pep484_scalar: Array[tuple[()], int],
 ) -> None:
     # The compact and PEP-484 carriers canonicalize to the same shape.
-    reveal_type(compact)  # E: revealed type: Array[(2, 3), int]
-    reveal_type(pep484)  # E: revealed type: Array[(2, 3), int]
-    reveal_type(compact_scalar)  # E: revealed type: Array[(), int]
-    reveal_type(pep484_scalar)  # E: revealed type: Array[(), int]
+    reveal_type(compact)  # E: revealed type: Array[[2, 3], int]
+    reveal_type(pep484)  # E: revealed type: Array[[2, 3], int]
+    reveal_type(compact_scalar)  # E: revealed type: Array[[], int]
+    reveal_type(pep484_scalar)  # E: revealed type: Array[[], int]
 
     # Closed concrete shapes are mutually assignable in both directions.
     p: Array[tuple[Literal[2], Literal[3]], int] = compact
-    c: Array[(2, 3), int] = pep484
+    c: Array[[2, 3], int] = pep484
     ps: Array[tuple[()], int] = compact_scalar
-    cs: Array[(), int] = pep484_scalar
+    cs: Array[[], int] = pep484_scalar
 
-    wrong_rank2: Array[(2, 4), int] = pep484  # E: `Array[(2, 3), int]` is not assignable to `Array[(2, 4), int]`
-    wrong_rank0: Array[(1,), int] = pep484_scalar  # E: `Array[(), int]` is not assignable to `Array[(1,), int]`
+    wrong_rank2: Array[[2, 4], int] = pep484  # E: `Array[[2, 3], int]` is not assignable to `Array[[2, 4], int]`
+    wrong_rank0: Array[[1], int] = pep484_scalar  # E: `Array[[], int]` is not assignable to `Array[[1], int]`
 "#,
 );
 
@@ -421,7 +421,7 @@ class Array[Shape: _Shape = _AnyShape, DType = Any]:
     shape: Shape
 
 def f[N](
-    compact: Array[(2, 3), int],
+    compact: Array[[2, 3], int],
     pep484: Array[tuple[Literal[2], Literal[3]], int],
     size_tuple: Array[SizeTuple[2, 3], int],
     mixed_size_tuple: Array[SizeTuple[2, 3, Dim[N]], int],
@@ -429,12 +429,12 @@ def f[N](
     mixed_carrier: SizeTuple[2, 3, Dim[N]],
     unbounded: SizeTuple,
 ) -> None:
-    reveal_type(compact)  # E: revealed type: Array[(2, 3), int]
-    reveal_type(pep484)  # E: revealed type: Array[(2, 3), int]
-    reveal_type(size_tuple)  # E: revealed type: Array[(2, 3), int]
-    reveal_type(mixed_size_tuple)  # E: revealed type: Array[(2, 3, N), int]
+    reveal_type(compact)  # E: revealed type: Array[[2, 3], int]
+    reveal_type(pep484)  # E: revealed type: Array[[2, 3], int]
+    reveal_type(size_tuple)  # E: revealed type: Array[[2, 3], int]
+    reveal_type(mixed_size_tuple)  # E: revealed type: Array[[2, 3, N], int]
     p: Array[tuple[Literal[2], Literal[3]], int] = compact
-    c: Array[(2, 3), int] = pep484
+    c: Array[[2, 3], int] = pep484
     st: Array[SizeTuple[2, 3], int] = compact
     mst: Array[tuple[Literal[2], Literal[3], Dim[N]], int] = mixed_size_tuple
     t: tuple[Literal[2], Literal[3]] = carrier
@@ -473,7 +473,7 @@ def f_defaulted_dtype(x: ArrayWithDefault[tuple[int, ...]]) -> None: ...  # E: U
 
 # The check is scoped to the registered shape slot. Unbounded tuple types remain
 # ordinary type arguments in non-shape positions.
-def non_shape_arg(x: DTypeFirstArray[tuple[int, ...], (2, 3)]) -> None:
+def non_shape_arg(x: DTypeFirstArray[tuple[int, ...], [2, 3]]) -> None:
     reveal_type(x.dtype())  # E: revealed type: tuple[int, ...]
 
 # Wrong-arity annotations keep the ordinary arity diagnostic rather than adding
@@ -494,7 +494,7 @@ class Array[Shape, DType]: ...
 
 # Fixed PEP-484 tuple carriers remain valid: only unbounded tuples are rejected.
 def f(x: Array[tuple[Literal[2], Literal[3]], int]) -> None:
-    reveal_type(x)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(x)  # E: revealed type: Array[[2, 3], int]
 
 # Tuple-carrier shapes with a bounded variadic middle remain valid: only
 # rank-indefinite unbounded tuple middles are rejected.
@@ -506,7 +506,7 @@ def g[S](x: Array[S, int]) -> None: ...
 );
 
 testcase!(
-    test_shaped_array_compact_tuple_arity_error,
+    test_shaped_array_compact_list_arity_error,
     shaped_array_env(),
     r#"
 from shape_extensions import shaped_array
@@ -520,7 +520,20 @@ def f(bad: Array[2, 3, int]) -> None: ...  # E: Expected a type form, got instan
 );
 
 testcase!(
-    test_shaped_array_compact_tuple_invalid_dim,
+    test_shaped_array_compact_tuple_rejected,
+    shaped_array_env(),
+    r#"
+from shape_extensions import shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def f(bad: Array[(2, 3), int]) -> None: ...  # E: Expected a type form, got instance of `tuple[Literal[2], Literal[3]]`
+"#,
+);
+
+testcase!(
+    test_shaped_array_compact_list_invalid_dim,
     shaped_array_env(),
     r#"
 from shape_extensions import shaped_array
@@ -532,12 +545,12 @@ class Array[Shape, DType]: ...
 # string is parsed as a forward reference before reaching the dimension parser,
 # so the diagnostics are about the unresolved name / non-integer dimension --
 # both pointing at the bad element, not a generic invalid type argument.
-def f(bad: Array[("rows", 3), int]) -> None: ...  # E: Could not find name `rows`  # E: Tensor shape dimensions must be integer literals or type variables, got `Unknown`
+def f(bad: Array[["rows", 3], int]) -> None: ...  # E: Could not find name `rows`  # E: Tensor shape dimensions must be integer literals or type variables, got `Unknown`
 "#,
 );
 
 testcase!(
-    test_shaped_array_compact_tuple_rejects_starred_dim,
+    test_shaped_array_compact_list_rejects_starred_dim,
     shaped_array_env(),
     r#"
 from shape_extensions import shaped_array
@@ -545,7 +558,7 @@ from shape_extensions import shaped_array
 @shaped_array(shape="Shape")
 class Array[Shape, DType]: ...
 
-def f(bad: Array[(2, *tuple[int, ...]), int]) -> None: ...  # E: Tensor shape dimensions must be positive integer literals, string literals, type variables, or expressions, got `*tuple[int, ...]`
+def f(bad: Array[[2, *tuple[int, ...]], int]) -> None: ...  # E: Tensor shape dimensions must be positive integer literals, string literals, type variables, or expressions, got `*tuple[int, ...]`
 "#,
 );
 
@@ -660,26 +673,26 @@ class DTypeFirstArray[DType, Shape]:
     shape: Shape
     def dtype(self) -> DType: ...
 
-def f(x: Array[(2, 3, 4), int], dtype_first: DTypeFirstArray[int, (2, 3, 4)]) -> None:
+def f(x: Array[[2, 3, 4], int], dtype_first: DTypeFirstArray[int, [2, 3, 4]]) -> None:
     # Integer index drops the leading dim, and `.shape` (read from the raw
     # carrier) stays coherent with the projected shape.
-    reveal_type(x[0])  # E: revealed type: Array[(3, 4), int]
+    reveal_type(x[0])  # E: revealed type: Array[[3, 4], int]
     reveal_type(x[0].shape)  # E: revealed type: tuple[Literal[3], Literal[4]]
     reveal_type(x[0].dtype())  # E: revealed type: int
 
     # Mixed tuple index (slice + int) and `None`/newaxis stay coherent too.
-    reveal_type(x[:, 0])  # E: revealed type: Array[(2, 4), int]
+    reveal_type(x[:, 0])  # E: revealed type: Array[[2, 4], int]
     reveal_type(x[:, 0].shape)  # E: revealed type: tuple[Literal[2], Literal[4]]
-    reveal_type(x[None])  # E: revealed type: Array[(1, 2, 3, 4), int]
+    reveal_type(x[None])  # E: revealed type: Array[[1, 2, 3, 4], int]
     reveal_type(x[None].shape)  # E: revealed type: tuple[Literal[1], Literal[2], Literal[3], Literal[4]]
 
     # The carrier rewrite follows the registered shape parameter, even when it
     # is not the first type argument.
-    reveal_type(dtype_first[0])  # E: revealed type: DTypeFirstArray[int, (3, 4)]
+    reveal_type(dtype_first[0])  # E: revealed type: DTypeFirstArray[int, [3, 4]]
     reveal_type(dtype_first[0].shape)  # E: revealed type: tuple[Literal[3], Literal[4]]
     reveal_type(dtype_first[0].dtype())  # E: revealed type: int
 
-def scalar(s: Array[(), int]) -> None:
+def scalar(s: Array[[], int]) -> None:
     s[0]  # E: Cannot index scalar tensor (rank 0)
 "#,
 );
@@ -718,11 +731,11 @@ class Array[Shape, DType]:
     shape: Shape
     def dtype(self) -> DType: ...
 
-def f(x: Array[(2, 3), int], y: Array[(1, 3), int]) -> None:
+def f(x: Array[[2, 3], int], y: Array[[1, 3], int]) -> None:
     z = x + y
     # Broadcasting `(2, 3)` with `(1, 3)` yields `(2, 3)`, and the raw carrier is
     # rewritten so `.shape` stays coherent. DType is preserved from the carrier.
-    reveal_type(z)  # E: revealed type: Array[(2, 3), int]
+    reveal_type(z)  # E: revealed type: Array[[2, 3], int]
     reveal_type(z.shape)  # E: revealed type: tuple[Literal[2], Literal[3]]
     reveal_type(z.dtype())  # E: revealed type: int
 "#,
@@ -742,7 +755,7 @@ def use_shape[S](x: Array[S, int], shape: S) -> None: ...
 def get_shape[S](x: Array[S, int]) -> S: ...
 
 def f(
-    compact_2_3: Array[(2, 3), int],
+    compact_2_3: Array[[2, 3], int],
     pep484_2_3: Array[tuple[Literal[2], Literal[3]], int],
 ) -> None:
     shape_2_3: tuple[Literal[2], Literal[3]] = (2, 3)
@@ -770,8 +783,8 @@ def make_array[S](shape: S) -> Array[S, float]: ...
 def f() -> None:
     shape_2_3: tuple[Literal[2], Literal[3]] = (2, 3)
     scalar_shape: tuple[()] = ()
-    reveal_type(make_array(shape_2_3))  # E: revealed type: Array[(2, 3), float]
-    reveal_type(make_array(scalar_shape))  # E: revealed type: Array[(), float]
+    reveal_type(make_array(shape_2_3))  # E: revealed type: Array[[2, 3], float]
+    reveal_type(make_array(scalar_shape))  # E: revealed type: Array[[], float]
 "#,
 );
 
@@ -806,8 +819,8 @@ class Array[Shape, DType]:
 
 def identity[S, D](x: Array[S, D]) -> Array[S, D]: ...
 
-def f(x_2_3_int: Array[(2, 3), int]) -> None:
-    reveal_type(identity(x_2_3_int))  # E: revealed type: Array[(2, 3), int]
+def f(x_2_3_int: Array[[2, 3], int]) -> None:
+    reveal_type(identity(x_2_3_int))  # E: revealed type: Array[[2, 3], int]
     reveal_type(identity(x_2_3_int).dtype())  # E: revealed type: int
 "#,
 );
@@ -868,7 +881,7 @@ class Tensor[DType, *Shape]: ...
 def carrier[S](x: Array[S, float]) -> None:
     reveal_type(x.shape)  # E: revealed type: S
 
-def concrete[M](x: Array[(2, 4, M), float]) -> None:
+def concrete[M](x: Array[[2, 4, M], float]) -> None:
     reveal_type(x.shape)  # E: revealed type: tuple[Literal[2], Literal[4], Dim[M]]
 
 def unpacked_prefix[*Ts](x: Array[tuple[Literal[2], *Ts], float]) -> None:
@@ -888,10 +901,10 @@ from shape_extensions import shaped_array
 @shaped_array(shape="Shape")
 class Array[Shape, DType]: ...
 
-def want_int(x: Array[(2, 3), int]) -> None: ...
+def want_int(x: Array[[2, 3], int]) -> None: ...
 
-def f(x_str: Array[(2, 3), str]) -> None:
-    want_int(x_str)  # E: Argument `Array[(2, 3), str]` is not assignable to parameter `x` with type `Array[(2, 3), int]`
+def f(x_str: Array[[2, 3], str]) -> None:
+    want_int(x_str)  # E: Argument `Array[[2, 3], str]` is not assignable to parameter `x` with type `Array[[2, 3], int]`
 "#,
 );
 
@@ -904,10 +917,10 @@ from shape_extensions import shaped_array
 @shaped_array(shape="Shape")
 class Array[Shape, DType]: ...
 
-def want_2_4(x: Array[(2, 4), int]) -> None: ...
+def want_2_4(x: Array[[2, 4], int]) -> None: ...
 
-def f(x_2_3: Array[(2, 3), int]) -> None:
-    want_2_4(x_2_3)  # E: Argument `Array[(2, 3), int]` is not assignable to parameter `x` with type `Array[(2, 4), int]`
+def f(x_2_3: Array[[2, 3], int]) -> None:
+    want_2_4(x_2_3)  # E: Argument `Array[[2, 3], int]` is not assignable to parameter `x` with type `Array[[2, 4], int]`
 "#,
 );
 
@@ -921,17 +934,17 @@ from shape_extensions import shaped_array
 @shaped_array(shape="Shape")
 class Array[Shape, DType]: ...
 
-def want_2_3(x: Array[(2, 3), int]) -> None: ...
+def want_2_3(x: Array[[2, 3], int]) -> None: ...
 def want_bad(x: Array[tuple[str, str], int]) -> None: ...
 
 # `tuple[str, str]` is not a valid shape carrier. It projects to a shapeless
 # array internally; a source-aware diagnostic rejecting this form is deferred.
 def f(x_bad: Array[tuple[str, str], int]) -> None:
-    want_2_3(x_bad)  # E: Argument `Array[tuple[Unknown, ...], int]` is not assignable to parameter `x` with type `Array[(2, 3), int]`
+    want_2_3(x_bad)  # E: Argument `Array[tuple[Unknown, ...], int]` is not assignable to parameter `x` with type `Array[[2, 3], int]`
     want_bad(x_bad)
 
-def g(x_2_3: Array[(2, 3), int]) -> None:
-    want_bad(x_2_3)  # E: Argument `Array[(2, 3), int]` is not assignable to parameter `x` with type `Array[tuple[Unknown, ...], int]`
+def g(x_2_3: Array[[2, 3], int]) -> None:
+    want_bad(x_2_3)  # E: Argument `Array[[2, 3], int]` is not assignable to parameter `x` with type `Array[tuple[Unknown, ...], int]`
 "#,
 );
 
@@ -1300,12 +1313,12 @@ testcase!(
 import numpy as np
 from typing import Literal, reveal_type
 
-def f(x: np.tcarray[(2, 3), int]) -> None:
+def f(x: np.tcarray[[2, 3], int]) -> None:
     y = np.tc_add_leading_axis(x)
     # The meta-shape DSL adds a leading axis. The result's raw tuple carrier is
     # re-synced to the computed shape, so both the displayed shape and `.shape`
     # stay coherent; DType is preserved.
-    reveal_type(y)  # E: revealed type: tcarray[(1, 2, 3), int]
+    reveal_type(y)  # E: revealed type: tcarray[[1, 2, 3], int]
     reveal_type(y.shape)  # E: revealed type: tuple[Literal[1], Literal[2], Literal[3]]
     reveal_type(y.dtype())  # E: revealed type: int
 "#,
@@ -1706,21 +1719,21 @@ testcase!(
 from typing import Literal, reveal_type
 from my_lib import Array, svd_fn
 
-def f(tall: Array[(5, 3), float], wide: Array[(3, 5), float], square: Array[(4, 4), float]) -> None:
+def f(tall: Array[[5, 3], float], wide: Array[[3, 5], float], square: Array[[4, 4], float]) -> None:
     tall_u, tall_s, tall_vt = svd_fn(tall, full_matrices=False)
-    reveal_type(tall_u)  # E: revealed type: Array[(5, 3), float]
-    reveal_type(tall_s)  # E: revealed type: Array[(3,), float]
-    reveal_type(tall_vt)  # E: revealed type: Array[(3, 3), float]
+    reveal_type(tall_u)  # E: revealed type: Array[[5, 3], float]
+    reveal_type(tall_s)  # E: revealed type: Array[[3], float]
+    reveal_type(tall_vt)  # E: revealed type: Array[[3, 3], float]
 
     wide_u, wide_s, wide_vt = svd_fn(wide, full_matrices=False)
-    reveal_type(wide_u)  # E: revealed type: Array[(3, 3), float]
-    reveal_type(wide_s)  # E: revealed type: Array[(3,), float]
-    reveal_type(wide_vt)  # E: revealed type: Array[(3, 5), float]
+    reveal_type(wide_u)  # E: revealed type: Array[[3, 3], float]
+    reveal_type(wide_s)  # E: revealed type: Array[[3], float]
+    reveal_type(wide_vt)  # E: revealed type: Array[[3, 5], float]
 
     square_u, square_s, square_vt = svd_fn(square, full_matrices=False)
-    reveal_type(square_u)  # E: revealed type: Array[(4, 4), float]
-    reveal_type(square_s)  # E: revealed type: Array[(4,), float]
-    reveal_type(square_vt)  # E: revealed type: Array[(4, 4), float]
+    reveal_type(square_u)  # E: revealed type: Array[[4, 4], float]
+    reveal_type(square_s)  # E: revealed type: Array[[4], float]
+    reveal_type(square_vt)  # E: revealed type: Array[[4, 4], float]
 "#,
 );
 
@@ -1730,7 +1743,7 @@ testcase!(
     r#"
 from my_lib import Array, svd_raw_flags_fn
 
-def f(x: Array[(5, 3), float], vector: Array[(5,), float]) -> None:
+def f(x: Array[[5, 3], float], vector: Array[[5], float]) -> None:
     svd_raw_flags_fn(vector, full_matrices=False)  # E: svd expects 2-D arrays
     svd_raw_flags_fn(x, full_matrices=True)  # E: only reduced svd shapes are modeled
     svd_raw_flags_fn(x, full_matrices=False, compute_uv=False)  # E: svd without singular vectors is not modeled
@@ -1745,10 +1758,10 @@ testcase!(
 from typing import reveal_type
 from my_lib import Array, diag_fn
 
-def f(vector: Array[(4,), float], matrix: Array[(4, 4), float]) -> None:
-    reveal_type(diag_fn(vector))  # E: revealed type: Array[(4, 4), float]
-    reveal_type(diag_fn(vector, 1))  # E: revealed type: Array[(5, 5), float]
-    reveal_type(diag_fn(vector, -1))  # E: revealed type: Array[(5, 5), float]
+def f(vector: Array[[4], float], matrix: Array[[4, 4], float]) -> None:
+    reveal_type(diag_fn(vector))  # E: revealed type: Array[[4, 4], float]
+    reveal_type(diag_fn(vector, 1))  # E: revealed type: Array[[5, 5], float]
+    reveal_type(diag_fn(vector, -1))  # E: revealed type: Array[[5, 5], float]
     diag_fn(matrix)  # E: diag expects a 1-D array
 "#,
 );

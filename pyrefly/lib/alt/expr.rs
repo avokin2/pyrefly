@@ -3704,6 +3704,93 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
     }
 
+    /// Returns whether `ty` is a valid upper bound for a `SizeTuple`-carrier `TypeVar`.
+    ///
+    /// When the user writes `[S: SizeTuple]`, Pyrefly normalizes `SizeTuple` to a
+    /// `tuple` type, so the carrier bound stored in the `TypeVar`'s restriction is
+    /// `Type::Tuple`.
+    fn is_size_tuple_carrier_bound(ty: &Type) -> bool {
+        matches!(ty, Type::Tuple(_))
+    }
+
+    /// Returns whether `ty` can legally be the argument inside `Elements[...]`.
+    ///
+    /// Valid carriers are concrete tuple types, type aliases (which normalize to
+    /// tuples), and `TypeVar`s whose upper bound is a `SizeTuple` (i.e., a tuple type).
+    fn is_size_tuple_elements_carrier(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Tuple(_) | Type::UntypedAlias(_) => true,
+            Type::Quantified(q) if q.is_type_var() => {
+                Self::is_size_tuple_carrier_bound(&q.upper_bound(self.stdlib, self.heap))
+            }
+            Type::TypeVar(tv) => {
+                Self::is_size_tuple_carrier_bound(&tv.upper_bound(self.stdlib, self.heap))
+            }
+            _ => false,
+        }
+    }
+
+    fn is_shape_elements_class(&self, cls: &Class) -> bool {
+        cls.has_toplevel_qname("shape_extensions", "Elements")
+    }
+
+    /// Parse `Elements[S]` in `*Elements[S]`, returning the bare `S` carrier.
+    ///
+    /// `Elements` is the conceptual inverse of `tuple[Unpack[Ts]]`: whereas
+    /// `tuple[Unpack[Ts]]` wraps a `TypeVarTuple` into a concrete tuple type,
+    /// `Elements[S]` extracts the element sequence from a `SizeTuple` carrier `S`.
+    /// This fills a gap in the typing spec — there is no standard way to decompose
+    /// a variadic carrier without a `TypeVarTuple` — letting callers write
+    /// `Array[[*Elements[S], OUT], DType]` instead of needing a `TypeVarTuple`.
+    fn parse_size_tuple_elements_projection(
+        &self,
+        value: &Expr,
+        errors: &ErrorCollector,
+    ) -> Result<Option<Type>, ()> {
+        let Expr::Subscript(subscript) = value else {
+            return Ok(None);
+        };
+        let base = self.expr_infer(&subscript.value, errors);
+        let Type::ClassDef(ref cls) = base else {
+            return Ok(None);
+        };
+        if !self.is_shape_elements_class(cls) {
+            return Ok(None);
+        }
+
+        match Ast::unpack_slice(&subscript.slice) {
+            [arg] => {
+                let carrier = self.expr_untype(arg, TypeFormContext::TypeArgument, errors);
+                if self.is_size_tuple_elements_carrier(&carrier) {
+                    Ok(Some(carrier))
+                } else {
+                    self.error(
+                        errors,
+                        arg.range(),
+                        ErrorKind::InvalidAnnotation,
+                        format!(
+                            "`Elements[...]` requires a `SizeTuple` carrier, got `{}`",
+                            self.for_display(carrier)
+                        ),
+                    );
+                    Err(())
+                }
+            }
+            args => {
+                self.error(
+                    errors,
+                    subscript.slice.range(),
+                    ErrorKind::BadSpecialization,
+                    format!(
+                        "Expected 1 type argument for `Elements`, got {}",
+                        args.len()
+                    ),
+                );
+                Err(())
+            }
+        }
+    }
+
     /// Return whether a tuple-carrier shape contains an unbounded tuple segment.
     fn has_unbounded_tuple_carrier(ty: &Type) -> bool {
         match ty {
@@ -3781,6 +3868,56 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         Some((ShapedArrayShape::from_types(dims.clone()), dims))
     }
 
+    fn parse_size_tuple_shape_args(
+        &self,
+        args: &[Expr],
+        errors: &ErrorCollector,
+    ) -> Option<ShapedArrayShape> {
+        let star = args
+            .iter()
+            .enumerate()
+            .find(|(_, arg)| matches!(arg, Expr::Starred(_)));
+
+        if let Some((star_idx, Expr::Starred(ExprStarred { value, .. }))) = star {
+            if let Some(second) = args[star_idx + 1..]
+                .iter()
+                .find(|arg| matches!(arg, Expr::Starred(_)))
+            {
+                self.error(
+                    errors,
+                    second.range(),
+                    ErrorKind::InvalidAnnotation,
+                    "`SizeTuple` can have at most one unpacked shape carrier".to_owned(),
+                );
+                return None;
+            }
+
+            let prefix = self.parse_dimension_list(&args[..star_idx], errors)?;
+            let suffix = self.parse_dimension_list(&args[star_idx + 1..], errors)?;
+            let middle_ty = match self.parse_size_tuple_elements_projection(value, errors) {
+                Ok(Some(middle_ty)) => middle_ty,
+                Ok(None) => {
+                    let got = self.expr_untype(value, TypeFormContext::TypeArgument, errors);
+                    self.error(
+                        errors,
+                        value.range(),
+                        ErrorKind::InvalidAnnotation,
+                        format!(
+                            "Unpacked type in `SizeTuple` must use `Elements[...]`, got `{}`",
+                            self.for_display(got)
+                        ),
+                    );
+                    return None;
+                }
+                Err(()) => return None,
+            };
+            return Some(ShapedArrayShape::unpacked(prefix, middle_ty, suffix));
+        }
+
+        self.parse_dimension_list(args, errors)
+            .map(ShapedArrayShape::from_types)
+    }
+
     /// Parse a registered shaped-array annotation.
     ///
     /// There are two modes, determined by the kind of the registered shape
@@ -3836,10 +3973,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                             // diagnostics), then rebuild the equivalent tuple
                             // carrier. On a bad dimension the error is already
                             // reported, so this slot degrades to an error type.
-                            match self.parse_dimension_list(elts, errors) {
-                                Some(dims) => {
-                                    shape_to_tuple_carrier(&ShapedArrayShape::from_types(dims))
-                                }
+                            match self.parse_size_tuple_shape_args(elts, errors) {
+                                Some(shape) => shape_to_tuple_carrier(&shape),
                                 None => Type::any_error(),
                             }
                         }
@@ -3912,11 +4047,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     }
 
     fn parse_size_tuple_type(&self, args: &[Expr], errors: &ErrorCollector) -> Type {
-        let Some(dims) = self.parse_dimension_list(args, errors) else {
+        let Some(shape) = self.parse_size_tuple_shape_args(args, errors) else {
             return self.heap.mk_type_of(Type::any_error());
         };
-        self.heap
-            .mk_type_of(shape_to_tuple_carrier(&ShapedArrayShape::from_types(dims)))
+        self.heap.mk_type_of(shape_to_tuple_carrier(&shape))
     }
 
     /// Parse Dim[3], Dim[N], Dim[N+1] into Type::Dim(...)

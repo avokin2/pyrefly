@@ -24,6 +24,7 @@ from typing import Any, Callable
 shaped_array: Any
 class SizeTuple:
     def __class_getitem__(cls, params: Any) -> Any: ...
+class Elements[T]: ...
 class Dim[T]: ...
 class D: ...
 def assert_shape[T](x: T, shape: tuple[Any, ...]) -> T: ...
@@ -134,6 +135,7 @@ from typing import Any, Callable
 shaped_array: Any
 class SizeTuple:
     def __class_getitem__(cls, params: Any) -> Any: ...
+class Elements[T]: ...
 def uses_shape_dsl(ir_fn: Callable[..., Any], *, capture_init: list[str] | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
 "#,
     );
@@ -411,7 +413,7 @@ testcase!(
     shaped_array_env(),
     r#"
 from typing import Any, Literal, reveal_type
-from shape_extensions import Dim, SizeTuple, shaped_array
+from shape_extensions import Dim, Elements, SizeTuple, shaped_array
 
 type _Shape = SizeTuple
 type _AnyShape = tuple[Any, ...]
@@ -440,6 +442,32 @@ def f[N](
     t: tuple[Literal[2], Literal[3]] = carrier
     mt: tuple[Literal[2], Literal[3], Dim[N]] = mixed_carrier
     u: tuple[int, ...] = unbounded
+
+def append_dim[S: SizeTuple, OUT](
+    explicit: Array[SizeTuple[*Elements[S], OUT], int],
+    compact: Array[[*Elements[S], OUT], int],
+) -> Array[[*Elements[S], OUT], int]:
+    reveal_type(explicit)  # E: revealed type: Array[[*S, OUT], int]
+    reveal_type(compact)  # E: revealed type: Array[[*S, OUT], int]
+    return explicit
+
+def prepend_and_append[S: SizeTuple, OUT](
+    source: Array[S, int],
+    result: Array[[1, *Elements[S], OUT], int],
+) -> Array[[1, *Elements[S], OUT], int]:
+    return result
+
+def concrete_unpack[M, N](
+    source: Array[[4, M], int],
+    result: Array[[1, 4, M, N], int],
+) -> None:
+    reveal_type(prepend_and_append(source, result))  # E: revealed type: Array[[1, 4, M, N], int]
+
+def nested_unpack[S0: SizeTuple, M, N](
+    source: Array[[4, *Elements[S0], M], int],
+    result: Array[[1, 4, *Elements[S0], M, N], int],
+) -> None:
+    reveal_type(prepend_and_append(source, result))  # E: revealed type: Array[[1, 4, *S0, M, N], int]
 "#,
 );
 
@@ -550,7 +578,7 @@ def f(bad: Array[["rows", 3], int]) -> None: ...  # E: Could not find name `rows
 );
 
 testcase!(
-    test_shaped_array_compact_list_rejects_starred_dim,
+    test_shaped_array_compact_list_rejects_unbounded_tuple_unpack,
     shaped_array_env(),
     r#"
 from shape_extensions import shaped_array
@@ -558,7 +586,75 @@ from shape_extensions import shaped_array
 @shaped_array(shape="Shape")
 class Array[Shape, DType]: ...
 
-def f(bad: Array[[2, *tuple[int, ...]], int]) -> None: ...  # E: Tensor shape dimensions must be positive integer literals, string literals, type variables, or expressions, got `*tuple[int, ...]`
+def f(bad: Array[[2, *tuple[int, ...]], int]) -> None: ...  # E: Unpacked type in `SizeTuple` must use `Elements[...]`, got `tuple[int, ...]`
+"#,
+);
+
+testcase!(
+    test_shaped_array_compact_list_elements_rejects_non_sizetuple_carrier,
+    shaped_array_env(),
+    r#"
+from shape_extensions import Elements, shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def f(bad: Array[[2, *Elements[int]], int]) -> None: ...  # E: `Elements[...]` requires a `SizeTuple` carrier, got `int`
+"#,
+);
+
+testcase!(
+    test_shaped_array_compact_list_requires_elements_for_sizetuple_unpack,
+    shaped_array_env(),
+    r#"
+from shape_extensions import SizeTuple, shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def f[S: SizeTuple](bad: Array[[2, *S], int]) -> None: ...  # E: Unpacked type in `SizeTuple` must use `Elements[...]`, got `S`
+"#,
+);
+
+testcase!(
+    test_shaped_array_compact_list_rejects_multiple_unpacked_carriers,
+    shaped_array_env(),
+    r#"
+from shape_extensions import Elements, SizeTuple, shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def f[S: SizeTuple, T: SizeTuple](bad: Array[[*Elements[S], *Elements[T]], int]) -> None: ...  # E: `SizeTuple` can have at most one unpacked shape carrier
+"#,
+);
+
+testcase!(
+    test_shaped_array_elements_rejects_multiple_args,
+    shaped_array_env(),
+    r#"
+from shape_extensions import Elements, SizeTuple, shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+def f[S: SizeTuple, T: SizeTuple](bad: Array[[*Elements[S, T]], int]) -> None: ...  # E: Expected 1 type argument for `Elements`, got 2
+"#,
+);
+
+testcase!(
+    test_shaped_array_elements_accepts_legacy_typevar_carrier,
+    shaped_array_env(),
+    r#"
+from typing import TypeVar
+from shape_extensions import Elements, SizeTuple, shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape, DType]: ...
+
+S = TypeVar("S", bound=SizeTuple)
+
+def f(x: Array[[*Elements[S], 3], int]) -> None: ...
 "#,
 );
 

@@ -79,6 +79,33 @@ class SizeTuple:
         return cls
 
 
+class Elements:
+    """Inverse of ``tuple[Unpack[S]]``: extracts the element sequence from a SizeTuple carrier.
+
+    In the Python typing spec, ``tuple[Unpack[Ts]]`` wraps a ``TypeVarTuple`` into a
+    concrete tuple type. ``Elements[S]`` is the conceptual inverse: given a ``SizeTuple``
+    carrier ``S``, ``*Elements[S]`` splices its element sequence into a shape position,
+    e.g. ``Array[[*Elements[S], OUT], DType]``.
+
+    This fills a gap in the current typing spec — there is no standard mechanism to
+    decompose a variadic carrier without a ``TypeVarTuple``. Pyrefly uses the ``.pyi``
+    stub for type inference; this class exists so annotations evaluate without crashing
+    at runtime.
+    """
+
+    def __init__(self, carrier):
+        self.carrier = carrier
+
+    def __class_getitem__(cls, carrier):
+        return cls(carrier)
+
+    def __iter__(self):
+        yield self
+
+    def __repr__(self):
+        return f"Elements[{self.carrier!r}]"
+
+
 class Dim[T]:
     """Symbolic integer type for dimension values.
 

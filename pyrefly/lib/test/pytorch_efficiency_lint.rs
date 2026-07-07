@@ -47,6 +47,8 @@ fn add_shape_extensions(e: &mut TestEnv) {
 from typing import Any
 
 shaped_array: Any
+class SizeTuple:
+    def __class_getitem__(cls, params: Any) -> Any: ...
 "#,
     );
 }
@@ -57,13 +59,13 @@ fn shaped_array_env_with_lint() -> TestEnv {
     e.add(
         "arrays",
         r#"
-from shape_extensions import shaped_array
+from shape_extensions import SizeTuple, shaped_array
 
 @shaped_array(shape="Shape")
-class Array[*Shape]:
+class Array[Shape: SizeTuple]:
     def item(self) -> int | float: ...
-    def cuda(self) -> "Array[*Shape]": ...
-    def to(self, device: object) -> "Array[*Shape]": ...
+    def cuda(self) -> "Array[Shape]": ...
+    def to(self, device: object) -> "Array[Shape]": ...
 "#,
     );
     e
@@ -75,15 +77,15 @@ fn decorated_torch_env_with_lint() -> TestEnv {
     e.add(
         "torch",
         r#"
-from shape_extensions import shaped_array
+from shape_extensions import SizeTuple, shaped_array
 
 class device: ...
 
 @shaped_array(shape="Shape")
-class Tensor[*Shape]:
+class Tensor[Shape: SizeTuple]:
     def item(self) -> int | float: ...
-    def to(self, device: device) -> "Tensor[*Shape]": ...
-    def cuda(self) -> "Tensor[*Shape]": ...
+    def to(self, device: device) -> "Tensor[Shape]": ...
+    def cuda(self) -> "Tensor[Shape]": ...
 
 def zeros(*size: int, device: device | None = None) -> Tensor: ...
 "#,
@@ -168,7 +170,7 @@ testcase!(
     r#"
 from arrays import Array
 
-def f(x: Array[2, 3], device: object) -> None:
+def f(x: Array[[2, 3]], device: object) -> None:
     x.item()
     x.cuda()
     x.to(device)
@@ -217,7 +219,7 @@ testcase!(
     r#"
 import torch
 
-def f(x: torch.Tensor[2, 3], device: torch.device) -> None:
+def f(x: torch.Tensor[[2, 3]], device: torch.device) -> None:
     x.item()  # E: `Tensor.item()` causes implicit GPU-to-CPU synchronization
     x.cuda()  # E: `Tensor.cuda()` hard-codes the target device
     print(x)  # E: printing a `Tensor` causes implicit GPU-to-CPU synchronization

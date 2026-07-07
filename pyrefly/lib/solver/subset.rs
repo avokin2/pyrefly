@@ -2546,6 +2546,11 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
     ) -> Result<(), SubsetError> {
         let (shape_param, got_arg) = self.shape_param_and_arg(got)?;
         let (want_param, want_arg) = self.shape_param_and_arg(want)?;
+        if shape_param.kind() != QuantifiedKind::TypeVar {
+            return Err(SubsetError::InternalError(
+                "ShapedArrayType registered a non-TypeVar as its shape parameter".to_owned(),
+            ));
+        }
 
         // Check base class compatibility, but ignore the registered shape
         // parameter: the shape is tracked and checked separately in
@@ -2574,17 +2579,14 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
         }
 
         // Check the shape compatibility
-        if shape_param.kind() == QuantifiedKind::TypeVar
-            && (tuple_carrier_to_shape(got_arg).is_none()
-                || tuple_carrier_to_shape(want_arg).is_none())
-        {
+        if tuple_carrier_to_shape(got_arg).is_none() || tuple_carrier_to_shape(want_arg).is_none() {
             // Closed tuple carriers that cannot project to a valid shape should
             // not become compatible just because their projected shape is
             // gradual - do an ordinary subset check in that case.
             self.is_subset_eq(got_arg, want_arg)
         } else {
             // Check dimensions' compatibility.
-            self.bind_tensor_dimensions(&got.shape, &want.shape, shape_param.kind())
+            self.bind_tensor_dimensions(&got.shape, &want.shape)
         }
     }
 
@@ -2655,8 +2657,12 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
     ) -> Result<ClassType, SubsetError> {
         let base_class = &shaped_array.base_class;
         let erased_shape_arg = match shape_param.kind() {
-            QuantifiedKind::TypeVarTuple => Type::any_tuple(),
             QuantifiedKind::TypeVar => Type::any_implicit(),
+            QuantifiedKind::TypeVarTuple => {
+                return Err(SubsetError::InternalError(
+                    "ShapedArrayType registered a TypeVarTuple as its shape parameter".to_owned(),
+                ));
+            }
             QuantifiedKind::ParamSpec => {
                 return Err(SubsetError::InternalError(
                     "ShapedArrayType registered a ParamSpec as its shape parameter".to_owned(),
@@ -2686,7 +2692,6 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
         &mut self,
         got_shape: &ShapedArrayShape,
         want_shape: &ShapedArrayShape,
-        shape_kind: QuantifiedKind,
     ) -> Result<(), SubsetError> {
         // The subset logic only has two real cases: a fixed-rank shape or a shape
         // with a variadic middle. Normalize direct `tuple[T, ...]` shapes to the
@@ -2712,12 +2717,8 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
             }
         }
 
-        fn pack_middle_slice(dims: &[Type], shape_kind: QuantifiedKind) -> Type {
-            if shape_kind == QuantifiedKind::TypeVar {
-                shape_to_tuple_carrier(&ShapedArrayShape::from_types(dims.to_vec()))
-            } else {
-                Type::concrete_tuple(dims.to_vec())
-            }
+        fn pack_middle_slice(dims: &[Type]) -> Type {
+            shape_to_tuple_carrier(&ShapedArrayShape::from_types(dims.to_vec()))
         }
 
         match (shape_view(got_shape), shape_view(want_shape)) {
@@ -2733,7 +2734,7 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                     self.is_subset_eq(got_dim, want_dim)?;
                 }
             }
-            // Concrete got, Unpacked want: bind the TypeVarTuple to the corresponding slice
+            // Concrete got, Unpacked want: bind the variadic middle to the corresponding slice
             (
                 ShapeView::Concrete(got_dims),
                 ShapeView::Unpacked(want_prefix, want_middle, want_suffix),
@@ -2761,16 +2762,14 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                     self.is_subset_eq(got_dim, want_dim)?;
                 }
 
-                // Bind the TypeVarTuple to the middle slice
+                // Bind the variadic middle to the middle slice
                 let middle_start = want_prefix.len();
                 let middle_end = got_dims.len().saturating_sub(want_suffix.len());
                 if middle_start <= middle_end {
                     let middle_slice = &got_dims[middle_start..middle_end];
-                    let tuple_ty = pack_middle_slice(middle_slice, shape_kind);
+                    let tuple_ty = pack_middle_slice(middle_slice);
                     self.is_subset_eq(&tuple_ty, &want_middle)?;
-                    if shape_kind == QuantifiedKind::TypeVar
-                        && is_tuple_carrier_shape_middle(&want_middle)
-                    {
+                    if is_tuple_carrier_shape_middle(&want_middle) {
                         self.is_subset_eq(&want_middle, &tuple_ty)?;
                     }
                 }
@@ -2837,18 +2836,12 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                 let fold = |prefix: &[Type], middle: &Type, suffix: &[Type]| -> Type {
                     if prefix.is_empty() && suffix.is_empty() {
                         middle.clone()
-                    } else if shape_kind == QuantifiedKind::TypeVar {
+                    } else {
                         shape_to_tuple_carrier(&ShapedArrayShape::unpacked(
                             prefix.to_vec(),
                             middle.clone(),
                             suffix.to_vec(),
                         ))
-                    } else {
-                        Type::Tuple(Tuple::Unpacked(Box::new((
-                            prefix.to_vec(),
-                            middle.clone(),
-                            suffix.to_vec(),
-                        ))))
                     }
                 };
 
@@ -2856,14 +2849,13 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                 let want_folded = fold(want_extra_prefix, &want_middle, want_extra_suffix);
 
                 self.is_subset_eq(&got_folded, &want_folded)?;
-                if shape_kind == QuantifiedKind::TypeVar
-                    && (is_tuple_carrier_shape_middle(&got_middle)
-                        || is_tuple_carrier_shape_middle(&want_middle))
+                if is_tuple_carrier_shape_middle(&got_middle)
+                    || is_tuple_carrier_shape_middle(&want_middle)
                 {
                     self.is_subset_eq(&want_folded, &got_folded)?;
                 }
             }
-            // Unpacked got, Concrete want: bind prefix, suffix, and middle TypeVarTuple
+            // Unpacked got, Concrete want: bind prefix, suffix, and variadic middle
             // Example: Tensor[A, B, *Ts, C, D] <: Tensor[1, 2, 3, 4, 5, 6]
             //   - Bind prefix: A <: 1, B <: 2
             //   - Bind suffix: C <: 5, D <: 6
@@ -2892,17 +2884,15 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                     self.is_subset_eq(got_dim, want_dim)?;
                 }
 
-                // Bind middle TypeVarTuple to the remaining want dimensions
+                // Bind the variadic middle to the remaining want dimensions
                 let middle_start = got_prefix.len();
                 let middle_end = want_dims.len() - got_suffix.len();
 
                 if middle_start <= middle_end {
                     let middle_slice = &want_dims[middle_start..middle_end];
-                    let tuple_ty = pack_middle_slice(middle_slice, shape_kind);
+                    let tuple_ty = pack_middle_slice(middle_slice);
                     self.is_subset_eq(&got_middle, &tuple_ty)?;
-                    if shape_kind == QuantifiedKind::TypeVar
-                        && is_tuple_carrier_shape_middle(&got_middle)
-                    {
+                    if is_tuple_carrier_shape_middle(&got_middle) {
                         self.is_subset_eq(&tuple_ty, &got_middle)?;
                     }
                 }

@@ -5886,7 +5886,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         cls.has_toplevel_qname("shape_extensions", "SizeTuple")
     }
 
-    fn bare_size_tuple_carrier(&self) -> Type {
+    pub(crate) fn bare_size_tuple_carrier(&self) -> Type {
         self.heap.mk_tuple(Tuple::Unbounded(Box::new(
             self.heap.mk_class_type(self.stdlib.int().clone()),
         )))

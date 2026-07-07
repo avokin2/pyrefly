@@ -88,12 +88,8 @@ impl crate::equality::TypeEq for ShapedArraySyntax {
 pub enum ShapedArrayShapeArgStyle {
     #[default]
     Unknown,
-    TypeVarTuple {
-        index: usize,
-    },
-    TupleCarrier {
-        index: usize,
-    },
+    /// The class argument at `index` carries the whole shape tuple.
+    TupleCarrier { index: usize },
 }
 
 impl PartialEq for ShapedArrayShapeArgStyle {
@@ -127,7 +123,7 @@ impl crate::equality::TypeEq for ShapedArrayShapeArgStyle {
 }
 
 /// A class instance with shape information.
-/// Example: Tensor[2, 3] represents a 2x3 tensor
+/// Example: Tensor[[2, 3]] represents a 2x3 tensor
 /// Example: Tensor (no brackets) represents a shapeless tensor (`tuple[Any, ...]`)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Visit, VisitMut, TypeEq)]
@@ -168,21 +164,6 @@ impl ShapedArrayType {
     pub fn with_syntax(mut self, syntax: ShapedArraySyntax) -> Self {
         self.syntax = syntax;
         self
-    }
-
-    /// Create a shaped-array type from the tuple carrier stored in a class type
-    /// argument, falling back to shapeless for malformed tuple elements.
-    ///
-    /// A non-tuple carrier violates the TypeVarTuple storage invariant and must
-    /// remain a panic instead of silently degrading.
-    pub fn from_tuple_carrier_or_shapeless(base_class: ClassType, carrier: &Type) -> Self {
-        match carrier {
-            Type::Tuple(_) => match tuple_carrier_to_shape(carrier) {
-                Some(shape) => Self::new(base_class, shape),
-                None => Self::shapeless(base_class),
-            },
-            _ => unreachable!("registered shaped-array class argument should be a tuple carrier"),
-        }
     }
 
     pub fn with_shape_arg_style(mut self, shape_arg_style: ShapedArrayShapeArgStyle) -> Self {
@@ -643,8 +624,7 @@ pub fn is_tuple_carrier_shape_middle(ty: &Type) -> bool {
 ///
 /// A tuple-carrier `TypeVar` represents the whole shape tuple, so `ndarray[S,
 /// DType]` projects to `Unpacked([], S, [])` but must round-trip back to `S`,
-/// not `tuple[*S]`. TypeVarTuple-shaped arrays use `shape_to_tuple_carrier`
-/// directly because their middle really is an unpacked variadic segment.
+/// not `tuple[*S]`.
 pub fn shape_to_tuple_carrier_arg(shape: &ShapedArrayShape) -> Type {
     match shape.as_tuple() {
         Tuple::Unpacked(unpacked) => {
@@ -1349,7 +1329,6 @@ mod tests {
     use crate::quantified::QuantifiedKind;
     use crate::quantified::QuantifiedOrigin;
     use crate::shaped_array::ShapedArrayShape;
-    use crate::shaped_array::ShapedArrayType;
     use crate::shaped_array::shape_to_tuple_carrier;
     use crate::shaped_array::shape_to_tuple_carrier_arg;
     use crate::shaped_array::tuple_carrier_to_shape;
@@ -1568,72 +1547,6 @@ mod tests {
             Some(shapeless.clone())
         );
         assert_eq!(tuple_carrier_to_shape(&int_unbounded), Some(shapeless));
-    }
-
-    #[test]
-    fn malformed_tuple_carrier_projects_to_shapeless_array() {
-        let base_class = fake_class_type("arrays", "Array");
-        let carrier = concrete_carrier(vec![bool_literal()]);
-        let shaped_array =
-            ShapedArrayType::from_tuple_carrier_or_shapeless(base_class.clone(), &carrier);
-
-        assert_eq!(shaped_array.base_class, base_class);
-        assert!(shaped_array.is_shapeless());
-    }
-
-    #[test]
-    fn malformed_unpacked_tuple_carrier_projects_to_shapeless_array() {
-        let base_class = fake_class_type("arrays", "Array");
-        let carrier = Type::Tuple(Tuple::Unpacked(Box::new((
-            vec![bool_literal()],
-            Type::Any(AnyStyle::Implicit),
-            Vec::new(),
-        ))));
-        let shaped_array =
-            ShapedArrayType::from_tuple_carrier_or_shapeless(base_class.clone(), &carrier);
-
-        assert_eq!(shaped_array.base_class, base_class);
-        assert!(shaped_array.is_shapeless());
-    }
-
-    #[test]
-    fn valid_tuple_carrier_projects_to_shaped_array() {
-        let base_class = fake_class_type("arrays", "Array");
-        let carrier = concrete_carrier(vec![literal(2), literal(3)]);
-        let shaped_array =
-            ShapedArrayType::from_tuple_carrier_or_shapeless(base_class.clone(), &carrier);
-
-        assert_eq!(shaped_array.base_class, base_class);
-        assert_eq!(
-            shaped_array.shape,
-            ShapedArrayShape::new(vec![SizeExpr::Literal(2), SizeExpr::Literal(3)])
-        );
-    }
-
-    #[test]
-    fn valid_unpacked_tuple_carrier_projects_to_shaped_array() {
-        let base_class = fake_class_type("arrays", "Array");
-        let middle = Type::Any(AnyStyle::Implicit);
-        let carrier = Type::Tuple(Tuple::Unpacked(Box::new((
-            vec![literal(2)],
-            middle.clone(),
-            vec![literal(3)],
-        ))));
-        let shaped_array =
-            ShapedArrayType::from_tuple_carrier_or_shapeless(base_class.clone(), &carrier);
-
-        assert_eq!(shaped_array.base_class, base_class);
-        assert_eq!(
-            shaped_array.shape,
-            ShapedArrayShape::unpacked(vec![size(2)], middle, vec![size(3)])
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "registered shaped-array class argument should be a tuple carrier")]
-    fn non_tuple_carrier_panics() {
-        let base_class = fake_class_type("arrays", "Array");
-        ShapedArrayType::from_tuple_carrier_or_shapeless(base_class, &literal(2));
     }
 
     #[test]

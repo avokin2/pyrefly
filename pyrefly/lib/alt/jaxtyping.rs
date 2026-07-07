@@ -298,9 +298,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         *carrier = shape_to_tuple_carrier_arg(&shape);
                         ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx }
                     }
-                    QuantifiedKind::TypeVarTuple => {
-                        ShapedArrayShapeArgStyle::TypeVarTuple { index: shape_idx }
-                    }
+                    QuantifiedKind::TypeVarTuple => unreachable!(
+                        "shaped-array metadata validation rejects TypeVarTuple shape parameters"
+                    ),
                     QuantifiedKind::ParamSpec => unreachable!(
                         "shaped-array metadata validation rejects ParamSpec shape parameters"
                     ),
@@ -390,10 +390,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 let var_name = &tokens[var_idx][1..];
                 let var_name = var_name.strip_prefix('#').unwrap_or(var_name);
                 let q = match self.shaped_array_shape_for_class_type(&base_class) {
-                    Some(shape_param) if shape_param.kind() == QuantifiedKind::TypeVar => {
-                        self.get_or_create_jaxtyping_shape_carrier(Name::new(var_name))
-                    }
-                    _ => self.get_or_create_jaxtyping_dim(
+                    Some(shape_param) => match shape_param.kind() {
+                        QuantifiedKind::TypeVar => {
+                            self.get_or_create_jaxtyping_shape_carrier(Name::new(var_name))
+                        }
+                        QuantifiedKind::TypeVarTuple => unreachable!(
+                            "shaped-array metadata validation rejects TypeVarTuple shape parameters"
+                        ),
+                        QuantifiedKind::ParamSpec => unreachable!(
+                            "shaped-array metadata validation rejects ParamSpec shape parameters"
+                        ),
+                    },
+                    None => self.get_or_create_jaxtyping_dim(
                         Name::new(var_name),
                         QuantifiedKind::TypeVarTuple,
                     ),

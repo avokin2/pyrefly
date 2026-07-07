@@ -553,24 +553,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let BindingShapedArrayMetadata { shape_name, range } = metadata?;
         let tparams = self.get_class_tparams(cls);
         match tparams.iter().find(|param| param.name() == shape_name) {
-            // A shape parameter may be either a `TypeVarTuple` (variadic shape,
-            // e.g. `Array[*Shape]`) or a regular `TypeVar` that carries the shape
-            // as a single tuple type (e.g. NumPy's `ndarray[Shape, DType]`).
-            Some(param)
-                if matches!(
-                    param.kind,
-                    QuantifiedKind::TypeVarTuple | QuantifiedKind::TypeVar
-                ) =>
-            {
-                Some(param.clone())
-            }
+            Some(param) if matches!(param.kind, QuantifiedKind::TypeVar) => Some(param.clone()),
             Some(param) => {
                 self.error(
                     errors,
                     *range,
                     ErrorKind::InvalidAnnotation,
                     format!(
-                        "Shape parameter `{}` must be a `TypeVar` or `TypeVarTuple`, got `{}`",
+                        "Shape parameter `{}` must be a `TypeVar`, got `{}`",
                         shape_name, param.kind
                     ),
                 );

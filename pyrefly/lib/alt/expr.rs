@@ -3128,32 +3128,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .as_slice()
             .get(shape_idx)
             .expect("class type should have an argument for each type parameter");
-        // The shape parameter is either a `TypeVarTuple` (variadic-segment mode)
-        // or a regular `TypeVar` that carries the shape as a single tuple.
         match shape_param.kind() {
-            QuantifiedKind::TypeVarTuple => {
-                // In TypeVarTuple mode the argument is always stored as a tuple
-                // carrier. Project it back to an internal shape, normalizing
-                // malformed or unbounded carriers to shapeless.
-                ShapedArrayType::from_tuple_carrier_or_shapeless(cls.clone(), shape_arg)
-                    .with_shape_arg_style(ShapedArrayShapeArgStyle::TypeVarTuple {
-                        index: shape_idx,
-                    })
-            }
-            QuantifiedKind::TypeVar => {
-                // In TypeVar mode the argument is a single tuple carrier. Raw
-                // carriers like `S` project to an unpacked shape with `S` as
-                // the variadic middle, so normal dimension binding can solve
-                // them just like TypeVarTuple-shaped arrays.
-                match tuple_carrier_to_shape(shape_arg) {
-                    Some(shape) => ShapedArrayType::new(cls.clone(), shape).with_shape_arg_style(
-                        ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
-                    ),
-                    None => ShapedArrayType::shapeless(cls.clone()).with_shape_arg_style(
-                        ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
-                    ),
-                }
-            }
+            QuantifiedKind::TypeVar => match tuple_carrier_to_shape(shape_arg) {
+                Some(shape) => ShapedArrayType::new(cls.clone(), shape).with_shape_arg_style(
+                    ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
+                ),
+                None => ShapedArrayType::shapeless(cls.clone()).with_shape_arg_style(
+                    ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
+                ),
+            },
+            QuantifiedKind::TypeVarTuple => unreachable!(
+                "shaped-array metadata validation rejects TypeVarTuple shape parameters"
+            ),
             QuantifiedKind::ParamSpec => {
                 unreachable!("shaped-array metadata validation rejects ParamSpec shape parameters")
             }
@@ -3178,8 +3164,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         match self.shaped_array_shape_for_class_type(&tensor.base_class) {
             Some(shape_param) => match shape_param.kind() {
                 QuantifiedKind::TypeVar => {
-                    // Tuple-carrier mode: rewrite *only* the registered shape argument
-                    // to the new carrier, leaving every other class argument intact.
                     let shape_idx = self
                         .get_class_tparams(tensor.base_class.class_object())
                         .iter()
@@ -3199,12 +3183,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         shape_arg_style: tensor.shape_arg_style,
                     }
                 }
-                QuantifiedKind::TypeVarTuple => ShapedArrayType {
-                    base_class: tensor.base_class.clone(),
-                    shape,
-                    syntax: tensor.syntax,
-                    shape_arg_style: tensor.shape_arg_style,
-                },
+                QuantifiedKind::TypeVarTuple => unreachable!(
+                    "shaped-array metadata validation rejects TypeVarTuple shape parameters"
+                ),
                 QuantifiedKind::ParamSpec => {
                     unreachable!(
                         "shaped-array metadata validation rejects ParamSpec shape parameters"
@@ -3689,21 +3670,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .collect()
     }
 
-    /// Check if a type is a valid TypeVarTuple (either directly or wrapped in Unpack).
-    /// Returns the unwrapped type if valid, None otherwise.
-    fn unwrap_type_var_tuple(ty: &Type) -> Option<Type> {
-        match ty {
-            Type::TypeVarTuple(_) => Some(ty.clone()),
-            Type::Quantified(q) if q.kind() == QuantifiedKind::TypeVarTuple => Some(ty.clone()),
-            Type::Unpack(inner) => Self::unwrap_type_var_tuple(inner),
-            // Allow unbounded tuples like tuple[Any, ...] as variadic middles.
-            // These represent "unknown number of batch dims" and are already
-            // handled by the broadcast and shape-tracking logic.
-            Type::Tuple(Tuple::Unbounded(_)) => Some(ty.clone()),
-            _ => None,
-        }
-    }
-
     /// Returns whether `ty` is a valid upper bound for a `SizeTuple`-carrier `TypeVar`.
     ///
     /// When the user writes `[S: SizeTuple]`, Pyrefly normalizes `SizeTuple` to a
@@ -3804,70 +3770,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
     }
 
-    /// Parse a shape argument list like `[2, 3]`, `[N + M, K]`, or `[2, *Shape, 4]`.
-    ///
-    /// Returns both the tensor shape and the flattened type arguments to feed to
-    /// the class's `TypeVarTuple` parameter.
-    fn parse_shaped_array_shape_args(
-        &self,
-        shape_args: &[Expr],
-        errors: &ErrorCollector,
-    ) -> Option<(ShapedArrayShape, Vec<Type>)> {
-        // Check if any argument is a starred expression (unpacked TypeVarTuple)
-        let star = shape_args
-            .iter()
-            .enumerate()
-            .find(|(_, arg)| matches!(arg, Expr::Starred(_)));
-
-        if let Some((star_idx, Expr::Starred(ExprStarred { value, .. }))) = star {
-            // Handle variadic shape: [2, *Shape, 4]
-            // Verify there's only one starred expression
-            if let Some(second) = shape_args[star_idx + 1..]
-                .iter()
-                .find(|arg| matches!(arg, Expr::Starred(_)))
-            {
-                self.error(
-                    errors,
-                    second.range(),
-                    ErrorKind::InvalidAnnotation,
-                    "Tensor shape can have at most one unpacked TypeVarTuple".to_owned(),
-                );
-                return None;
-            }
-
-            // Parse prefix and suffix dimensions
-            let prefix = self.parse_dimension_list(&shape_args[..star_idx], errors)?;
-            let suffix = self.parse_dimension_list(&shape_args[star_idx + 1..], errors)?;
-
-            // Parse the starred expression
-            let middle_ty = self.expr_untype(value, TypeFormContext::TypeArgument, errors);
-
-            // Verify and unwrap TypeVarTuple
-            let Some(middle_ty) = Self::unwrap_type_var_tuple(&middle_ty) else {
-                self.error(
-                    errors,
-                    value.range(),
-                    ErrorKind::InvalidAnnotation,
-                    format!(
-                        "Unpacked type in Tensor shape must be a TypeVarTuple, got `{}`",
-                        self.for_display(middle_ty)
-                    ),
-                );
-                return None;
-            };
-
-            let mut targs = prefix.clone();
-            targs.push(self.heap.mk_unpack(middle_ty.clone()));
-            targs.extend(suffix.clone());
-
-            return Some((ShapedArrayShape::unpacked(prefix, middle_ty, suffix), targs));
-        }
-
-        // No starred expression - parse as concrete shape
-        let dims = self.parse_dimension_list(shape_args, errors)?;
-        Some((ShapedArrayShape::from_types(dims.clone()), dims))
-    }
-
     fn parse_size_tuple_shape_args(
         &self,
         args: &[Expr],
@@ -3920,16 +3822,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
     /// Parse a registered shaped-array annotation.
     ///
-    /// There are two modes, determined by the kind of the registered shape
-    /// parameter:
-    ///
-    /// - **Variadic segment mode** (`TypeVarTuple`): the shape occupies a
-    ///   variable-length segment of the subscript, so `Array[DType, *Shape]` and
-    ///   `Array[*Shape, DType]` split their subscripts differently.
-    /// - **Single tuple-carrier parameter mode** (`TypeVar`): the shape is a
-    ///   single ordinary type argument carrying a tuple (e.g. NumPy's
-    ///   `ndarray[Shape, DType]`). We specialize the class normally and project
-    ///   the carrier into a shape via `shaped_array_classtype_to_shaped_array_type`.
+    /// The registered shape parameter is a single ordinary type argument that
+    /// carries a tuple (e.g. `ndarray[Shape, DType]`). We specialize the class
+    /// normally and project the carrier into a shape via
+    /// `shaped_array_classtype_to_shaped_array_type`.
     fn parse_registered_shaped_array_type(
         &self,
         cls: &Class,
@@ -3941,108 +3837,60 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .shaped_array_shape_for_class(cls)
             .expect("registered shaped-array class should have shape metadata");
 
-        match shape_param.kind() {
-            QuantifiedKind::TypeVar => {
-                // Single tuple-carrier parameter mode: ordinary class specialization,
-                // then project the carrier into a shape.
-                //
-                // The registered shape slot additionally accepts a list literal
-                // as a compact carrier form:
-                // `Array[[2, 3], DType]` normalizes to
-                // `Array[tuple[Literal[2], Literal[3]], DType]`. This rewrite is
-                // scoped to the registered shape argument only -- it is purely
-                // syntax normalization for that slot, NOT general support for list
-                // literals in arbitrary type positions.
-                let tparams = self.get_class_tparams(cls);
-                let shape_idx = tparams
-                    .iter()
-                    .position(|param| param == &shape_param)
-                    .expect("shaped-array metadata should refer to a class type parameter");
-                // Map every argument by position. Missing or extra args still
-                // flow to ordinary specialization/arity diagnostics; shape-slot
-                // validation runs when the shape argument was supplied and the
-                // annotation does not have too many positional type arguments.
-                let validate_shape_slot = shape_idx < args.len() && args.len() <= tparams.len();
-                let class_targs = args
-                    .iter()
-                    .enumerate()
-                    .map(|(i, arg)| match arg {
-                        Expr::List(ExprList { elts, .. }) if i == shape_idx => {
-                            // Compact carrier: parse the elements with the shared
-                            // dimension parser (which emits precise per-element
-                            // diagnostics), then rebuild the equivalent tuple
-                            // carrier. On a bad dimension the error is already
-                            // reported, so this slot degrades to an error type.
-                            match self.parse_size_tuple_shape_args(elts, errors) {
-                                Some(shape) => shape_to_tuple_carrier(&shape),
-                                None => Type::any_error(),
-                            }
-                        }
-                        _ => {
-                            let ty = self.expr_untype(arg, TypeFormContext::TypeArgument, errors);
-                            // An unbounded tuple (`tuple[int, ...]`, `tuple[Any, ...]`,
-                            // `tuple[object, ...]`) carries no concrete rank, so it
-                            // cannot serve as a shaped-array shape carrier. Reject it
-                            // here, where we still have the source range, instead of
-                            // silently projecting it to a shapeless array later.
-                            if validate_shape_slot
-                                && i == shape_idx
-                                && Self::has_unbounded_tuple_carrier(&ty)
-                            {
-                                self.error(
-                                    errors,
-                                    arg.range(),
-                                    ErrorKind::InvalidAnnotation,
-                                    "Unbounded tuple types cannot be used as shaped-array shape carriers".to_owned(),
-                                );
-                                Type::any_error()
-                            } else {
-                                ty
-                            }
-                        }
-                    })
-                    .collect();
-                let base_class =
-                    self.specialize_nontypeddict_to_classtype(cls, class_targs, range, errors);
-                return self
-                    .shaped_array_classtype_to_shaped_array_type(&base_class)
-                    .to_type();
-            }
-            QuantifiedKind::TypeVarTuple => {}
-            QuantifiedKind::ParamSpec => {
-                unreachable!("shaped-array metadata validation rejects ParamSpec shape parameters")
-            }
-        }
-
         let tparams = self.get_class_tparams(cls);
         let shape_idx = tparams
             .iter()
             .position(|param| param == &shape_param)
             .expect("shaped-array metadata should refer to a class type parameter");
-        let suffix_count = tparams.len() - shape_idx - 1;
-        let shape_start = shape_idx.min(args.len());
-        let shape_end = args.len().saturating_sub(suffix_count).max(shape_start);
-
-        let prefix_targs = args[..shape_start]
+        match shape_param.kind() {
+            QuantifiedKind::TypeVar => {}
+            QuantifiedKind::TypeVarTuple => unreachable!(
+                "shaped-array metadata validation rejects TypeVarTuple shape parameters"
+            ),
+            QuantifiedKind::ParamSpec => {
+                unreachable!("shaped-array metadata validation rejects ParamSpec shape parameters")
+            }
+        }
+        let validate_shape_slot = shape_idx < args.len() && args.len() <= tparams.len();
+        let class_targs = args
             .iter()
-            .map(|arg| self.expr_untype(arg, TypeFormContext::TypeArgument, errors));
-        let suffix_targs = args[shape_end..]
-            .iter()
-            .map(|arg| self.expr_untype(arg, TypeFormContext::TypeArgument, errors));
-
-        let Some((shaped_array_shape, shape_targs)) =
-            self.parse_shaped_array_shape_args(&args[shape_start..shape_end], errors)
-        else {
-            return Type::any_error();
-        };
-        let class_targs = prefix_targs
-            .chain(shape_targs)
-            .chain(suffix_targs)
+            .enumerate()
+            .map(|(i, arg)| match arg {
+                Expr::List(ExprList { elts, .. }) if i == shape_idx => {
+                    match self.parse_size_tuple_shape_args(elts, errors) {
+                        Some(shape) => shape_to_tuple_carrier(&shape),
+                        None => Type::any_error(),
+                    }
+                }
+                _ => {
+                    if i == shape_idx
+                        && let Type::ClassDef(cls) = self.expr_infer(arg, &self.error_swallower())
+                        && self.is_size_tuple_class(&cls)
+                    {
+                        self.bare_size_tuple_carrier()
+                    } else {
+                        let ty = self.expr_untype(arg, TypeFormContext::TypeArgument, errors);
+                        if validate_shape_slot
+                            && i == shape_idx
+                            && Self::has_unbounded_tuple_carrier(&ty)
+                        {
+                            self.error(
+                                errors,
+                                arg.range(),
+                                ErrorKind::InvalidAnnotation,
+                                "Unbounded tuple types cannot be used as shaped-array shape carriers"
+                                    .to_owned(),
+                            );
+                            Type::any_error()
+                        } else {
+                            ty
+                        }
+                    }
+                }
+            })
             .collect();
         let base_class = self.specialize_nontypeddict_to_classtype(cls, class_targs, range, errors);
-
-        ShapedArrayType::new(base_class, shaped_array_shape)
-            .with_shape_arg_style(ShapedArrayShapeArgStyle::TypeVarTuple { index: shape_idx })
+        self.shaped_array_classtype_to_shaped_array_type(&base_class)
             .to_type()
     }
 

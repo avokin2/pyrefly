@@ -32,7 +32,6 @@ use crate::heap::TypeHeap;
 use crate::literal::Lit;
 use crate::quantified::Quantified;
 use crate::quantified::QuantifiedIdentity;
-use crate::shaped_array::ShapedArrayShape;
 use crate::shaped_array::ShapedArrayShapeArgStyle;
 use crate::shaped_array::ShapedArraySyntax;
 use crate::shaped_array::ShapedArrayType;
@@ -357,9 +356,8 @@ impl<'a> TypeDisplayContext<'a> {
     ) -> fmt::Result {
         match shaped_array.syntax {
             ShapedArraySyntax::Native => {
-                let (shape_idx, tuple_carrier) = match shaped_array.shape_arg_style {
-                    ShapedArrayShapeArgStyle::TypeVarTuple { index } => (index, false),
-                    ShapedArrayShapeArgStyle::TupleCarrier { index } => (index, true),
+                let shape_idx = match shaped_array.shape_arg_style {
+                    ShapedArrayShapeArgStyle::TupleCarrier { index } => index,
                     ShapedArrayShapeArgStyle::Unknown => {
                         output.write_qname(shaped_array.base_class.qname())?;
                         if !shaped_array.is_shapeless() {
@@ -370,7 +368,7 @@ impl<'a> TypeDisplayContext<'a> {
                         return Ok(());
                     }
                 };
-                self.fmt_shaped_array_as_class(shaped_array, shape_idx, tuple_carrier, output)
+                self.fmt_shaped_array_as_class(shaped_array, shape_idx, output)
             }
             ShapedArraySyntax::Jaxtyping => {
                 output.write_str("Shaped[")?;
@@ -386,7 +384,6 @@ impl<'a> TypeDisplayContext<'a> {
         &self,
         shaped_array: &ShapedArrayType,
         shape_idx: usize,
-        tuple_carrier: bool,
         output: &mut impl TypeOutput,
     ) -> fmt::Result {
         let targs = shaped_array.base_class.targs();
@@ -410,52 +407,12 @@ impl<'a> TypeDisplayContext<'a> {
                 output.write_str(", ")?;
             }
             if i == shape_idx {
-                if tuple_carrier {
-                    self.fmt_shape_as_tuple_carrier(shaped_array, output)?;
-                } else {
-                    self.fmt_shape_as_type_var_tuple(&shaped_array.shape, output)?;
-                }
+                self.fmt_shape_as_tuple_carrier(shaped_array, output)?;
             } else {
                 self.fmt_targ(param, arg, output)?;
             }
         }
         output.write_str("]")
-    }
-
-    fn fmt_shape_as_type_var_tuple(
-        &self,
-        shape: &ShapedArrayShape,
-        output: &mut impl TypeOutput,
-    ) -> fmt::Result {
-        match shape.as_tuple() {
-            Tuple::Concrete(dims) => {
-                if dims.is_empty() {
-                    output.write_str("()")
-                } else {
-                    self.fmt_type_sequence(dims.iter(), ", ", false, output)
-                }
-            }
-            Tuple::Unbounded(t) if t.is_any() => {
-                let unpacked_middle = Type::Unpack(Box::new(Type::any_tuple()));
-                self.fmt_helper_generic(&unpacked_middle, false, output)
-            }
-            Tuple::Unbounded(_) => {
-                unreachable!("shaped-array unbounded shapes must be tuple[Any, ...]")
-            }
-            Tuple::Unpacked(unpacked) => {
-                let (prefix, middle, suffix) = &**unpacked;
-                let unpacked_middle = Type::Unpack(Box::new(middle.clone()));
-                self.fmt_type_sequence(
-                    prefix
-                        .iter()
-                        .chain(std::iter::once(&unpacked_middle))
-                        .chain(suffix.iter()),
-                    ", ",
-                    false,
-                    output,
-                )
-            }
-        }
     }
 
     fn fmt_shape_as_tuple_carrier(

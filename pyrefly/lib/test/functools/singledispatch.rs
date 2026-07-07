@@ -220,6 +220,74 @@ reveal_type(fun(1))  # E: revealed type: None
 "#,
 );
 
+// A raising fallback with no return annotation infers `Never`, widened to gradual `Any` so the
+// dispatcher still accepts registered implementations.
+functools_testcase!(
+    test_singledispatch_raising_fallback_registers_ok,
+    r#"
+from functools import singledispatch
+@singledispatch
+def fun(arg):
+    raise NotImplementedError
+@fun.register
+def _(arg: int) -> int: return -arg
+"#,
+);
+
+functools_testcase!(
+    test_singledispatch_raising_fallback_element_is_gradual,
+    r#"
+from functools import singledispatch
+from typing import reveal_type
+@singledispatch
+def fun(arg):
+    raise NotImplementedError
+reveal_type(fun)  # E: revealed type: _SingleDispatchCallable[Unknown]
+"#,
+);
+
+functools_testcase!(
+    test_singledispatch_raising_fallback_multiple_registrations_ok,
+    r#"
+from functools import singledispatch
+@singledispatch
+def fun(arg):
+    raise NotImplementedError
+@fun.register
+def _(arg: int) -> int: return -arg
+@fun.register
+def _(arg: str) -> str: return arg
+@fun.register
+def _(arg: bytes) -> bytes: return arg
+"#,
+);
+
+// Raising a concrete exception, not just `NotImplementedError`, is also a `Never` return.
+functools_testcase!(
+    test_singledispatch_raising_fallback_concrete_exception_ok,
+    r#"
+from functools import singledispatch
+@singledispatch
+def fun(arg):
+    raise ValueError("no default")
+@fun.register
+def _(arg: int) -> int: return -arg
+"#,
+);
+
+// An annotated fallback's element type is its declared return type.
+functools_testcase!(
+    test_singledispatch_annotated_fallback_keeps_return_type,
+    r#"
+from functools import singledispatch
+from typing import reveal_type
+@singledispatch
+def fun(arg) -> int:
+    return 0
+reveal_type(fun)  # E: revealed type: _SingleDispatchCallable[int]
+"#,
+);
+
 // Edge case
 functools_testcase!(
     bug = "dispatched singledispatch calls are not checked against the fallback signature: bad arg types and missing args go unreported",
@@ -265,5 +333,41 @@ def f(arg: object) -> None: ...
 def _(arg: int) -> None: ...
 reveal_type(f.dispatch(int))  # E: revealed type: (...) -> None
 reveal_type(f.registry)  # E: revealed type: MappingProxyType[Any, (...) -> None]
+"#,
+);
+
+// An annotated `singledispatchmethod` fallback whose body only raises keeps its declared return:
+// the annotation pins it, so `Never` does not leak into the revealed call type.
+functools_testcase!(
+    test_singledispatchmethod_raising_fallback_annotated_return,
+    r#"
+from functools import singledispatchmethod
+from typing import reveal_type
+class Negator:
+    @singledispatchmethod
+    def neg(self, arg) -> object:
+        raise NotImplementedError
+    @neg.register
+    def _(self, arg: int) -> int: return -arg
+    @neg.register
+    def _(self, arg: bool) -> bool: return not arg
+n = Negator()
+reveal_type(n.neg(5))  # E: revealed type: object
+"#,
+);
+
+// `singledispatchmethod` is not modeled (only the `singledispatch` function form), so an
+// unannotated raising fallback collapses to `Never` and `.register` is spuriously rejected.
+functools_testcase!(
+    bug = "unannotated raising singledispatchmethod fallback poisons the element type to Never, so .register is spuriously rejected",
+    test_singledispatchmethod_unannotated_raising_fallback_poisons,
+    r#"
+from functools import singledispatchmethod
+class Negator:
+    @singledispatchmethod
+    def neg(self, arg):
+        raise NotImplementedError
+    @neg.register  # E: No matching overload found for function `functools.singledispatchmethod.register`
+    def _(self, arg: int) -> int: return -arg
 "#,
 );

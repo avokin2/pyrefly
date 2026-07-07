@@ -1813,7 +1813,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         // An invariant is that in no case should a `Type::Quantified` originating in a `Forall`
         // from either the decoratee *or* the raw `decorated_value` make it into the final result
         // without either being wrapped in a `Forall` or converted to a gradual type.
-        self.restore_decoratee_generics(decorated_value, application.decoratee_tparams)
+        let decorated =
+            self.restore_decoratee_generics(decorated_value, application.decoratee_tparams);
+        self.widen_singledispatch_never(decorated)
     }
 
     /// For a type guard function, validate whether it has at least one

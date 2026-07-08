@@ -134,6 +134,9 @@ pub enum ErrorKind {
     /// Attempting to return a value that does not match the function's return type.
     /// Can also arise when returning values from generators.
     BadReturn,
+    /// A `functools.singledispatch` implementation is registered with a dispatch type that is
+    /// not a subtype of the fallback function's first parameter, so it can never be dispatched to.
+    BadSingledispatchRegister,
     /// Attempting to specialize a generic class with incorrect type arguments.
     /// e.g. `type[int, str]` is an error because `type` accepts only 1 type arg.
     BadSpecialization,

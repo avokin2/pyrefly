@@ -625,7 +625,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         // Both types and error messages can be duplicated if elements in `attr_base` gets duplicated (can happen with
         // if base type contain vars). Make sure that dedup logic applies to both branches.
         if success {
-            self.unions(types)
+            // `.register` on a singledispatch dispatcher needs the fallback's first param, only
+            // available here; the tagging logic lives in `singledispatch.rs`.
+            self.tag_singledispatch_register(base, attr_name, self.unions(types))
         } else if !error_messages.is_empty() {
             error_messages.sort();
             error_messages.dedup();

@@ -10,12 +10,15 @@
 
 use pyrefly_types::class::Class;
 use pyrefly_types::class::ClassType;
+use pyrefly_types::types::BoundMethodType;
+use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
 
 use crate::alt::answers::LookupAnswer;
 use crate::alt::answers_solver::AnswersSolver;
 use crate::config::error_kind::ErrorKind;
 use crate::error::collector::ErrorCollector;
+use crate::types::callable::Callable;
 use crate::types::callable::FuncFlags;
 use crate::types::callable::FuncMetadata;
 use crate::types::callable::Function;
@@ -147,5 +150,84 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             ErrorKind::BadFunctionDefinition,
             message.to_owned(),
         );
+    }
+
+    /// The fallback first-parameter type carried by a tagged `singledispatch` `register` method,
+    /// regardless of any bound-method wrapping.
+    pub(crate) fn singledispatch_register_first(ty: &Type) -> Option<Type> {
+        let kind = match ty {
+            Type::Function(f) => &f.metadata.kind,
+            Type::Overload(o) => &o.metadata.kind,
+            Type::BoundMethod(bm) => match &bm.func {
+                BoundMethodType::Function(f) => &f.metadata.kind,
+                BoundMethodType::Forall(fa) => &fa.body.metadata.kind,
+                BoundMethodType::Overload(o) => &o.metadata.kind,
+            },
+            _ => return None,
+        };
+        match kind {
+            FunctionKind::SingleDispatchRegister(first) => Some((**first).clone()),
+            _ => None,
+        }
+    }
+
+    /// The dispatch type of a singledispatch signature: its first positional parameter, or the
+    /// element type of a leading `*args` (dispatch happens on the first runtime argument either way).
+    pub(crate) fn first_positional_param_type(sig: &Callable) -> Option<Type> {
+        let Params::List(params) = &sig.params else {
+            return None;
+        };
+        params.items().iter().find_map(|p| match p {
+            Param::PosOnly(_, t, _) | Param::Pos(_, t, _) | Param::Varargs(_, t) => Some(t.clone()),
+            _ => None,
+        })
+    }
+
+    /// A registered impl can only be dispatched to if its dispatch type is a subtype of the fallback's
+    /// first parameter.
+    pub(crate) fn check_singledispatch_register(
+        &self,
+        dispatch_ty: &Type,
+        fallback_first: &Type,
+        range: TextRange,
+        errors: &ErrorCollector,
+    ) {
+        if !self.is_subset_eq(dispatch_ty, fallback_first) {
+            self.error(
+                errors,
+                range,
+                ErrorKind::BadSingledispatchRegister,
+                format!(
+                    "Dispatch type `{}` is not a subtype of fallback first argument type `{}`",
+                    self.for_display(dispatch_ty.clone()),
+                    self.for_display(fallback_first.clone()),
+                ),
+            );
+        }
+    }
+
+    /// Accessing `.register` collapses the base to `_SingleDispatchCallable`, losing the fallback's
+    /// first parameter; tag the returned method with that type so the dispatch type can be validated.
+    pub(crate) fn tag_singledispatch_register(
+        &self,
+        base: &Type,
+        attr_name: &Name,
+        mut ty: Type,
+    ) -> Type {
+        if attr_name.as_str() == "register"
+            && let Type::Function(f) = base
+            && let FunctionKind::CallbackProtocol(cls) = &f.metadata.kind
+            && matches!(
+                cls.qname().module_name().as_str(),
+                "functools" | "singledispatch"
+            )
+            && cls.name().as_str() == "_SingleDispatchCallable"
+            && let Some(first) = Self::first_positional_param_type(&f.signature)
+        {
+            ty.transform_toplevel_func_metadata(|m| {
+                m.kind = FunctionKind::SingleDispatchRegister(Box::new(first.clone()));
+            });
+        }
+        ty
     }
 }

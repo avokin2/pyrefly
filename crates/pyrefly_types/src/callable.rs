@@ -892,6 +892,9 @@ pub enum FunctionKind {
     NoTypeCheck,
     /// Instance of a protocol with a `__call__` method. The function has the `__call__` signature.
     CallbackProtocol(Box<ClassType>),
+    /// The `register` method of a `functools.singledispatch` dispatcher, tagged with the fallback's
+    /// first-parameter type so the registered dispatch type can be validated against it.
+    SingleDispatchRegister(Box<Type>),
     TotalOrdering,
     DisjointBase,
     /// `numba.jit()`
@@ -1326,6 +1329,7 @@ impl FunctionKind {
             Self::RevealType => ModuleName::typing(),
             Self::RuntimeCheckable => ModuleName::typing(),
             Self::CallbackProtocol(cls) => cls.qname().module_name(),
+            Self::SingleDispatchRegister(_) => ModuleName::functools(),
             Self::AbstractMethod => ModuleName::abc(),
             Self::NoTypeCheck => ModuleName::typing(),
             Self::TotalOrdering => ModuleName::functools(),
@@ -1363,6 +1367,7 @@ impl FunctionKind {
             Self::RevealType => Cow::Owned(Name::new_static("reveal_type")),
             Self::RuntimeCheckable => Cow::Owned(Name::new_static("runtime_checkable")),
             Self::CallbackProtocol(_) => Cow::Owned(dunder::CALL),
+            Self::SingleDispatchRegister(_) => Cow::Owned(Name::new_static("register")),
             Self::AbstractMethod => Cow::Owned(Name::new_static("abstractmethod")),
             Self::NoTypeCheck => Cow::Owned(Name::new_static("no_type_check")),
             Self::TotalOrdering => Cow::Owned(Name::new_static("total_ordering")),
@@ -1403,6 +1408,7 @@ impl FunctionKind {
             Self::NumbaNjit => None,
             Self::AttrsConvertersOptional => None,
             Self::CallbackProtocol(cls) => Some(cls.class_object().dupe()),
+            Self::SingleDispatchRegister(_) => None,
             Self::AbstractMethod => None,
             Self::NoTypeCheck => None,
             Self::TotalOrdering => None,

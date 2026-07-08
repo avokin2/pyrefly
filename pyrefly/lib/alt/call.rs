@@ -2079,6 +2079,32 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 {
                     self.call_issubclass(&x.arguments.args[0], &x.arguments.args[1], errors)
                 }
+                // Explicit `@fn.register(C)`: the dispatch type is the instance of the class object
+                // `C`. Infer `C` as a value and unwrap it, rather than interpreting it as a type
+                // form, so a class whose name collides with a special form is not misread as that
+                // form.
+                _ if let Some(fallback_first) = Self::singledispatch_register_first(ty)
+                    && let Some(arg) = x.arguments.args.first() =>
+                {
+                    let arg_ty = self.expr_infer(arg, errors);
+                    if let Some((_, dispatch_ty)) = self.unwrap_class_object_silently(&arg_ty) {
+                        self.check_singledispatch_register(
+                            &dispatch_ty,
+                            &fallback_first,
+                            x.func.range(),
+                            errors,
+                        );
+                    }
+                    self.freeform_call_infer(
+                        ty.clone(),
+                        &args,
+                        &kws,
+                        x.func.range(),
+                        x.arguments.range(),
+                        hint,
+                        errors,
+                    )
+                }
                 _ if matches!(ty, Type::ClassDef(cls) if cls == self.stdlib.builtins_type().class_object())
                     && x.arguments.args.len() == 1 && x.arguments.keywords.is_empty() =>
                 {

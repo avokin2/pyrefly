@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-//! `functools.singledispatch` conformance. Divergences are `bug=`-marked; `# WANT:` records the
+//! `functools.singledispatch` test suite. Divergences are `bug=`-marked; `# WANT:` records the
 //! correct target (flip by dropping `bug=` and turning `# WANT: X` into `# E: X`).
 
 use crate::functools_testcase;
@@ -320,7 +320,7 @@ from functools import singledispatch
 @singledispatch
 def f(arg: int) -> str:
     return str(arg)
-@f.register
+@f.register  # E: Dispatch type `str` is not a subtype of fallback first argument type `int`
 def _(arg: str) -> str:
     return arg
 f("hello")
@@ -336,7 +336,7 @@ from functools import singledispatch
 @singledispatch
 def f(*args: int) -> str:
     return "fallback"
-@f.register
+@f.register  # E: Dispatch type `str` is not a subtype of fallback first argument type `int`
 def _(arg: str) -> str:
     return arg
 f("hello")

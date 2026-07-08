@@ -1773,6 +1773,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         range: TextRange,
         errors: &ErrorCollector,
     ) -> Type {
+        // Bare `@fn.register`: the dispatch type is the registered impl's first parameter.
+        if let Some(fallback_first) = Self::singledispatch_register_first(&decorator)
+            && let Some(sig) = decoratee.clone().to_callable()
+            && let Some(dispatch_ty) = Self::first_positional_param_type(&sig)
+        {
+            self.check_singledispatch_register(&dispatch_ty, &fallback_first, range, errors);
+        }
         // Check if this is a decorator that's special-cased to preserve the decorated function's signature
         if let Type::KwCall(call) = &decorator
             && call.func_metadata.kind.is_signature_preserving_decorator()

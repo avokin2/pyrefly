@@ -47,7 +47,6 @@ def g(arg: int) -> None:
 );
 
 functools_testcase!(
-    bug = "pyrefly does not check that the dispatch type passed to .register() is a subtype of the fallback function's first argument",
     test_singledispatch_register_explicit_type_not_subtype,
     r#"
 from functools import singledispatch
@@ -56,16 +55,43 @@ from functools import singledispatch
 def f(arg: int) -> None:
     pass
 
-# WANT: Dispatch type "str" must be subtype of fallback function first argument "int"
-@f.register(str)
+@f.register(str)  # E: Dispatch type `str` is not a subtype of fallback first argument type `int`
 def g(arg) -> None:
     pass
 "#,
 );
 
 functools_testcase!(
-    bug = "pyrefly does not check that the @register dispatch type is a subtype of the fallback's first argument",
-    test_singledispatch_register_custom_class_not_subtype,
+    test_singledispatch_varargs_fallback_register_not_subtype,
+    r#"
+from functools import singledispatch
+
+@singledispatch
+def f(*args: int) -> None:
+    pass
+
+@f.register(str)  # E: Dispatch type `str` is not a subtype of fallback first argument type `int`
+def g(arg) -> None:
+    pass
+"#,
+);
+
+// A `.register(C)` argument is a value, not a type form, so a name that collides with a special
+// form (here `typing.Union`) must not be misread as that form and flagged `invalid-annotation`.
+functools_testcase!(
+    test_singledispatch_register_special_form_named_arg_no_error,
+    r#"
+from functools import singledispatch
+from typing import Union
+@singledispatch
+def f(op: object) -> None: ...
+@f.register(Union)
+def _(op) -> None: ...
+"#,
+);
+
+functools_testcase!(
+    test_singledispatch_custom_class_passed_as_type_to_register,
     r#"
 from functools import singledispatch
 class A: pass
@@ -73,16 +99,14 @@ class A: pass
 @singledispatch
 def f(arg: int) -> None:
     pass
-@f.register(A)
-# WANT: Dispatch type "A" must be subtype of fallback function first argument "int"
+@f.register(A)  # E: Dispatch type `A` is not a subtype of fallback first argument type `int`
 def g(arg) -> None:
     pass
 "#,
 );
 
 functools_testcase!(
-    bug = "pyrefly does not check that a @register'd dispatch type is a subtype of the fallback function's first argument",
-    test_singledispatch_register_impl_type_not_subtype,
+    test_singledispatch_dispatch_type_is_not_asubtype_of_fallback_first_argument,
     r#"
 from functools import singledispatch
 
@@ -98,15 +122,13 @@ def f(arg: A) -> None:
 def g(arg: B) -> None:
     pass
 
-@f.register
-# WANT: Dispatch type "C" must be subtype of fallback function first argument "A"
+@f.register  # E: Dispatch type `C` is not a subtype of fallback first argument type `A`
 def h(arg: C) -> None:
     pass
 "#,
 );
 
 functools_testcase!(
-    bug = "pyrefly does not check that the register dispatch type is a subtype of the fallback function's first argument type",
     test_singledispatch_register_class_with_any_ctor_not_subtype,
     r#"
 from functools import singledispatch
@@ -120,8 +142,7 @@ class ConstExpr:
 def f(arg: Base) -> ConstExpr:  # E: Function declared to return `ConstExpr` but is missing an explicit `return`
     pass
 
-# WANT: Dispatch type "ConstExpr" must be subtype of fallback function first argument "Base"
-@f.register(ConstExpr)
+@f.register(ConstExpr)  # E: Dispatch type `ConstExpr` is not a subtype of fallback first argument type `Base`
 def g(arg: ConstExpr) -> ConstExpr:  # E: Function declared to return `ConstExpr` but is missing an explicit `return`
     pass
 "#,
@@ -202,7 +223,6 @@ def default(val) -> int:
 
 // Edge case
 functools_testcase!(
-    bug = "registered impl dispatch type not a subtype of fallback first arg should error",
     test_singledispatch_register_subtype_of_fallback,
     r#"
 from functools import singledispatch
@@ -213,8 +233,7 @@ class C: pass
 def f(arg: A) -> None: ...
 @f.register
 def g(arg: B) -> None: ...
-@f.register
-# WANT: Dispatch type `C` is not a subtype of fallback first argument type `A`
+@f.register  # E: Dispatch type `C` is not a subtype of fallback first argument type `A`
 def h(arg: C) -> None: ...
 "#,
 );

@@ -175,9 +175,10 @@ def h(a: Missing) -> None:
 "#,
 );
 
+// Bare `@f.register` returns the impl's own type, so direct calls to the registered function are
+// argument-checked.
 functools_testcase!(
-    bug = "pyrefly does not check argument types when calling singledispatch-registered impls directly",
-    test_singledispatch_registered_impl_direct_call_arg_check,
+    test_singledispatch_registered_impl_bare_direct_call_arg_check,
     r#"
 from functools import singledispatch
 
@@ -186,20 +187,30 @@ def f(arg, arg2: str) -> bool:
     return False
 
 @f.register
-def g(arg: int, arg2: str) -> bool:  # E: Function declared to return `bool` but is missing an explicit `return`
-    pass
+def g(arg: int, arg2: str) -> bool:
+    return True
+
+g('a', 'a')  # E: Argument `Literal['a']` is not assignable to parameter `arg` with type `int` in function `g`
+g(1, 1)  # E: Argument `Literal[1]` is not assignable to parameter `arg2` with type `str` in function `g`
+g(1, 'a')
+"#,
+);
+
+functools_testcase!(
+    bug = "explicit `@f.register(C)` does not return the impl's type, so direct calls to it are not argument-checked",
+    test_singledispatch_registered_impl_explicit_direct_call_arg_check,
+    r#"
+from functools import singledispatch
+
+@singledispatch
+def f(arg, arg2: str) -> bool:
+    return False
 
 @f.register(str)
-def h(arg, arg2: str) -> bool:  # E: Function declared to return `bool` but is missing an explicit `return`
-    pass
+def h(arg, arg2: str) -> bool:
+    return True
 
-# WANT: Argument 1 to "g" has incompatible type "str"; expected "int"
-g('a', 'a')
-# WANT: Argument 2 to "g" has incompatible type "int"; expected "str"
-g(1, 1)
-
-# don't show errors for incorrect first argument here, because there's no type annotation for the
-# first argument
+# don't show errors for the first argument (no annotation on the fallback's first param)
 h(1, 'a')
 # WANT: Argument 2 to "h" has incompatible type "int"; expected "str"
 h('a', 1)

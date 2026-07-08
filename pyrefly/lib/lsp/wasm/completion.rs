@@ -373,6 +373,37 @@ impl Transaction<'_> {
         }
     }
 
+    /// Returns true when the cursor is at a position where only a keyword-argument
+    /// *name* is syntactically valid: inside a call whose argument list already
+    /// contains a keyword argument before the cursor, and where the cursor is not
+    /// itself inside a keyword argument's value.
+    fn is_typing_keyword_argument_name(covering_nodes: &[AnyNodeRef], position: TextSize) -> bool {
+        let Some(arguments) = covering_nodes.iter().find_map(|node| match node {
+            AnyNodeRef::ExprCall(call) => Some(&call.arguments),
+            _ => None,
+        }) else {
+            return false;
+        };
+        // If a keyword argument is an ancestor of the cursor, the user is typing
+        // that keyword's value (or a `**unpacking` expression).
+        let in_keyword_value = covering_nodes.iter().any(|node| match node {
+            AnyNodeRef::Keyword(keyword) => match &keyword.arg {
+                // `name=value`: being past the name means we are in the value.
+                Some(arg) => position > arg.range().end(),
+                // `**mapping`: the whole node is a value expression.
+                None => true,
+            },
+            _ => false,
+        });
+        if in_keyword_value {
+            return false;
+        }
+        arguments
+            .keywords
+            .iter()
+            .any(|keyword| keyword.range().end() <= position)
+    }
+
     /// Gets docstring documentation for an attribute to display in completion items.
     fn get_docstring_for_attribute(
         &self,
@@ -1131,41 +1162,52 @@ impl Transaction<'_> {
                     }
                 }
                 self.add_kwargs_completions(handle, position, &mut result);
-                Self::add_keyword_completions(handle, &mut result);
-                let has_local_completions = self.add_local_variable_completions(
-                    handle,
-                    Some(&identifier),
-                    position,
-                    expected_type.as_ref(),
-                    &mut result,
-                );
-                if auto_import && !has_local_completions {
-                    self.add_autoimport_completions(
+                // In `func(foo=1, ba|` the cursor can only be a keyword-argument
+                // name, so suppress unrelated completions.
+                let skip_value_completions = covering_nodes
+                    .as_deref()
+                    .is_some_and(|nodes| Self::is_typing_keyword_argument_name(nodes, position));
+                if !skip_value_completions {
+                    Self::add_keyword_completions(handle, &mut result);
+                    let has_local_completions = self.add_local_variable_completions(
                         handle,
-                        &identifier,
+                        Some(&identifier),
+                        position,
+                        expected_type.as_ref(),
                         &mut result,
-                        import_format,
-                        supports_completion_item_details,
-                        custom_thread_pool,
+                    );
+                    if auto_import && !has_local_completions {
+                        self.add_autoimport_completions(
+                            handle,
+                            &identifier,
+                            &mut result,
+                            import_format,
+                            supports_completion_item_details,
+                            custom_thread_pool,
+                        );
+                    }
+                    // Mark results as incomplete in the following cases so clients keep asking
+                    // for completions as the user types more:
+                    // 1. If identifier is below MIN_CHARACTERS_TYPED_AUTOIMPORT threshold,
+                    //    autoimport completions are skipped and will be checked once threshold
+                    //    is reached.
+                    // 2. If local completions exist and blocked autoimport completions,
+                    //    the local completions might not match as the user continues typing,
+                    //    and autoimport completions should then be shown.
+                    // Both reasons only apply when autoimport is enabled; otherwise there are
+                    // no deferred autoimport completions to wait for.
+                    if auto_import
+                        && (identifier.as_str().len() < MIN_CHARACTERS_TYPED_AUTOIMPORT
+                            || has_local_completions)
+                    {
+                        is_incomplete = true;
+                    }
+                    self.add_builtins_autoimport_completions(
+                        handle,
+                        Some(&identifier),
+                        &mut result,
                     );
                 }
-                // Mark results as incomplete in the following cases so clients keep asking
-                // for completions as the user types more:
-                // 1. If identifier is below MIN_CHARACTERS_TYPED_AUTOIMPORT threshold,
-                //    autoimport completions are skipped and will be checked once threshold
-                //    is reached.
-                // 2. If local completions exist and blocked autoimport completions,
-                //    the local completions might not match as the user continues typing,
-                //    and autoimport completions should then be shown.
-                // Both reasons only apply when autoimport is enabled; otherwise there are
-                // no deferred autoimport completions to wait for.
-                if auto_import
-                    && (identifier.as_str().len() < MIN_CHARACTERS_TYPED_AUTOIMPORT
-                        || has_local_completions)
-                {
-                    is_incomplete = true;
-                }
-                self.add_builtins_autoimport_completions(handle, Some(&identifier), &mut result);
             }
             None => {
                 // todo(kylei): optimization, avoid duplicate ast walkss

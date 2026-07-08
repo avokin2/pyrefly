@@ -990,6 +990,83 @@ Completion Results:
 }
 
 #[test]
+fn no_value_completions_after_keyword_argument() {
+    // `foo(a=1, x|`: because a keyword argument precedes the cursor, the next
+    // argument must be a keyword name (Python forbids a positional after a
+    // keyword). Only keyword-argument completions (`a=`, `b=`) should appear;
+    // every value completion — locals, Python keywords, builtins, and
+    // auto-imports — must be suppressed.
+    let code = r#"
+def foo(a: int, b: str): ...
+xyz = 5
+foo(a=1, x
+#         ^
+"#;
+    let (handles, state) = mk_multi_file_state(&[("main", code)], Require::Exports, false);
+    let handle = handles.get("main").unwrap();
+    let position = extract_cursors_for_test(code)[0];
+    let items =
+        state
+            .transaction()
+            .completion(handle, position, ImportFormat::Absolute, true, None);
+    assert!(
+        items.iter().any(|item| item.label == "b="),
+        "expected keyword-arg completion `b=`, got {items:?}"
+    );
+    for item in &items {
+        assert!(
+            item.label.ends_with('='),
+            "only keyword-argument completions should appear, got {:?}",
+            item.label
+        );
+        assert_ne!(
+            item.kind,
+            Some(CompletionItemKind::KEYWORD),
+            "Python keyword `{}` should be suppressed after a keyword argument",
+            item.label
+        );
+        assert_ne!(
+            item.data,
+            Some(serde_json::json!("builtin")),
+            "builtin `{}` should be suppressed after a keyword argument",
+            item.label
+        );
+        assert!(
+            item.additional_text_edits.is_none(),
+            "auto-import `{}` should be suppressed after a keyword argument",
+            item.label
+        );
+    }
+}
+
+#[test]
+fn value_completions_when_typing_keyword_argument_value() {
+    // `foo(a=1, b=my_v|`: the cursor is typing the *value* of keyword `b`, even
+    // though keyword `a=1` precedes it. Value completions (e.g. the local
+    // `my_value`) must still be offered — regression test for a false positive
+    // that suppressed them whenever any earlier keyword argument existed.
+    let code = r#"
+def foo(a: int, b: str): ...
+my_value = "s"
+foo(a=1, b=my_v
+#             ^
+"#;
+    let (handles, state) = mk_multi_file_state(&[("main", code)], Require::Exports, false);
+    let handle = handles.get("main").unwrap();
+    let position = extract_cursors_for_test(code)[0];
+    let labels: Vec<String> = state
+        .transaction()
+        .completion(handle, position, ImportFormat::Absolute, true, None)
+        .into_iter()
+        .map(|item| item.label)
+        .collect();
+    assert!(
+        labels.iter().any(|l| l == "my_value"),
+        "expected local `my_value` when typing a keyword-argument value, got {labels:?}"
+    );
+}
+
+#[test]
 fn kwargs_completion_with_existing_args() {
     let code = r#"
 def foo(a: int, b: str, c: bool): ...

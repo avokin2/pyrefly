@@ -343,11 +343,28 @@ f("hello")
 "#,
 );
 
-// Dispatch-parameter widening is skipped when the parameter mentions a type variable, so it does
-// not sever the variable's binding by leaking an unsolved variable into the argument.
+// A `@singledispatch` implementation may carry `@overload` declarations describing the registered
+// dispatch variants, whose signatures differ from the fallback; that is not an inconsistent overload.
 functools_testcase!(
-    bug = "generic singledispatch fallback erases its return to Unknown instead of binding it from the argument",
-    test_singledispatch_tvar_dispatch_param_not_widened,
+    test_singledispatch_overloaded_dispatcher_no_inconsistency,
+    r#"
+from functools import singledispatch
+from typing import overload, Callable, TypeVar
+T = TypeVar("T")
+@overload
+def impl(qualname: str, func: Callable[..., T] | None = None) -> object: ...
+@overload
+def impl(lib: int, name: str, key: str = "") -> object: ...
+@singledispatch
+def impl(qualname: str, func: Callable[..., T] | None = None) -> object:
+    return None
+"#,
+);
+// A generic fallback keeps its type params, so a dispatched call binds the type variable from the
+// argument instead of collapsing the return to Unknown. Dispatch-param widening stays skipped for
+// the type-variable parameter so the binding is not severed.
+functools_testcase!(
+    test_singledispatch_generic_fallback_binds_return,
     r#"
 from functools import singledispatch
 from typing import reveal_type, TypeVar
@@ -355,8 +372,27 @@ T = TypeVar("T")
 @singledispatch
 def f(arg: T) -> T:
     return arg
-reveal_type(f(1))  # E: revealed type: Unknown
-# WANT: revealed type: int
+reveal_type(f(1))  # E: revealed type: int
+"#,
+);
+
+// A generic dispatcher with a concrete dispatch parameter still widens that parameter, so a call
+// with a registered (non-fallback) dispatch type is accepted while other type vars still bind.
+functools_testcase!(
+    test_singledispatch_generic_fallback_widens_concrete_dispatch_param,
+    r#"
+from functools import singledispatch
+from typing import reveal_type, TypeVar
+T = TypeVar("T")
+class A: pass
+class B(A): pass
+@singledispatch
+def f(arg: A, x: T) -> T:
+    return x
+@f.register
+def _(arg: B, x: T) -> T:
+    return x
+reveal_type(f(B(), 1))  # E: revealed type: int
 "#,
 );
 

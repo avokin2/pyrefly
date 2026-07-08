@@ -25,6 +25,7 @@ use crate::types::callable::Function;
 use crate::types::callable::FunctionKind;
 use crate::types::callable::Param;
 use crate::types::callable::Params;
+use crate::types::types::Forallable;
 use crate::types::types::Type;
 
 /// Definition-site facts about a decorated function, used to validate it when it is a
@@ -52,6 +53,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 &f.metadata.kind,
                 FunctionKind::CallbackProtocol(cls) if Self::is_singledispatch_class(cls)
             ),
+            Type::Forall(forall) => matches!(
+                &forall.body,
+                Forallable::Function(f)
+                    if matches!(&f.metadata.kind, FunctionKind::CallbackProtocol(cls) if Self::is_singledispatch_class(cls))
+            ),
             _ => false,
         }
     }
@@ -63,10 +69,30 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         ty: Type,
         original_decoratee: &Type,
     ) -> Type {
-        if let Type::ClassType(ct) = &ty
-            && Self::is_singledispatch_class(ct)
-            && let Some(mut signature) = original_decoratee.clone().to_callable()
-        {
+        let Type::ClassType(ct) = &ty else {
+            return ty;
+        };
+        if !Self::is_singledispatch_class(ct) {
+            return ty;
+        }
+        // A generic fallback keeps its type params so the call can bind them (`to_callable` drops
+        // the `Forall`, which would otherwise collapse the dispatched return to `Unknown`).
+        if let Type::Forall(forall) = original_decoratee {
+            let signature = match &forall.body {
+                Forallable::Function(f) => f.signature.clone(),
+                Forallable::Callable(c) => c.clone(),
+                Forallable::TypeAlias(_) => return ty,
+            };
+            let func = Function {
+                signature,
+                metadata: FuncMetadata {
+                    kind: FunctionKind::CallbackProtocol(Box::new(ct.clone())),
+                    flags: FuncFlags::default(),
+                },
+            };
+            return Forallable::Function(func).forall(forall.tparams.clone());
+        }
+        if let Some(mut signature) = original_decoratee.clone().to_callable() {
             // Use the element type `_T` as the return (normally identical to the fallback return),
             // since `_T` reflects later normalization of the element such as an inferred `Never` -> `Any`.
             if let [ret] = ct.targs().as_slice() {
@@ -86,24 +112,46 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     /// For checking a dispatcher call only, widen the dispatch (first) parameter to `Any` so any
     /// dispatched argument is accepted; a parameter mentioning a type variable is left intact.
     pub(crate) fn widen_singledispatch_dispatch_param(&self, ty: Type) -> Type {
-        if let Type::Function(f) = &ty
-            && let FunctionKind::CallbackProtocol(cls) = &f.metadata.kind
-            && Self::is_singledispatch_class(cls)
-        {
-            let mut function = (**f).clone();
-            if let Params::List(params) = &mut function.signature.params
-                && let Some(dispatch_ty) = params.items_mut().iter_mut().find_map(|p| match p {
-                    Param::PosOnly(_, t, _) | Param::Pos(_, t, _) | Param::Varargs(_, t) => Some(t),
-                    _ => None,
-                })
-            {
-                let mut mentions_tvar = false;
-                dispatch_ty.for_each_quantified(&mut |_| mentions_tvar = true);
-                if !mentions_tvar {
-                    *dispatch_ty = Type::any_implicit();
+        // Returns the widened function if `f` is a singledispatch callback protocol whose dispatch
+        // parameter is concrete; `None` leaves the caller's type untouched.
+        let widened = |f: &Function| -> Option<Function> {
+            let FunctionKind::CallbackProtocol(cls) = &f.metadata.kind else {
+                return None;
+            };
+            if !Self::is_singledispatch_class(cls) {
+                return None;
+            }
+            let mut function = f.clone();
+            let Params::List(params) = &mut function.signature.params else {
+                return None;
+            };
+            let dispatch_ty = params.items_mut().iter_mut().find_map(|p| match p {
+                Param::PosOnly(_, t, _) | Param::Pos(_, t, _) | Param::Varargs(_, t) => Some(t),
+                _ => None,
+            })?;
+            let mut mentions_tvar = false;
+            dispatch_ty.for_each_quantified(&mut |_| mentions_tvar = true);
+            if mentions_tvar {
+                return None;
+            }
+            *dispatch_ty = Type::any_implicit();
+            Some(function)
+        };
+        // A generic dispatcher is `Forall`-wrapped, so widen its inner function and re-wrap.
+        match &ty {
+            Type::Function(f) => {
+                if let Some(function) = widened(f) {
                     return self.heap.mk_function(function);
                 }
             }
+            Type::Forall(forall) => {
+                if let Forallable::Function(f) = &forall.body
+                    && let Some(function) = widened(f)
+                {
+                    return Forallable::Function(function).forall(forall.tparams.clone());
+                }
+            }
+            _ => {}
         }
         ty
     }

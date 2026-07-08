@@ -2064,6 +2064,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         def: &DecoratedFunction,
         errors: &ErrorCollector,
     ) {
+        // A `@functools.singledispatch` implementation's overloads describe the registered dispatch
+        // variants, not the fallback's own signature, so implementation-consistency does not apply.
+        if Self::is_singledispatch_dispatcher(&def.ty) {
+            return;
+        }
         let impl_tparams = match &*def.ty {
             Type::Forall(forall) => Some(&forall.tparams),
             _ => None,

@@ -275,17 +275,10 @@ impl TypeConverter<'_> {
             }
 
             // --- type[X] wrapper ---
-            PyreflyType::Type(inner) => {
-                let inner_tsp = self.convert(inner);
-                // Return the inner type but mark it as instantiable
-                match inner_tsp {
-                    TspType::Class(mut c) => {
-                        c.flags = TypeFlags::INSTANTIABLE;
-                        TspType::Class(c)
-                    }
-                    other => other,
-                }
-            }
+            // `type[X]` is the class object (instantiable), not an instance,
+            // whatever TSP shape `X` converted to: a `Class` for `type[C]`, a
+            // `Var` for `type[T]`, a `Union` for `type[A | B]`, etc.
+            PyreflyType::Type(inner) => mark_instantiable(self.convert(inner)),
 
             // --- SelfType is a class type ---
             PyreflyType::SelfType(ct) => self.convert_class_type(ct, TypeFlags::INSTANCE),
@@ -720,6 +713,26 @@ impl TypeConverter<'_> {
             type_alias_info: None,
         })
     }
+}
+
+/// Force the `INSTANTIABLE` flag on any TSP type variant, overwriting other
+/// flags (e.g. clearing `INSTANCE`). Used for `type[X]`, whose inner type may
+/// convert to any TSP shape but always denotes a class object. Exhaustive so
+/// the compiler flags new variants.
+fn mark_instantiable(mut ty: TspType) -> TspType {
+    match &mut ty {
+        TspType::BuiltInType(t) => t.flags = TypeFlags::INSTANTIABLE,
+        TspType::Declared(t) => t.flags = TypeFlags::INSTANTIABLE,
+        TspType::Function(t) => t.flags = TypeFlags::INSTANTIABLE,
+        TspType::Class(t) => t.flags = TypeFlags::INSTANTIABLE,
+        TspType::Union(t) => t.flags = TypeFlags::INSTANTIABLE,
+        TspType::Module(t) => t.flags = TypeFlags::INSTANTIABLE,
+        TspType::Var(t) => t.flags = TypeFlags::INSTANTIABLE,
+        TspType::Overloaded(t) => t.flags = TypeFlags::INSTANTIABLE,
+        TspType::Synthesized(t) => t.flags = TypeFlags::INSTANTIABLE,
+        TspType::Reference(t) => t.flags = TypeFlags::INSTANTIABLE,
+    }
+    ty
 }
 
 /// Convert a pyrefly `Class` (class definition object) to a TSP `ClassType`
@@ -1300,18 +1313,16 @@ mod tests {
 
     #[test]
     fn test_convert_type_of_typevar_is_instantiable() {
-        // BUG: `type[T]` where T is a TypeVar should be instantiable, but the
-        // `Type(inner)` arm's `other => other` catch-all drops the INSTANTIABLE
-        // flag for non-Class inner types (a TypeVar converts to `TspType::Var`).
-        // This test pins the current, incorrect behavior; the fix flips the
-        // assertion to expect INSTANTIABLE.
+        // `type[T]` where T is a TypeVar must stay instantiable. The inner
+        // TypeVar converts to a `TspType::Var`, and the `Type(inner)` arm must
+        // propagate the INSTANTIABLE flag onto it rather than dropping it.
         let tv = make_quantified("T", "mod", QuantifiedOrigin::Pep695);
         let ty = PyreflyType::type_of(PyreflyType::Quantified(Box::new(tv)));
         let tsp = convert_type(&ty);
         match tsp {
             TspType::Var(v) => assert!(
-                !v.flags.contains(TypeFlags::INSTANTIABLE),
-                "type[T] currently loses INSTANTIABLE (bug), got flags {:?}",
+                v.flags.contains(TypeFlags::INSTANTIABLE),
+                "type[T] should be instantiable, got flags {:?}",
                 v.flags
             ),
             other => panic!("expected Var, got {other:?}"),

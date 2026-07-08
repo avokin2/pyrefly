@@ -196,8 +196,9 @@ g(1, 'a')
 "#,
 );
 
+// Explicit `@f.register(C)` returns the impl's own type, so direct calls to the registered function
+// are argument-checked (its unannotated first parameter is not).
 functools_testcase!(
-    bug = "explicit `@f.register(C)` does not return the impl's type, so direct calls to it are not argument-checked",
     test_singledispatch_registered_impl_explicit_direct_call_arg_check,
     r#"
 from functools import singledispatch
@@ -210,10 +211,8 @@ def f(arg, arg2: str) -> bool:
 def h(arg, arg2: str) -> bool:
     return True
 
-# don't show errors for the first argument (no annotation on the fallback's first param)
 h(1, 'a')
-# WANT: Argument 2 to "h" has incompatible type "int"; expected "str"
-h('a', 1)
+h('a', 1)  # E: Argument `Literal[1]` is not assignable to parameter `arg2` with type `str` in function `h`
 "#,
 );
 

@@ -1439,7 +1439,7 @@ impl FunctionKind {
     /// Does this decorator require special-casing to be signature-preserving?
     pub fn is_signature_preserving_decorator(&self) -> bool {
         match self {
-            Self::NumbaJit | Self::NumbaNjit => true,
+            Self::NumbaJit | Self::NumbaNjit | Self::SingleDispatchRegister(_) => true,
             _ => false,
         }
     }

@@ -11,11 +11,16 @@
 use pyrefly_types::class::Class;
 use pyrefly_types::class::ClassType;
 use pyrefly_types::types::BoundMethodType;
+use ruff_python_ast::Arguments;
+use ruff_python_ast::Expr;
 use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
 
 use crate::alt::answers::LookupAnswer;
 use crate::alt::answers_solver::AnswersSolver;
+use crate::alt::callable::CallArg;
+use crate::alt::callable::CallKeyword;
+use crate::alt::unwrap::HintRef;
 use crate::config::error_kind::ErrorKind;
 use crate::error::collector::ErrorCollector;
 use crate::types::callable::Callable;
@@ -25,6 +30,8 @@ use crate::types::callable::Function;
 use crate::types::callable::FunctionKind;
 use crate::types::callable::Param;
 use crate::types::callable::Params;
+use crate::types::keywords::KwCall;
+use crate::types::keywords::TypeMap;
 use crate::types::types::Forallable;
 use crate::types::types::Type;
 
@@ -278,4 +285,72 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
         ty
     }
+
+    /// Handle a `@fn.register(...)` call. Validates the dispatch class against the fallback, then
+    /// tags the factory form `register(C)` so applying it returns the impl's own type; the functional
+    /// form `register(C, impl)` returns the impl from the stub unchanged.
+    pub(crate) fn call_singledispatch_register(
+        &self,
+        fallback_first: Type,
+        register_ty: &Type,
+        arguments: &Arguments,
+        args: &[CallArg],
+        kws: &[CallKeyword],
+        callee_range: TextRange,
+        arg_range: TextRange,
+        hint: Option<HintRef>,
+        errors: &ErrorCollector,
+    ) -> Type {
+        let (cls_expr, has_func) = singledispatch_register_args(arguments);
+        // Infer the class as a value and unwrap it (not as a type form), so a class whose name
+        // collides with a special form isn't misread; a non-class arg stays untagged.
+        let mut dispatch_is_class = false;
+        if let Some(cls_expr) = cls_expr {
+            let arg_ty = self.expr_infer(cls_expr, errors);
+            if let Some((_, dispatch_ty)) = self.unwrap_class_object_silently(&arg_ty) {
+                self.check_singledispatch_register(
+                    &dispatch_ty,
+                    &fallback_first,
+                    callee_range,
+                    errors,
+                );
+                dispatch_is_class = true;
+            }
+        }
+        let return_ty = self.freeform_call_infer(
+            register_ty.clone(),
+            args,
+            kws,
+            callee_range,
+            arg_range,
+            hint,
+            errors,
+        );
+        if dispatch_is_class && !has_func {
+            self.heap.mk_kw_call(KwCall {
+                func_metadata: FuncMetadata {
+                    kind: FunctionKind::SingleDispatchRegister(Box::new(fallback_first)),
+                    flags: FuncFlags::default(),
+                },
+                keywords: TypeMap::new(),
+                return_ty,
+            })
+        } else {
+            return_ty
+        }
+    }
+}
+
+/// A `.register(...)` call's dispatch-class arg (first positional or `cls=`) and whether a `func`
+/// is supplied (second positional or `func=`), separating the factory form from the functional one.
+fn singledispatch_register_args(arguments: &Arguments) -> (Option<&Expr>, bool) {
+    let keyword = |name: &str| {
+        arguments
+            .keywords
+            .iter()
+            .find_map(|k| (k.arg.as_ref()?.id.as_str() == name).then_some(&k.value))
+    };
+    let cls = arguments.args.first().or_else(|| keyword("cls"));
+    let has_func = arguments.args.len() >= 2 || keyword("func").is_some();
+    (cls, has_func)
 }

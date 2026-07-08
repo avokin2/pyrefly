@@ -1299,6 +1299,26 @@ mod tests {
     }
 
     #[test]
+    fn test_convert_type_of_typevar_is_instantiable() {
+        // BUG: `type[T]` where T is a TypeVar should be instantiable, but the
+        // `Type(inner)` arm's `other => other` catch-all drops the INSTANTIABLE
+        // flag for non-Class inner types (a TypeVar converts to `TspType::Var`).
+        // This test pins the current, incorrect behavior; the fix flips the
+        // assertion to expect INSTANTIABLE.
+        let tv = make_quantified("T", "mod", QuantifiedOrigin::Pep695);
+        let ty = PyreflyType::type_of(PyreflyType::Quantified(Box::new(tv)));
+        let tsp = convert_type(&ty);
+        match tsp {
+            TspType::Var(v) => assert!(
+                !v.flags.contains(TypeFlags::INSTANTIABLE),
+                "type[T] currently loses INSTANTIABLE (bug), got flags {:?}",
+                v.flags
+            ),
+            other => panic!("expected Var, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_convert_module_without_resolver_has_empty_uri() {
         let ty = PyreflyType::Module(ModuleType::new_as(ModuleName::from_str("pkg")));
         let tsp = convert_type(&ty);

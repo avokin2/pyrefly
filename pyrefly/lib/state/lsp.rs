@@ -31,6 +31,7 @@ use pyrefly_python::module_path::ModuleStyle;
 use pyrefly_python::short_identifier::ShortIdentifier;
 use pyrefly_python::symbol_kind::SymbolKind;
 use pyrefly_python::sys_info::SysInfo;
+use pyrefly_types::callable::FunctionKind;
 use pyrefly_types::type_alias::TypeAliasData;
 use pyrefly_util::gas::Gas;
 use pyrefly_util::lock::Mutex;
@@ -299,6 +300,41 @@ impl DefinitionMetadata {
             DefinitionMetadata::Variable(symbol_kind) => symbol_kind.as_ref().copied(),
             DefinitionMetadata::VariableOrAttribute(symbol_kind) => symbol_kind.as_ref().copied(),
         }
+    }
+}
+
+pub(crate) fn attribute_symbol_kind_from_type(ty: &Type) -> SymbolKind {
+    match ty {
+        Type::Union(union) => {
+            let mut members = union.members.iter();
+            let Some(first) = members.next() else {
+                return SymbolKind::Attribute;
+            };
+            let kind = attribute_symbol_kind_from_type(first);
+            if members.all(|member| attribute_symbol_kind_from_type(member) == kind) {
+                kind
+            } else {
+                SymbolKind::Attribute
+            }
+        }
+        ty if ty.is_toplevel_callable() => {
+            // A callable attribute is a method unless its metadata proves it is a free
+            // function. Overloads and bound dunder methods (e.g. `__getitem__`, an
+            // overloaded operator) carry no directly resolvable `Def` metadata, so they
+            // must default to method rather than function.
+            let is_function = ty.visit_toplevel_func_metadata(
+                &|meta| matches!(&meta.kind, FunctionKind::Def(func) if func.cls.is_none()),
+            );
+            if is_function {
+                SymbolKind::Function
+            } else {
+                SymbolKind::Method
+            }
+        }
+        Type::ClassDef(_) | Type::Type(_) => SymbolKind::Class,
+        Type::TypeAlias(_) | Type::UntypedAlias(_) => SymbolKind::TypeAlias,
+        Type::Module(_) => SymbolKind::Module,
+        _ => SymbolKind::Attribute,
     }
 }
 

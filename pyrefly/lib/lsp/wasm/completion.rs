@@ -156,6 +156,8 @@ pub struct CompletionOptions {
     pub supports_completion_item_details: bool,
     pub complete_function_parens: bool,
     pub supports_snippet_completions: bool,
+    /// When false, suppress completions that would insert a new import.
+    pub auto_import: bool,
 }
 
 /// Returns true if the client supports snippet completions in completion items.
@@ -969,6 +971,7 @@ impl Transaction<'_> {
             supports_completion_item_details,
             complete_function_parens,
             supports_snippet_completions,
+            auto_import,
         } = options;
         let mut result: Vec<RankedCompletion> = Vec::new();
         let mut is_incomplete = false;
@@ -1136,7 +1139,7 @@ impl Transaction<'_> {
                     expected_type.as_ref(),
                     &mut result,
                 );
-                if !has_local_completions {
+                if auto_import && !has_local_completions {
                     self.add_autoimport_completions(
                         handle,
                         &identifier,
@@ -1154,8 +1157,11 @@ impl Transaction<'_> {
                 // 2. If local completions exist and blocked autoimport completions,
                 //    the local completions might not match as the user continues typing,
                 //    and autoimport completions should then be shown.
-                if identifier.as_str().len() < MIN_CHARACTERS_TYPED_AUTOIMPORT
-                    || has_local_completions
+                // Both reasons only apply when autoimport is enabled; otherwise there are
+                // no deferred autoimport completions to wait for.
+                if auto_import
+                    && (identifier.as_str().len() < MIN_CHARACTERS_TYPED_AUTOIMPORT
+                        || has_local_completions)
                 {
                     is_incomplete = true;
                 }

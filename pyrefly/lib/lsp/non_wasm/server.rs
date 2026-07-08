@@ -4365,12 +4365,16 @@ impl Server {
         let complete_function_parens = lsp_config
             .and_then(|c| c.complete_function_parens)
             .unwrap_or(false);
+        let auto_import = lsp_config
+            .and_then(|c| c.auto_import_completions)
+            .unwrap_or(true);
         let completion_options = CompletionRequestOptions {
             supports_completion_item_details: self.supports_completion_item_details(),
             complete_function_parens,
             supports_snippet_completions: supports_snippet_completions(
                 &self.initialize_params.capabilities,
             ),
+            auto_import,
         };
         let mru_snapshot = self.completion_mru.lock().clone();
         let info = transaction

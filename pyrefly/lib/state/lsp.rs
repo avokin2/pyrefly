@@ -3896,6 +3896,7 @@ impl<'a> Transaction<'a> {
             import_format,
             CompletionOptions {
                 supports_completion_item_details,
+                auto_import: true,
                 ..Default::default()
             },
             custom_thread_pool,

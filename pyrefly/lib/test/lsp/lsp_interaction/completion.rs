@@ -452,6 +452,58 @@ fn test_completion_with_autoimport() {
 }
 
 #[test]
+fn test_completion_autoimport_disabled() {
+    let root = get_test_files_root();
+    let root_path = root.path().join("tests_requiring_config");
+
+    let mut interaction =
+        LspInteraction::new_with_indexing_mode(pyrefly::commands::lsp::IndexingMode::LazyBlocking);
+
+    interaction.set_root(root_path.clone());
+    interaction
+        .initialize(InitializeSettings {
+            configuration: Some(Some(json!([{
+                "analysis": {
+                    "autoImportCompletions": false
+                }
+            }]))),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let file = root_path.join("foo.py");
+    interaction.client.did_open("foo.py");
+
+    interaction
+        .client
+        .send_notification::<DidChangeTextDocument>(json!({
+            "textDocument": {
+                "uri": Url::from_file_path(&file).unwrap().to_string(),
+                "languageId": "python",
+                "version": 2
+            },
+            "contentChanges": [{
+                "text": "this_is_a_very_long_function_name_so_we_can".to_owned()
+            }],
+        }));
+
+    // With autoImportCompletions disabled, the symbol that would require a new import
+    // must not be offered (no completion item carrying an import edit for it).
+    interaction
+        .client
+        .completion("foo.py", 0, 43)
+        .expect_completion_response_with(|list| {
+            list.items.iter().all(|item| {
+                item.label
+                    != "this_is_a_very_long_function_name_so_we_can_deterministically_test_autoimport_with_fuzzy_search"
+            })
+        })
+        .unwrap();
+
+    interaction.shutdown().unwrap();
+}
+
+#[test]
 fn test_completion_with_autoimport_submodule() {
     let root = get_test_files_root();
     let root_path = root.path().join("autoimport_submodule");

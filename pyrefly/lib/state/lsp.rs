@@ -19,6 +19,7 @@ use itertools::Itertools;
 use lsp_types::CompletionItem;
 use pyrefly_build::handle::Handle;
 use pyrefly_python::ast::Ast;
+use pyrefly_python::deprecated_aliases::is_deprecated_stdlib_alias;
 use pyrefly_python::docstring::Docstring;
 use pyrefly_python::dunder;
 use pyrefly_python::module::Module;
@@ -29,7 +30,6 @@ use pyrefly_python::module_path::ModulePathDetails;
 use pyrefly_python::module_path::ModuleStyle;
 use pyrefly_python::short_identifier::ShortIdentifier;
 use pyrefly_python::symbol_kind::SymbolKind;
-use pyrefly_python::sys_info::PythonVersion;
 use pyrefly_python::sys_info::SysInfo;
 use pyrefly_types::type_alias::TypeAliasData;
 use pyrefly_util::gas::Gas;
@@ -100,61 +100,6 @@ mod quick_fixes;
 
 pub(crate) use self::quick_fixes::move_module::MoveModuleMemberContext;
 pub(crate) use self::quick_fixes::types::LocalRefactorCodeAction;
-
-pub(crate) fn is_deprecated_stdlib_alias(
-    python_version: PythonVersion,
-    module_name: &str,
-    name: &str,
-) -> bool {
-    if module_name != "typing" {
-        return false;
-    }
-    if python_version.at_least(3, 10) && matches!(name, "Optional" | "Union") {
-        return true;
-    }
-    python_version.at_least(3, 9)
-        && matches!(
-            name,
-            "AbstractSet"
-                | "AsyncContextManager"
-                | "AsyncGenerator"
-                | "AsyncIterable"
-                | "AsyncIterator"
-                | "Awaitable"
-                | "ByteString"
-                | "Callable"
-                | "ChainMap"
-                | "Collection"
-                | "Container"
-                | "ContextManager"
-                | "Coroutine"
-                | "Counter"
-                | "DefaultDict"
-                | "Deque"
-                | "Dict"
-                | "FrozenSet"
-                | "Generator"
-                | "ItemsView"
-                | "Iterable"
-                | "Iterator"
-                | "KeysView"
-                | "List"
-                | "Mapping"
-                | "MappingView"
-                | "Match"
-                | "MutableMapping"
-                | "MutableSequence"
-                | "MutableSet"
-                | "OrderedDict"
-                | "Pattern"
-                | "Reversible"
-                | "Sequence"
-                | "Set"
-                | "Tuple"
-                | "Type"
-                | "ValuesView"
-        )
-}
 
 #[derive(Debug)]
 pub(crate) enum CalleeKind {

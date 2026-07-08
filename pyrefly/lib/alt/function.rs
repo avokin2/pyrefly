@@ -1826,7 +1826,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         // without either being wrapped in a `Forall` or converted to a gradual type.
         let decorated =
             self.restore_decoratee_generics(decorated_value, application.decoratee_tparams);
-        self.widen_singledispatch_never(decorated)
+        let widened = self.widen_singledispatch_never(decorated);
+        self.singledispatch_dispatcher_as_callback(widened, &application.original_decoratee)
     }
 
     /// For a type guard function, validate whether it has at least one

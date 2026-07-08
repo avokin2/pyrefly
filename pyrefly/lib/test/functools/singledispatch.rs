@@ -5,19 +5,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-//! `functools.singledispatch` conformance: dispatcher definition and calling the dispatcher.
-//!
-//! pyrefly has no native singledispatch modeling (it relies on the typeshed `_SingleDispatchCallable`
-//! stub, whose `__call__(*args, **kwargs) -> _T` erases argument info), so it gets the dispatcher's
-//! return type right but does not validate dispatch/non-dispatch args or the dispatcher signature.
-//! Divergences are `bug=`-marked; `# WANT:` records the correct target. To flip a test: drop
-//! `bug=` and turn each `# WANT: X` into `# E: X` (or delete a now-spurious `# E:`).
+//! `functools.singledispatch` conformance. Divergences are `bug=`-marked; `# WANT:` records the
+//! correct target (flip by dropping `bug=` and turning `# WANT: X` into `# E: X`).
 
 use crate::functools_testcase;
 
+// The dispatch (first) argument is not checked against the fallback's first parameter: `1` has no
+// registered impl and is not a subtype of `A`, but at runtime it falls through to the fallback.
 functools_testcase!(
-    bug = "calling a singledispatch function with an argument incompatible with the fallback type should error, but pyrefly is silent (stub-driven dispatch loses the param type)",
-    test_singledispatch_call_arg_mismatches_fallback,
+    test_singledispatch_unregistered_dispatch_arg_ok,
     r#"
 from functools import singledispatch
 
@@ -31,7 +27,7 @@ def fun(arg: A) -> None:
 def fun_b(arg: B) -> None:
     pass
 
-fun(1)  # WANT: Argument 1 to "fun" has incompatible type "int"; expected "A"
+fun(1)
 "#,
 );
 
@@ -53,7 +49,6 @@ def _(arg: int) -> None:
 );
 
 functools_testcase!(
-    bug = "pyrefly does not check non-dispatch arguments of singledispatch calls; type mismatches on arg2 go undetected",
     test_singledispatch_non_dispatch_arg_checked,
     r#"
 from functools import singledispatch
@@ -70,10 +65,10 @@ def g(arg: B, arg2: str) -> None:
     pass
 
 f(A(), 'a')
-f(A(), 5)  # WANT: Argument 2 to "f" has incompatible type "int"; expected "str"
+f(A(), 5)  # E: Argument `Literal[5]` is not assignable to parameter `arg2` with type `str`
 
 f(B(), 'a')
-f(B(), 1)  # WANT: Argument 2 to "f" has incompatible type "int"; expected "str"
+f(B(), 1)  # E: Argument `Literal[1]` is not assignable to parameter `arg2` with type `str`
 "#,
 );
 
@@ -107,7 +102,6 @@ f(x)  # E: `x` is uninitialized
 );
 
 functools_testcase!(
-    bug = "pyrefly does not validate singledispatch dispatch argument types: `B | C | int` is not assignable to the dispatcher's declared `A | C` (the `int` part has no registered impl), but pyrefly emits no error",
     test_singledispatch_union_arg_partly_unregistered,
     r#"
 from functools import singledispatch
@@ -130,7 +124,6 @@ def h(arg: C) -> None:
     pass
 
 def use(x: Union[B, C, int]) -> None:
-    # WANT: Argument 1 to "f" has incompatible type "B | C | int"; expected "A | C"
     f(x)
 "#,
 );
@@ -245,6 +238,22 @@ reveal_type(fun)  # E: revealed type: _SingleDispatchCallable[Unknown]
 "#,
 );
 
+// Calling a raising-fallback dispatcher yields gradual `Any`, not `Never`: at runtime the call
+// dispatches to a registered impl and returns a real value, so `Never` would be unsound.
+functools_testcase!(
+    test_singledispatch_raising_fallback_call_is_gradual,
+    r#"
+from functools import singledispatch
+from typing import reveal_type
+@singledispatch
+def fun(arg):
+    raise NotImplementedError
+@fun.register
+def _(arg: int) -> int: return -arg
+reveal_type(fun(1))  # E: revealed type: Unknown
+"#,
+);
+
 functools_testcase!(
     test_singledispatch_raising_fallback_multiple_registrations_ok,
     r#"
@@ -289,7 +298,6 @@ reveal_type(fun)  # E: revealed type: _SingleDispatchCallable[int]
 
 // Edge case
 functools_testcase!(
-    bug = "dispatched singledispatch calls are not checked against the fallback signature: bad arg types and missing args go unreported",
     test_singledispatch_dispatched_call_checks_fallback_sig,
     r#"
 from functools import singledispatch
@@ -298,10 +306,57 @@ from typing import reveal_type
 def f(arg: int) -> str:
     return str(arg)
 reveal_type(f(1))  # E: revealed type: str
-# WANT: arg-type error (str not assignable to int)
 f("not an int")
-# WANT: missing-argument error (arg)
-f()
+f()  # E: Missing argument `arg`
+"#,
+);
+
+// Dispatch happens at runtime on the first argument, which may match a registered impl whose type
+// is not a subtype of the fallback's first parameter, so that argument is not checked against it.
+functools_testcase!(
+    test_singledispatch_call_registered_non_subtype_arg,
+    r#"
+from functools import singledispatch
+@singledispatch
+def f(arg: int) -> str:
+    return str(arg)
+@f.register
+def _(arg: str) -> str:
+    return arg
+f("hello")
+"#,
+);
+
+// A `*args` fallback dispatches on the first vararg, so widening treats the vararg element as the
+// dispatch position and a call routed to a registered impl of another type is accepted.
+functools_testcase!(
+    test_singledispatch_varargs_fallback_call,
+    r#"
+from functools import singledispatch
+@singledispatch
+def f(*args: int) -> str:
+    return "fallback"
+@f.register
+def _(arg: str) -> str:
+    return arg
+f("hello")
+"#,
+);
+
+// Dispatch-parameter widening is skipped when the parameter mentions a type variable, so it does
+// not sever the variable's binding by leaking an unsolved variable into the argument.
+functools_testcase!(
+    bug = "generic singledispatch fallback erases its return to Unknown instead of binding it from the argument",
+    test_singledispatch_tvar_dispatch_param_not_widened,
+    r#"
+from functools import singledispatch
+from typing import reveal_type, TypeVar
+T = TypeVar("T")
+@singledispatch
+def f(arg: T) -> T:
+    return arg
+reveal_type(f(1))  # E: revealed type: Unknown
+# WANT: revealed type: int
 "#,
 );
 

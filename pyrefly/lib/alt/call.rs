@@ -2096,6 +2096,17 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 //     f = staticmethod(f)
                 // Check if this call applies a decorator with known typing effects to a function.
                 _ if let Some(ret) = self.maybe_apply_function_decorator(ty, &args, &kws, errors) => ret,
+                // A `@singledispatch` dispatcher call is checked against the fallback signature with
+                // its dispatch parameter widened, so a call to any registered impl is accepted.
+                _ if Self::is_singledispatch_dispatcher(ty) => self.freeform_call_infer(
+                    self.widen_singledispatch_dispatch_param(ty.clone()),
+                    &args,
+                    &kws,
+                    x.func.range(),
+                    x.arguments.range(),
+                    hint,
+                    errors,
+                ),
                 _ => self.freeform_call_infer(ty.clone(), &args, &kws, x.func.range(), x.arguments.range(), hint, errors),
             }});
             // TypeIs and TypeGuard functions return bool at runtime

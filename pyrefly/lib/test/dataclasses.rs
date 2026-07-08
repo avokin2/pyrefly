@@ -2529,7 +2529,6 @@ class DC2(Protocol, DC):  # E: If `Protocol` is included as a base class, all ot
 
 // https://github.com/facebook/pyrefly/issues/2921
 testcase!(
-    bug = "Dataclass protocol fields should be inherited by dataclass subclasses",
     test_dataclass_protocol_fields_in_subclass,
     r#"
 from dataclasses import dataclass
@@ -2543,8 +2542,10 @@ class Base(Protocol):  # E: `@dataclass` cannot be applied to Protocol
 class Child(Base):
     y: str
 
-Child(x=0, y="ok")  # E: Unexpected keyword argument `x`
-Child(0, "ok")  # E: Argument `Literal[0]` is not assignable to parameter `y` with type `str` # E: Expected 1 positional argument, got 2 in function `Child.__init__`
+Base(0)  # E: Cannot instantiate `Base` because it is a protocol
+Child(x=0, y="ok")
+Child(0, "ok")
+Child("bad", "ok")  # E: Argument `Literal['bad']` is not assignable to parameter `x` with type `int` in function `Child.__init__`
 "#,
 );
 

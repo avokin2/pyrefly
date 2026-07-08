@@ -1282,7 +1282,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             }
         }
         // @dataclass cannot be applied to Protocol, Enum, TypedDict, or NamedTuple classes.
-        // Emit the error and return no metadata so the class is not treated as a dataclass.
+        // Protocols still become dataclasses at runtime, so preserve their metadata after
+        // reporting the spec violation. The other cases do not have useful dataclass runtime
+        // behavior to model.
         if has_dataclass_decorator {
             if is_protocol {
                 self.error(
@@ -1294,7 +1296,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         cls.name()
                     ),
                 );
-                return (None, false);
             }
             if is_enum {
                 self.error(

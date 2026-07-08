@@ -19,6 +19,7 @@ use pyrefly_python::ast::Ast;
 use pyrefly_python::deprecated_aliases::is_deprecated_stdlib_alias;
 use pyrefly_python::docstring::Docstring;
 use pyrefly_python::dunder;
+use pyrefly_python::keywords::get_expression_keywords;
 use pyrefly_python::keywords::get_keywords;
 use pyrefly_python::module::Module;
 use pyrefly_python::module_name::ModuleName;
@@ -274,16 +275,27 @@ impl Transaction<'_> {
     }
 
     /// Adds completions for Python keywords (e.g., `if`, `for`, `class`, etc.).
-    fn add_keyword_completions(handle: &Handle, completions: &mut Vec<RankedCompletion>) {
-        get_keywords(handle.sys_info().version())
-            .iter()
-            .for_each(|name| {
-                completions.push(RankedCompletion::new(CompletionItem {
-                    label: (*name).to_owned(),
-                    kind: Some(CompletionItemKind::KEYWORD),
-                    ..Default::default()
-                }))
-            });
+    /// When `expression_only` is set, statement-only keywords (`while`, `try`,
+    /// `def`, ...) are omitted because the cursor is in a nested expression
+    /// position where they would be invalid.
+    fn add_keyword_completions(
+        handle: &Handle,
+        expression_only: bool,
+        completions: &mut Vec<RankedCompletion>,
+    ) {
+        let version = handle.sys_info().version();
+        let keywords = if expression_only {
+            get_expression_keywords(version)
+        } else {
+            get_keywords(version)
+        };
+        keywords.iter().for_each(|name| {
+            completions.push(RankedCompletion::new(CompletionItem {
+                label: (*name).to_owned(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                ..Default::default()
+            }))
+        });
     }
 
     /// Adds function/method completion inserts with parentheses, using snippets when supported.
@@ -1168,7 +1180,13 @@ impl Transaction<'_> {
                     .as_deref()
                     .is_some_and(|nodes| Self::is_typing_keyword_argument_name(nodes, position));
                 if !skip_value_completions {
-                    Self::add_keyword_completions(handle, &mut result);
+                    let at_statement_start = matches!(
+                        covering_nodes.as_deref().and_then(|nodes| nodes.get(1)),
+                        Some(AnyNodeRef::StmtExpr(_))
+                    );
+                    let expression_only =
+                        matches!(context, IdentifierContext::Expr(_)) && !at_statement_start;
+                    Self::add_keyword_completions(handle, expression_only, &mut result);
                     let has_local_completions = self.add_local_variable_completions(
                         handle,
                         Some(&identifier),
@@ -1227,7 +1245,7 @@ impl Transaction<'_> {
                     } else {
                         let expected_type = self.get_expected_type_at(handle, position);
                         if nodes.is_empty() {
-                            Self::add_keyword_completions(handle, &mut result);
+                            Self::add_keyword_completions(handle, false, &mut result);
                             self.add_local_variable_completions(
                                 handle,
                                 None,

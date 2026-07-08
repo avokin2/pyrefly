@@ -1067,19 +1067,75 @@ foo(a=1, b=my_v
 }
 
 #[test]
+fn no_statement_keywords_in_expression_context() {
+    // On the right-hand side of an assignment the cursor is in a nested
+    // expression, so statement keywords like `while`/`try`/`def` are invalid and
+    // must not be offered, while expression keywords like `None` remain.
+    let code = r#"
+x = w
+#    ^
+"#;
+    let (handles, state) = mk_multi_file_state(&[("main", code)], Require::Exports, false);
+    let handle = handles.get("main").unwrap();
+    let position = extract_cursors_for_test(code)[0];
+    let keyword_labels: Vec<String> = state
+        .transaction()
+        .completion(handle, position, ImportFormat::Absolute, true, None)
+        .into_iter()
+        .filter(|item| item.kind == Some(CompletionItemKind::KEYWORD))
+        .map(|item| item.label)
+        .collect();
+    assert!(
+        keyword_labels.iter().any(|l| l == "None"),
+        "expected expression keyword `None`, got {keyword_labels:?}"
+    );
+    for stmt_kw in ["while", "try", "def", "class", "return"] {
+        assert!(
+            !keyword_labels.iter().any(|l| l == stmt_kw),
+            "statement keyword `{stmt_kw}` should be suppressed in expression context, got {keyword_labels:?}"
+        );
+    }
+}
+
+#[test]
+fn statement_keywords_available_at_statement_start() {
+    // At the start of a statement both expression and statement keywords are
+    // valid, so `while` should still be offered.
+    let code = r#"
+def f():
+    w
+#    ^
+"#;
+    let (handles, state) = mk_multi_file_state(&[("main", code)], Require::Exports, false);
+    let handle = handles.get("main").unwrap();
+    let position = extract_cursors_for_test(code)[0];
+    let keyword_labels: Vec<String> = state
+        .transaction()
+        .completion(handle, position, ImportFormat::Absolute, true, None)
+        .into_iter()
+        .filter(|item| item.kind == Some(CompletionItemKind::KEYWORD))
+        .map(|item| item.label)
+        .collect();
+    assert!(
+        keyword_labels.iter().any(|l| l == "while"),
+        "expected statement keyword `while` at statement start, got {keyword_labels:?}"
+    );
+}
+
+#[test]
 fn kwargs_completion_with_existing_args() {
     let code = r#"
 def foo(a: int, b: str, c: bool): ...
-foo(1, 
-#      ^
+foo(1,
+#     ^
 "#;
     let report =
         get_batched_lsp_operations_report_allow_error(&[("main", code)], get_default_test_report());
     assert_eq!(
         r#"
 # main.py
-3 | foo(1, 
-           ^
+3 | foo(1,
+          ^
 Completion Results:
 - (Variable) a=: int
 - (Variable) b=: str
@@ -1904,16 +1960,16 @@ def foo(y: bool, z: bool):
 @overload
 def foo(x: int, y: str):
     print(x)
-foo(1, 
-#      ^
+foo(1,
+#     ^
 "#;
     let report =
         get_batched_lsp_operations_report_allow_error(&[("main", code)], get_default_test_report());
     assert_eq!(
         r#"
 # main.py
-9 | foo(1, 
-           ^
+9 | foo(1,
+          ^
 Completion Results:
 - (Variable) x=: int
 - (Variable) y=: str
@@ -1935,16 +1991,16 @@ def foo(x: int, y: str): ...
 @overload
 def foo(x: int, z: bool): ...
 def foo(x, **kwargs): ...
-foo(1, 
-#      ^
+foo(1,
+#     ^
 "#;
     let report =
         get_batched_lsp_operations_report_allow_error(&[("main", code)], get_default_test_report());
     assert_eq!(
         r#"
 # main.py
-8 | foo(1, 
-           ^
+8 | foo(1,
+          ^
 Completion Results:
 - (Variable) x=: int
 - (Variable) y=: str

@@ -41,6 +41,7 @@ use pyrefly_types::callable::PropertyRole;
 use pyrefly_types::callable_residual::CallableResidualKind;
 use pyrefly_types::class::Class;
 use pyrefly_types::class::ClassFields;
+use pyrefly_types::heap::TypeHeap;
 use pyrefly_types::literal::Lit;
 use pyrefly_types::quantified::Quantified;
 use pyrefly_types::quantified::QuantifiedKind;
@@ -749,18 +750,22 @@ fn typed_dict_shape(
                 typed_dict_traits(is_partial),
             )
         }
-        TypedDict::Anonymous(_) if is_partial => named_type_shape_kind_with_traits(
-            "NonTotalTypedDictionary",
-            Vec::new(),
-            None,
-            typed_dict_traits(is_partial),
-        ),
-        TypedDict::Anonymous(_) => named_type_shape_kind_with_traits(
-            "TypedDictionary",
-            Vec::new(),
-            None,
-            typed_dict_traits(is_partial),
-        ),
+        // An anonymous TypedDict has no class identity; structurally it is a
+        // `dict[str, <union of field value types>]` (all keys are string
+        // literals). Emit it as that dict -- matching the display string and a
+        // real dict -- so the structured shape keeps the field value types
+        // instead of collapsing to an opaque `TypedDictionary` marker.
+        TypedDict::Anonymous(inner) => {
+            let heap = TypeHeap::new();
+            let value_type = inner.compute_value_type(&heap);
+            named_type_shape_kind(
+                "builtins.dict",
+                vec![
+                    named_leaf("builtins.str"),
+                    type_to_shape(context, &value_type),
+                ],
+            )
+        }
     }
 }
 

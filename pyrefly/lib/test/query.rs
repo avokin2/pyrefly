@@ -482,6 +482,64 @@ c = Color.RED
 }
 
 #[test]
+fn test_type_table_anonymous_typed_dict_is_dict() {
+    let tdir = TempDir::new().unwrap();
+    let file_path = tdir.path().join("main.py");
+    // An unannotated dict literal with string-literal keys synthesizes an
+    // anonymous TypedDict. Its structured shape must be `dict[str, int | str]`
+    // (keeping the field value types), not an opaque `TypedDictionary` marker
+    // that drops them.
+    let code = r#"d = {"count": 1, "name": "x"}
+"#;
+    fs_anyhow::write(&file_path, code).unwrap();
+
+    let query = create_query();
+    let module_name = ModuleName::from_str("main");
+    let path = ModulePath::filesystem(file_path.clone());
+
+    let errors = query.add_files(vec![(module_name, path.clone())]);
+    assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+
+    let response = query
+        .get_type_table_in_file_with_timing(module_name, path)
+        .unwrap()
+        .0;
+    let table = indexed_shape_values(&response.type_table);
+
+    assert!(
+        !table
+            .iter()
+            .any(|shape| is_named_shape(shape, "TypedDictionary")
+                || is_named_shape(shape, "NonTotalTypedDictionary")),
+        "anonymous TypedDict should not emit an opaque TypedDictionary marker:\n{table:#?}",
+    );
+
+    let str_index = table
+        .iter()
+        .position(|shape| is_indexed_named_shape(shape, "builtins.str", &[]))
+        .expect("expected builtins.str leaf");
+    let int_index = table
+        .iter()
+        .position(|shape| is_indexed_named_shape(shape, "builtins.int", &[]))
+        .expect("expected builtins.int leaf");
+    let value_index = table
+        .iter()
+        .position(|shape| {
+            is_indexed_named_shape(shape, "typing.Union", &[int_index, str_index])
+                || is_indexed_named_shape(shape, "typing.Union", &[str_index, int_index])
+        })
+        .expect("expected `int | str` field value union");
+    assert!(
+        table.iter().any(|shape| is_indexed_named_shape(
+            shape,
+            "builtins.dict",
+            &[str_index, value_index]
+        )),
+        "expected `dict[str, int | str]` shape for the anonymous TypedDict:\n{table:#?}",
+    );
+}
+
+#[test]
 fn test_if_else_in_loop() {
     let tdir = TempDir::new().unwrap();
     let file_path = tdir.path().join("main.py");

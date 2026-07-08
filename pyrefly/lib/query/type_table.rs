@@ -57,6 +57,8 @@ pub enum IndexedTypeShapeKind {
     Callable {
         params: Vec<usize>,
         return_type: usize,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        is_staticmethod: bool,
     },
     TypeVariable {
         name: String,
@@ -182,11 +184,12 @@ fn hash_named(
     h.finish()
 }
 
-fn hash_callable(param_hashes: &[u64], return_hash: u64) -> u64 {
+fn hash_callable(param_hashes: &[u64], return_hash: u64, is_staticmethod: bool) -> u64 {
     let mut h = Xxh64::new(0);
     h.write_u8(HASH_KIND_CALLABLE);
     hash_hashes(&mut h, param_hashes);
     h.write_u64(return_hash);
+    h.write_u8(is_staticmethod as u8);
     h.finish()
 }
 
@@ -240,16 +243,18 @@ fn insert_indexed_callable(
     table: &mut TypeTableBuilder,
     params: Vec<usize>,
     return_type: usize,
+    is_staticmethod: bool,
 ) -> usize {
     let param_hashes = params
         .iter()
         .map(|param| table.hash_at(*param))
         .collect::<Vec<_>>();
-    let hash = hash_callable(&param_hashes, table.hash_at(return_type));
+    let hash = hash_callable(&param_hashes, table.hash_at(return_type), is_staticmethod);
     table.insert(
         IndexedTypeShapeKind::Callable {
             params,
             return_type,
+            is_staticmethod,
         },
         hash,
     )
@@ -301,8 +306,13 @@ pub(super) fn type_to_indexed_shape(
             let inner = type_to_indexed_shape(context, inner, table);
             insert_indexed_named(table, "typing.Type", vec![inner], None, Vec::new())
         }
-        Type::Callable(callable) => callable_to_indexed_shape(context, callable, table),
-        Type::Function(function) => callable_to_indexed_shape(context, &function.signature, table),
+        Type::Callable(callable) => callable_to_indexed_shape(context, callable, false, table),
+        Type::Function(function) => callable_to_indexed_shape(
+            context,
+            &function.signature,
+            function.metadata.flags.is_staticmethod,
+            table,
+        ),
         Type::BoundMethod(bound_method) => {
             let function_type = bound_method.func.clone().as_type();
             let args = vec![
@@ -544,11 +554,12 @@ fn typed_dict_to_indexed_shape(
 fn callable_to_indexed_shape(
     context: &TypeShapeContext,
     callable: &Callable,
+    is_staticmethod: bool,
     table: &mut TypeTableBuilder,
 ) -> usize {
     let params = callable_param_indices(context, &callable.params, table);
     let return_type = type_to_indexed_shape(context, &callable.ret, table);
-    insert_indexed_callable(table, params, return_type)
+    insert_indexed_callable(table, params, return_type, is_staticmethod)
 }
 
 fn callable_param_indices(

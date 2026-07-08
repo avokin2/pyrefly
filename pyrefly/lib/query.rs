@@ -236,6 +236,13 @@ pub enum TypeShapeKind {
     Callable {
         params: Vec<TypeShape>,
         return_type: Box<TypeShape>,
+        /// Whether the callable is a `@staticmethod`. Structured consumers use
+        /// this to recover the `typing.StaticMethod[...]` wrapper that is
+        /// otherwise only present in the `display` string, so a value-position
+        /// reference to a static method (e.g. a `key=` callback) keeps its
+        /// static-method identity.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        is_staticmethod: bool,
     },
     /// A type parameter, with any bound or constraint types attached.
     TypeVariable {
@@ -480,8 +487,12 @@ fn type_shape_kind(context: &TypeShapeContext, ty: &Type) -> TypeShapeKind {
         Type::Type(inner) => {
             named_type_shape_kind("typing.Type", vec![type_to_shape(context, inner)])
         }
-        Type::Callable(callable) => callable_shape(context, callable),
-        Type::Function(function) => callable_shape(context, &function.signature),
+        Type::Callable(callable) => callable_shape(context, callable, false),
+        Type::Function(function) => callable_shape(
+            context,
+            &function.signature,
+            function.metadata.flags.is_staticmethod,
+        ),
         Type::BoundMethod(bound_method) => {
             let function_type = bound_method.func.clone().as_type();
             named_type_shape_kind(
@@ -777,10 +788,15 @@ fn typed_dict_traits(is_partial: bool) -> Vec<TypeShapeTrait> {
     }
 }
 
-fn callable_shape(context: &TypeShapeContext, callable: &Callable) -> TypeShapeKind {
+fn callable_shape(
+    context: &TypeShapeContext,
+    callable: &Callable,
+    is_staticmethod: bool,
+) -> TypeShapeKind {
     TypeShapeKind::Callable {
         params: callable_param_types(context, &callable.params),
         return_type: Box::new(type_to_shape(context, &callable.ret)),
+        is_staticmethod,
     }
 }
 

@@ -262,6 +262,61 @@ def apply(f: Callable[[int, str], bool], x: T) -> bool:
 }
 
 #[test]
+fn test_type_shapes_mark_staticmethod_callables() {
+    let tdir = TempDir::new().unwrap();
+    let file_path = tdir.path().join("main.py");
+    // A value-position reference to a `@staticmethod` surfaces as a callable
+    // type whose shape must carry `is_staticmethod: true`, so consumers can
+    // recover the static-method identity that is otherwise only in `display`
+    // (`typing.StaticMethod[...]`). A plain function omits the field.
+    let code = r#"
+class C:
+    @staticmethod
+    def sm(x: int) -> str:
+        return "ok"
+
+def plain(x: int) -> str:
+    return "ok"
+
+sm_ref = C.sm
+plain_ref = plain
+"#;
+    fs_anyhow::write(&file_path, code).unwrap();
+
+    let query = create_query();
+    let module_name = ModuleName::from_str("main");
+    let path = ModulePath::filesystem(file_path.clone());
+
+    let errors = query.add_files(vec![(module_name, path.clone())]);
+    assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+
+    let shapes = type_shape_values(query.get_type_shapes_in_file(module_name, path).unwrap());
+
+    let is_callable_with_string_return = |shape: &Value| -> bool {
+        shape.get("kind").and_then(Value::as_str) == Some("callable")
+            && shape
+                .get("return_type")
+                .is_some_and(|rt| is_named_shape(rt, "builtins.str"))
+    };
+
+    assert!(
+        shapes.iter().any(|shape| {
+            is_callable_with_string_return(shape)
+                && shape.get("is_staticmethod").and_then(Value::as_bool) == Some(true)
+        }),
+        "Expected the staticmethod reference to emit a callable shape with is_staticmethod=true:\n{shapes:#?}",
+    );
+    assert!(
+        shapes.iter().any(|shape| {
+            is_callable_with_string_return(shape)
+                // skip_serializing_if omits the field entirely when false.
+                && shape.get("is_staticmethod").is_none()
+        }),
+        "Expected the plain function to emit a callable shape without is_staticmethod:\n{shapes:#?}",
+    );
+}
+
+#[test]
 fn test_type_shapes_include_unspecified_type_arg_count_for_generic_classes() {
     let tdir = TempDir::new().unwrap();
     let file_path = tdir.path().join("main.py");

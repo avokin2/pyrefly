@@ -1644,15 +1644,13 @@ impl<'a> BindingsBuilder<'a> {
             self.follow_to_partial_type(deferred.lookup_result_idx);
 
         if let Some((def_idx, first_use)) = partial_type_info {
-            let is_narrowing = matches!(deferred.usage, Usage::Narrowing(_));
-
             // Determine side effects based on usage and first_use state.
             if matches!(
                 deferred.usage,
                 Usage::StaticTypeInformation { .. } | Usage::TypeAliasRhs
             ) {
                 self.mark_does_not_pin_if_first_use(def_idx);
-            } else if !is_narrowing {
+            } else if deferred.usage.may_pin_partial_type() {
                 // Normal reads: if this is the first use, mark it.
                 if matches!(first_use, FirstUse::Undetermined)
                     && let Some(current_idx) = deferred.usage.current_idx()
@@ -1660,8 +1658,8 @@ impl<'a> BindingsBuilder<'a> {
                     self.mark_first_use(def_idx, current_idx);
                 }
             }
-            // Narrowing reads leave first_use as Undetermined so that the next
-            // non-narrowing read can still become the first use for pinning.
+            // Non-pinning reads leave first_use as Undetermined so that the next
+            // semantic read can still become the first use for pinning.
             // All partial type reads forward to the NameAssign (def_idx).
             self.insert_binding_idx(deferred.bound_name_idx, Binding::ForwardToFirstUse(def_idx));
         } else {

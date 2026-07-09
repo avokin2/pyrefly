@@ -1243,6 +1243,30 @@ def f(y: Color) -> None:
 );
 
 testcase!(
+    test_indirect_match_mapping_or_patterns_do_not_over_narrow,
+    r#"
+from typing import TypedDict, Literal, assert_type
+
+class Config(TypedDict, total=False):
+    skip: bool
+    ci_platforms: list[str]
+    ignore_missing_stub: bool
+
+def get_config() -> Config: ...
+
+def test() -> Literal["skipped", "ignored", "error"]:
+    match get_config():
+        case {"skip": True} | {"ci_platforms": []}:
+            return "skipped"
+        case {"ignore_missing_stub": True} as config:
+            assert_type(config["ignore_missing_stub"], Literal[True])
+            return "ignored"
+        case _:
+            return "error"
+"#,
+);
+
+testcase!(
     test_match_multi_subject_with_mapping_pattern,
     r#"
 from typing import Any

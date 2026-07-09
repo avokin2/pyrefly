@@ -2394,7 +2394,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 show_subject_expr,
             } => self.check_match_exhaustiveness(
                 subject_idx,
-                narrowing_subject,
+                narrowing_subject.as_ref(),
                 narrow_ops_for_fall_through,
                 subject_range,
                 *show_subject_expr,
@@ -2407,7 +2407,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 case_range,
             } => self.check_match_case_reachability(
                 subject_idx,
-                narrowing_subject,
+                narrowing_subject.as_ref(),
                 narrow_ops_for_case,
                 case_range,
                 errors,

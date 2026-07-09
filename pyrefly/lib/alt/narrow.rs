@@ -2151,7 +2151,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     pub fn check_match_exhaustiveness(
         &self,
         subject_idx: &Idx<Key>,
-        narrowing_subject: &NarrowingSubject,
+        narrowing_subject: Option<&NarrowingSubject>,
         narrow_ops_for_fall_through: &(Box<NarrowOp>, TextRange),
         subject_range: &TextRange,
         show_subject_expr: bool,
@@ -2166,11 +2166,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let ignore_errors = self.error_swallower();
         // Get the narrowed type of the match subject when none of the cases match
         let mut remaining_ty = match narrowing_subject {
-            NarrowingSubject::Name(_) => self
+            None | Some(NarrowingSubject::Name(_)) => self
                 .narrow(&subject_info, op.as_ref(), *narrow_range, &ignore_errors)
                 .ty()
                 .clone(),
-            NarrowingSubject::Facets(_, facets) => {
+            Some(NarrowingSubject::Facets(_, facets)) => {
                 let Some(resolved_chain) = self.resolve_facet_chain(facets.chain.clone()) else {
                     return;
                 };
@@ -2213,7 +2213,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     pub fn check_match_case_reachability(
         &self,
         subject_idx: &Idx<Key>,
-        narrowing_subject: &NarrowingSubject,
+        narrowing_subject: Option<&NarrowingSubject>,
         narrow_ops_for_case: &(Box<NarrowOp>, TextRange),
         case_range: &TextRange,
         errors: &ErrorCollector,
@@ -2231,14 +2231,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
         let ignore_errors = self.error_swallower();
         let (mut narrowed_ty, has_never_trigger_facet) = match narrowing_subject {
-            NarrowingSubject::Name(_) => {
+            None | Some(NarrowingSubject::Name(_)) => {
                 let narrowed =
                     self.narrow(&subject_info, op.as_ref(), *narrow_range, &ignore_errors);
                 let has_never_trigger_facet =
                     self.has_never_match_trigger_facet(&narrowed, op, *case_range);
                 (narrowed.ty().clone(), has_never_trigger_facet)
             }
-            NarrowingSubject::Facets(_, facets) => {
+            Some(NarrowingSubject::Facets(_, facets)) => {
                 let Some(resolved_chain) = self.resolve_facet_chain(facets.chain.clone()) else {
                     return;
                 };

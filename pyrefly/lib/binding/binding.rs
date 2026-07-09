@@ -1150,7 +1150,7 @@ pub enum BindingExpect {
     /// checked for exhaustiveness, only variables and chained subscripts/attributes of variables
     MatchExhaustiveness {
         subject_idx: Idx<Key>,
-        narrowing_subject: NarrowingSubject,
+        narrowing_subject: Option<NarrowingSubject>,
         narrow_ops_for_fall_through: (Box<NarrowOp>, TextRange),
         subject_range: TextRange,
         // Should we show the raw expression of the match subject instead of the name?
@@ -1159,7 +1159,7 @@ pub enum BindingExpect {
     /// A match case whose pattern may not overlap with the current subject type.
     MatchCaseReachability {
         subject_idx: Idx<Key>,
-        narrowing_subject: NarrowingSubject,
+        narrowing_subject: Option<NarrowingSubject>,
         narrow_ops_for_case: (Box<NarrowOp>, TextRange),
         case_range: TextRange,
     },

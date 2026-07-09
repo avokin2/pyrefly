@@ -15,6 +15,7 @@ use lsp_types::request::Initialize;
 use lsp_types::request::Request as _;
 use lsp_types::request::WorkspaceConfiguration;
 use pyrefly::commands::lsp::IndexingMode;
+use pyrefly::commands::lsp::LspArgs;
 use pyrefly::lsp::non_wasm::protocol::Message;
 use pyrefly::lsp::non_wasm::protocol::Notification;
 use pyrefly::lsp::non_wasm::protocol::Request;
@@ -24,6 +25,7 @@ use serde_json::json;
 
 use crate::object_model::InitializeSettings;
 use crate::object_model::LspInteraction;
+use crate::object_model::LspInteractionArgs;
 use crate::object_model::LspMessageError;
 use crate::util::get_test_files_root;
 
@@ -274,7 +276,13 @@ fn test_baseline_diagnostic_is_hint_push() {
 fn test_stream_diagnostics_after_save() {
     let root = get_test_files_root();
     let root_path = root.path().join("streaming");
-    let mut interaction = LspInteraction::new_with_indexing_mode(IndexingMode::LazyBlocking);
+    let mut interaction = LspInteraction::new_with_args(LspInteractionArgs {
+        args: LspArgs {
+            indexing_mode: IndexingMode::LazyBlocking,
+            ..LspInteractionArgs::default().args
+        },
+        ..Default::default()
+    });
     interaction.set_root(root_path.clone());
     interaction
         .initialize(InitializeSettings {
@@ -329,7 +337,13 @@ fn test_stream_diagnostics_after_save() {
 fn test_stream_diagnostics_no_flicker_after_undo_edit() {
     let root = get_test_files_root();
     let root_path = root.path().join("streaming");
-    let mut interaction = LspInteraction::new_with_indexing_mode(IndexingMode::LazyBlocking);
+    let mut interaction = LspInteraction::new_with_args(LspInteractionArgs {
+        args: LspArgs {
+            indexing_mode: IndexingMode::LazyBlocking,
+            ..LspInteractionArgs::default().args
+        },
+        ..Default::default()
+    });
     interaction.set_root(root_path.clone());
     interaction
         .initialize(InitializeSettings {
@@ -399,7 +413,13 @@ fn test_stream_diagnostics_no_flicker_after_undo_edit() {
 fn test_open_file_during_recheck() {
     let root = get_test_files_root();
     let root_path = root.path().join("streaming");
-    let mut interaction = LspInteraction::new_with_indexing_mode(IndexingMode::LazyBlocking);
+    let mut interaction = LspInteraction::new_with_args(LspInteractionArgs {
+        args: LspArgs {
+            indexing_mode: IndexingMode::LazyBlocking,
+            ..LspInteractionArgs::default().args
+        },
+        ..Default::default()
+    });
     interaction.set_root(root_path.clone());
     interaction
         .initialize(InitializeSettings {
@@ -454,7 +474,13 @@ fn test_open_file_during_recheck() {
 fn test_edit_file_during_recheck() {
     let root = get_test_files_root();
     let root_path = root.path().join("streaming");
-    let mut interaction = LspInteraction::new_with_indexing_mode(IndexingMode::LazyBlocking);
+    let mut interaction = LspInteraction::new_with_args(LspInteractionArgs {
+        args: LspArgs {
+            indexing_mode: IndexingMode::LazyBlocking,
+            ..LspInteractionArgs::default().args
+        },
+        ..Default::default()
+    });
     interaction.set_root(root_path.clone());
     interaction
         .initialize(InitializeSettings {
@@ -1642,7 +1668,7 @@ fn test_cross_file_diagnostic_no_indexing() {
     let root = get_test_files_root();
     let root_path = root.path().join("cross_file_method_change");
     // Indexing must be disabled to reproduce.
-    let mut interaction = LspInteraction::new_with_indexing_mode(IndexingMode::None);
+    let mut interaction = LspInteraction::new();
     interaction.set_root(root_path.clone());
     interaction
         .initialize(InitializeSettings {

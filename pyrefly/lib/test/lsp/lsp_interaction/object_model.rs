@@ -1282,7 +1282,10 @@ pub struct RecordedTelemetryEvent {
 /// ```ignore
 /// let telemetry = TestTelemetry::new();
 /// let rx = telemetry.subscribe();
-/// let interaction = LspInteraction::new_with_args(args, telemetry);
+/// let interaction = LspInteraction::new_with_args(LspInteractionArgs {
+///     telemetry,
+///     ..LspInteractionArgs::default()
+/// });
 ///
 /// // ... trigger an LSP operation ...
 ///
@@ -1295,7 +1298,10 @@ pub struct RecordedTelemetryEvent {
 /// ```ignore
 /// let telemetry = TestTelemetry::new();
 /// let rx = telemetry.subscribe();
-/// let interaction = LspInteraction::new_with_args(args, telemetry);
+/// let interaction = LspInteraction::new_with_args(LspInteractionArgs {
+///     telemetry,
+///     ..LspInteractionArgs::default()
+/// });
 ///
 /// // .. wait for a sourcedb rebuild to complete before opening a file ...
 ///
@@ -1357,41 +1363,45 @@ impl Telemetry for TestTelemetry {
     }
 }
 
+pub struct LspInteractionArgs {
+    pub args: LspArgs,
+    pub telemetry: Box<dyn Telemetry>,
+    pub thread_count: ThreadCount,
+    pub thrift_remapper: Option<ThriftRemapper>,
+}
+
+impl Default for LspInteractionArgs {
+    fn default() -> Self {
+        Self {
+            args: LspArgs {
+                indexing_mode: IndexingMode::None,
+                workspace_indexing_limit: 50,
+                build_system_blocking: false,
+            },
+            telemetry: Box::new(NoTelemetry),
+            thread_count: TEST_THREAD_COUNT,
+            thrift_remapper: None,
+        }
+    }
+}
+
 impl LspInteraction {
     pub fn new() -> Self {
-        Self::new_with_indexing_mode(IndexingMode::None)
-    }
-
-    pub fn new_with_indexing_mode(indexing_mode: IndexingMode) -> Self {
-        let args = LspArgs {
-            indexing_mode,
-            workspace_indexing_limit: 50,
-            build_system_blocking: false,
-        };
-        Self::new_with_args(args, NoTelemetry, None, None)
-    }
-
-    pub fn new_with_thrift_remapper(thrift_remapper: Option<ThriftRemapper>) -> Self {
-        let args = LspArgs {
-            indexing_mode: IndexingMode::None,
-            workspace_indexing_limit: 50,
-            build_system_blocking: false,
-        };
-        Self::new_with_args(args, NoTelemetry, None, thrift_remapper)
+        Self::new_with_args(LspInteractionArgs::default())
     }
 
     /// Create an `LspInteraction` with custom [`LspArgs`] and a custom
     /// [`Telemetry`] implementation. The telemetry value is moved into the
     /// spawned server thread.
-    pub fn new_with_args<T: Telemetry + 'static>(
-        args: LspArgs,
-        telemetry: T,
-        thread_count: Option<ThreadCount>,
-        thrift_remapper: Option<ThriftRemapper>,
-    ) -> Self {
+    pub fn new_with_args(args: LspInteractionArgs) -> Self {
         init_test();
 
-        let thread_count = thread_count.unwrap_or(TEST_THREAD_COUNT);
+        let LspInteractionArgs {
+            args,
+            telemetry,
+            thread_count,
+            thrift_remapper,
+        } = args;
 
         let ((conn_client, _client_reader), (conn_server, server_reader)) = Connection::memory();
 
@@ -1407,7 +1417,7 @@ impl LspInteraction {
                 None,
                 None,
                 thrift_remapper,
-                &telemetry,
+                &*telemetry,
                 Arc::new(NoExternalProvider),
                 None,
                 thread_count,

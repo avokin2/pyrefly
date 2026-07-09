@@ -137,7 +137,7 @@ fn is_definitely_nonempty_iterable(iter: &Expr) -> bool {
 impl<'a> BindingsBuilder<'a> {
     fn assert(&mut self, assert_range: TextRange, mut test: Expr, msg: Option<Expr>) {
         let test_range = test.range();
-        self.ensure_expr(&mut test, &mut Usage::Narrowing(None));
+        self.ensure_expr(&mut test, &mut Usage::NonPinningValue(None));
         let narrow_ops = NarrowOps::from_expr(self, Some(&test));
         let static_test = self.sys_info.evaluate_bool(&test);
         let test_clone = test.clone();
@@ -151,7 +151,7 @@ impl<'a> BindingsBuilder<'a> {
             self.bind_narrow_ops(
                 &negated_narrow_ops,
                 NarrowUseLocation::Span(msg_expr.range()),
-                &Usage::Narrowing(None),
+                &Usage::NonPinningValue(None),
             );
             let mut msg = self.declare_current_idx(Key::UsageLink(msg_expr.range()));
             self.ensure_expr(&mut msg_expr, msg.usage());
@@ -165,7 +165,7 @@ impl<'a> BindingsBuilder<'a> {
         self.bind_narrow_ops(
             &narrow_ops,
             NarrowUseLocation::Span(assert_range),
-            &Usage::Narrowing(None),
+            &Usage::NonPinningValue(None),
         );
         if let Some(false) = static_test {
             self.scopes.mark_flow_termination(true);
@@ -1171,7 +1171,7 @@ impl<'a> BindingsBuilder<'a> {
                 // narrowing and type checking are aware that the test might be impacted by changes
                 // made in the loop (e.g. if we reassign the test variable).
                 // Typecheck the test condition during solving.
-                self.ensure_expr(&mut x.test, &mut Usage::Narrowing(None));
+                self.ensure_expr(&mut x.test, &mut Usage::NonPinningValue(None));
                 // The while condition always evaluates at least once, so walrus
                 // targets are guaranteed to be assigned after the loop.
                 self.scopes.propagate_new_flow_entries_to_loop_base();
@@ -1180,7 +1180,7 @@ impl<'a> BindingsBuilder<'a> {
                 self.bind_narrow_ops(
                     &narrow_ops,
                     NarrowUseLocation::Span(x.range),
-                    &Usage::Narrowing(None),
+                    &Usage::NonPinningValue(None),
                 );
                 self.insert_binding(
                     KeyExpect::Bool(x.test.range()),
@@ -1204,7 +1204,7 @@ impl<'a> BindingsBuilder<'a> {
                 // Process the first `if` test before forking so that walrus-defined names
                 // are in the base flow and visible after the if-statement. This mirrors the
                 // fix for ternary expressions in expr.rs (Expr::If handling).
-                self.ensure_expr(&mut x.test, &mut Usage::Narrowing(None));
+                self.ensure_expr(&mut x.test, &mut Usage::NonPinningValue(None));
                 self.start_fork(if_range);
                 // Type narrowing operations that are carried over from one branch to the next. For example, in:
                 //   if x is None:
@@ -1221,7 +1221,7 @@ impl<'a> BindingsBuilder<'a> {
                     self.bind_narrow_ops(
                         &negated_prev_ops,
                         NarrowUseLocation::Start(range),
-                        &Usage::Narrowing(None),
+                        &Usage::NonPinningValue(None),
                     );
                     // If there is no test, it's an `else` clause and `this_branch_chosen` will be true.
                     let this_branch_chosen = match &test {
@@ -1240,7 +1240,7 @@ impl<'a> BindingsBuilder<'a> {
                     // The first `if` test was already processed before the fork (above).
                     // Only process elif/else tests here, inside the branch.
                     if !is_first_branch {
-                        self.ensure_expr_opt(test.as_mut(), &mut Usage::Narrowing(None));
+                        self.ensure_expr_opt(test.as_mut(), &mut Usage::NonPinningValue(None));
                         // Lift walrus-defined names from the elif condition into the
                         // fork's base flow. The elif condition always executes when
                         // control reaches past the preceding branch, so any walrus
@@ -1274,7 +1274,7 @@ impl<'a> BindingsBuilder<'a> {
                     self.bind_narrow_ops(
                         &new_narrow_ops,
                         NarrowUseLocation::Span(range),
-                        &Usage::Narrowing(None),
+                        &Usage::NonPinningValue(None),
                     );
                     negated_prev_ops.and_all(new_narrow_ops.negate());
                     self.stmts(body, parent);

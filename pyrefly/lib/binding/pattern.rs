@@ -168,7 +168,7 @@ impl<'a> BindingsBuilder<'a> {
     ) -> PatternNarrowOps {
         // In typical code, match patterns are more like static types than normal values, so
         // we ignore match patterns for first-usage tracking.
-        let narrowing_usage = &mut Usage::Narrowing(None);
+        let narrowing_usage = &mut Usage::NonPinningValue(None);
         match pattern {
             Pattern::MatchValue(mut p) => {
                 self.ensure_expr(&mut p.value, narrowing_usage);
@@ -672,7 +672,7 @@ impl<'a> BindingsBuilder<'a> {
             self.bind_narrow_ops(
                 &negated_prev_ops,
                 NarrowUseLocation::Start(case_range),
-                &Usage::Narrowing(None),
+                &Usage::NonPinningValue(None),
             );
             // First try to project previous narrows directly onto the already-evaluated
             // match subject. This is required for cases like `match self.a`, where the
@@ -713,7 +713,7 @@ impl<'a> BindingsBuilder<'a> {
             self.bind_narrow_ops(
                 &new_narrow_ops.scope,
                 NarrowUseLocation::Span(case_range),
-                &Usage::Narrowing(None),
+                &Usage::NonPinningValue(None),
             );
             // Reachability is checked before the guard is bound (below). This is
             // intentional: if the pattern itself can never match the subject type,
@@ -742,12 +742,12 @@ impl<'a> BindingsBuilder<'a> {
                 );
             }
             if let Some(mut guard) = guard {
-                self.ensure_expr(&mut guard, &mut Usage::Narrowing(None));
+                self.ensure_expr(&mut guard, &mut Usage::NonPinningValue(None));
                 let guard_narrow_ops = NarrowOps::from_expr(self, Some(guard.as_ref()));
                 self.bind_narrow_ops(
                     &guard_narrow_ops,
                     NarrowUseLocation::Span(guard.range()),
-                    &Usage::Narrowing(None),
+                    &Usage::NonPinningValue(None),
                 );
                 self.insert_binding(
                     Key::Anon(guard.range()),

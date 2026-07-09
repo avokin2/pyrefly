@@ -29,6 +29,7 @@ use pyrefly_python::module_path::ModuleStyle;
 use pyrefly_python::sys_info::PythonPlatform;
 use pyrefly_python::sys_info::PythonVersion;
 use pyrefly_python::sys_info::SysInfo;
+use pyrefly_util::arc_id::ArcId;
 use pyrefly_util::fs_anyhow;
 use pyrefly_util::thread_pool::ThreadCount;
 use serde::Deserialize;
@@ -37,7 +38,14 @@ use serde_json::Value;
 use starlark_map::small_map::SmallMap;
 use vec1::Vec1;
 
+use crate::commands::check::write_errors_to_stderr;
 use crate::commands::util::CommandExitStatus;
+use crate::config::config::ConfigFile;
+use crate::config::finder::ConfigFinder;
+use crate::error::error::Error;
+use crate::error::legacy::LegacyError;
+use crate::state::require::Require;
+use crate::state::state::State;
 
 /// Arguments for Bazel-powered type checking.
 #[derive(Debug, Clone, Parser)]
@@ -793,8 +801,65 @@ impl ModuleEnumerator for BazelCheckSourceDatabase {
 }
 
 #[derive(Debug, Serialize)]
-struct BazelDiagnostics {
-    diagnostics: Vec<Value>,
+struct BazelDiagnostics<'a> {
+    diagnostics: Vec<BazelDiagnostic<'a>>,
+}
+
+#[derive(Debug, Serialize)]
+struct BazelDiagnostic<'a> {
+    target: &'a str,
+    #[serde(flatten)]
+    error: LegacyError,
+}
+
+fn keep_in_bazel_output(error: &Error, min_severity: Severity) -> bool {
+    error.error_kind().is_directive() || error.severity() >= min_severity
+}
+
+fn compute_bazel_errors(
+    parsed_config: &ParsedBazelConfig,
+    search_roots: &[BazelSearchRoot],
+    source_db: BazelCheckSourceDatabase,
+    thread_count: ThreadCount,
+) -> anyhow::Result<Vec<Error>> {
+    let modules_to_check = source_db.modules_to_check();
+    let mut config = ConfigFile::default();
+    config.python_environment.python_platform = Some(parsed_config.system_platform.clone());
+    config.python_environment.python_version = Some(parsed_config.python_version);
+    config.python_environment.site_package_path = Some(Vec::new());
+    config.search_path_from_file = search_roots
+        .iter()
+        .map(|root| root.physical.clone())
+        .collect();
+    config.source_db = Some(ArcId::new(Box::new(source_db)));
+    config.interpreters.skip_interpreter_query = true;
+    config.disable_search_path_heuristics = true;
+    config.preset = parsed_config.preset;
+    if let Some(errors) = &parsed_config.errors {
+        config.root.errors = Some(errors.clone());
+    }
+    config.configure();
+
+    let config = ArcId::new(config);
+    let state = State::new(ConfigFinder::new_constant(config), thread_count);
+    let mut transaction = state.new_transaction(Require::Errors, None);
+    transaction.run(&modules_to_check, Require::Errors, None);
+
+    Ok(transaction
+        .get_errors(&modules_to_check)
+        .collect_display_errors_with_unused_ignores())
+}
+
+fn bazel_diagnostics_from_errors<'a>(target: &'a str, errors: &[Error]) -> BazelDiagnostics<'a> {
+    BazelDiagnostics {
+        diagnostics: errors
+            .iter()
+            .map(|error| BazelDiagnostic {
+                target,
+                error: LegacyError::from_error(Path::new(""), error),
+            })
+            .collect(),
+    }
 }
 
 fn read_input_file(path: &Path) -> anyhow::Result<BazelCheckInput> {
@@ -803,15 +868,15 @@ fn read_input_file(path: &Path) -> anyhow::Result<BazelCheckInput> {
     BazelCheckInput::from_json_bytes(path, &data)
 }
 
-fn write_output(path: &Path, diagnostics: &BazelDiagnostics) -> anyhow::Result<()> {
+fn write_output(path: &Path, diagnostics: &BazelDiagnostics<'_>) -> anyhow::Result<()> {
     let output_bytes = serde_json::to_vec(diagnostics)
         .with_context(|| "failed to serialize Bazel diagnostic JSON value to bytes")?;
     fs_anyhow::write(path, &output_bytes)
 }
 
 impl BazelCheckArgs {
-    pub fn run(self, _thread_count: ThreadCount) -> anyhow::Result<CommandExitStatus> {
-        match self.run_inner() {
+    pub fn run(self, thread_count: ThreadCount) -> anyhow::Result<CommandExitStatus> {
+        match self.run_inner(thread_count) {
             Ok(status) => Ok(status),
             Err(error) => {
                 eprintln!("{error:?}");
@@ -820,11 +885,11 @@ impl BazelCheckArgs {
         }
     }
 
-    fn run_inner(self) -> anyhow::Result<CommandExitStatus> {
+    fn run_inner(self, thread_count: ThreadCount) -> anyhow::Result<CommandExitStatus> {
         let Self {
             input_path,
             output_path,
-            min_severity: _,
+            min_severity,
         } = self;
         let input = read_input_file(&input_path)?;
         let file_inputs = build_bazel_file_inputs(&input)?;
@@ -832,17 +897,29 @@ impl BazelCheckArgs {
         let search_roots = build_search_roots(&input.search_path, config.python_version)?;
         let explicit_entries =
             build_explicit_entries(file_inputs, &search_roots, &input.target.label)?;
-        let _source_db = BazelCheckSourceDatabase::new(
+        let source_db = BazelCheckSourceDatabase::new(
             explicit_entries,
-            SysInfo::new(config.python_version, config.system_platform),
+            SysInfo::new(config.python_version, config.system_platform.clone()),
         );
-        write_output(
-            &output_path,
-            &BazelDiagnostics {
-                diagnostics: Vec::new(),
-            },
-        )?;
-        Ok(CommandExitStatus::Success)
+        let type_errors = compute_bazel_errors(&config, &search_roots, source_db, thread_count)?;
+        let displayed_errors = type_errors
+            .into_iter()
+            .filter(|error| keep_in_bazel_output(error, min_severity))
+            .collect::<Vec<_>>();
+        let diagnostics = bazel_diagnostics_from_errors(&input.target.label, &displayed_errors);
+        write_output(&output_path, &diagnostics)?;
+        if !displayed_errors.is_empty() {
+            eprintln!("Target {}", input.target.label);
+            write_errors_to_stderr(Path::new(""), &displayed_errors, true)?;
+        }
+        if displayed_errors
+            .iter()
+            .any(|error| !error.error_kind().is_directive())
+        {
+            Ok(CommandExitStatus::UserError)
+        } else {
+            Ok(CommandExitStatus::Success)
+        }
     }
 }
 

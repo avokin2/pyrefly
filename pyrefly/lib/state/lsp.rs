@@ -489,6 +489,20 @@ pub(crate) struct IdentifierWithContext {
     pub(crate) context: IdentifierContext,
 }
 
+/// How the identifier at a position resolves to a type.
+enum ResolutionKind {
+    /// Resolve through a binding key — a reference or a declaration.
+    Key(Key),
+    /// A directly-constructed type with no binding key. Only module identifiers.
+    Type(Type),
+    /// Member access (a computed expression, not a declaration): resolve via the
+    /// recorded expression trace at this range, call-aware in callee position.
+    Trace(TextRange),
+    /// The identifier has no type of its own — e.g. a keyword-argument label that
+    /// binds no parameter.
+    NoType,
+}
+
 #[derive(PartialEq, Eq)]
 pub enum AnnotationKind {
     Parameter,
@@ -1062,6 +1076,77 @@ impl<'a> Transaction<'a> {
         self.get_type_at_impl_with_options(handle, position, for_display, true)
     }
 
+    /// Classify how the identifier `identifier` in `context` resolves to a type.
+    fn classify_surface(
+        &self,
+        handle: &Handle,
+        identifier: &Identifier,
+        context: &IdentifierContext,
+    ) -> ResolutionKind {
+        match context {
+            IdentifierContext::Expr(expr_context) => ResolutionKind::Key(match expr_context {
+                ExprContext::Store => Key::Definition(ShortIdentifier::new(identifier)),
+                ExprContext::Load | ExprContext::Del | ExprContext::Invalid => {
+                    Key::BoundName(ShortIdentifier::new(identifier))
+                }
+            }),
+            // TODO: Handle relative import (via ModuleName::new_maybe_relative)
+            IdentifierContext::ImportedModule { name, .. } => ResolutionKind::Type(Type::Module(
+                ModuleType::new(name.first_component(), OrderedSet::from_iter([*name])),
+            )),
+            IdentifierContext::ImportedName {
+                name_after_import, ..
+            } => ResolutionKind::Key(Key::Definition(ShortIdentifier::new(name_after_import))),
+            IdentifierContext::FunctionDef { .. }
+            | IdentifierContext::MethodDef { .. }
+            | IdentifierContext::ClassDef { .. }
+            | IdentifierContext::Parameter
+            | IdentifierContext::TypeParameter
+            | IdentifierContext::ExceptionHandler
+            | IdentifierContext::PatternMatch(_) => {
+                ResolutionKind::Key(Key::Definition(ShortIdentifier::new(identifier)))
+            }
+            IdentifierContext::MutableCapture => {
+                ResolutionKind::Key(Key::MutableCapture(ShortIdentifier::new(identifier)))
+            }
+            // A keyword name resolves to the matched parameter's declaration, so
+            // it reduces to a binding key like any other declaration. When no
+            // parameter matches it has no type of its own.
+            IdentifierContext::KeywordArgument(callee_kind) => self
+                .keyword_argument_key(handle, identifier, callee_kind)
+                .map_or(ResolutionKind::NoType, ResolutionKind::Key),
+            // Member access is a computed expression, not a declaration.
+            IdentifierContext::Attribute { range, .. } => ResolutionKind::Trace(*range),
+        }
+    }
+
+    /// The parameter declaration key a keyword-argument name resolves to, if it
+    /// matches a parameter of the (same-module) callee.
+    fn keyword_argument_key(
+        &self,
+        handle: &Handle,
+        identifier: &Identifier,
+        callee_kind: &CalleeKind,
+    ) -> Option<Key> {
+        self.find_definition_for_keyword_argument(
+            handle,
+            identifier,
+            callee_kind,
+            FindPreference::default(),
+        )
+        .first()
+        .and_then(|item| {
+            let code_at_range = item.module.code_at(item.definition_range);
+            // If refinement failed, definition_range points to the callee itself,
+            // not a matching parameter.
+            if code_at_range != identifier.id.as_str() {
+                return None;
+            }
+            let id = Identifier::new(Name::new(code_at_range), item.definition_range);
+            Some(Key::Definition(ShortIdentifier::new(&id)))
+        })
+    }
+
     fn get_type_at_impl_with_options(
         &self,
         handle: &Handle,
@@ -1069,29 +1154,28 @@ impl<'a> Transaction<'a> {
         for_display: bool,
         coerce_callees: bool,
     ) -> Option<Type> {
-        match self.identifier_at(handle, position) {
-            Some(IdentifierWithContext {
-                identifier: id,
-                context: IdentifierContext::Expr(expr_context),
-            }) => {
-                let key = match expr_context {
-                    ExprContext::Store => Key::Definition(ShortIdentifier::new(&id)),
-                    ExprContext::Load | ExprContext::Del | ExprContext::Invalid => {
-                        Key::BoundName(ShortIdentifier::new(&id))
-                    }
-                };
-
+        let Some(IdentifierWithContext {
+            identifier,
+            context,
+        }) = self.identifier_at(handle, position)
+        else {
+            return self.type_from_expression_at_impl(handle, position, false, for_display);
+        };
+        match self.classify_surface(handle, &identifier, &context) {
+            ResolutionKind::Type(ty) => Some(ty),
+            ResolutionKind::Key(key) => {
                 let bindings = self.get_bindings(handle)?;
                 if !bindings.is_valid_key(&key) {
                     return None;
                 }
                 let mut ty = self.get_type_for_surface(handle, &key, for_display)?;
-                if coerce_callees {
+                // Only a plain expression reference coerces to its callee signature.
+                if coerce_callees && let IdentifierContext::Expr(_) = &context {
                     let call_args_range = self.callee_at(handle, position).and_then(
                         |ExprCall {
                              func, arguments, ..
                          }| {
-                            (func.range() == id.range).then_some(arguments.range)
+                            (func.range() == identifier.range).then_some(arguments.range)
                         },
                     );
                     if let Some(arguments_range) = call_args_range {
@@ -1107,137 +1191,10 @@ impl<'a> Transaction<'a> {
                 }
                 Some(ty)
             }
-            Some(IdentifierWithContext {
-                identifier: _,
-                context:
-                    IdentifierContext::ImportedModule {
-                        name: module_name, ..
-                    },
-            }) => {
-                // TODO: Handle relative import (via ModuleName::new_maybe_relative)
-                Some(Type::Module(ModuleType::new(
-                    module_name.first_component(),
-                    OrderedSet::from_iter([module_name]),
-                )))
-            }
-            Some(IdentifierWithContext {
-                identifier: _,
-                context:
-                    IdentifierContext::ImportedName {
-                        name_after_import, ..
-                    },
-            }) => {
-                let key = Key::Definition(ShortIdentifier::new(&name_after_import));
-                let bindings = self.get_bindings(handle)?;
-                if !bindings.is_valid_key(&key) {
-                    return None;
-                }
-                self.get_type_for_surface(handle, &key, for_display)
-            }
-            Some(IdentifierWithContext {
-                identifier,
-                context:
-                    IdentifierContext::FunctionDef { docstring_range: _ }
-                    | IdentifierContext::MethodDef { docstring_range: _ },
-            }) => {
-                let key = Key::Definition(ShortIdentifier::new(&identifier));
-                let bindings = self.get_bindings(handle)?;
-                if !bindings.is_valid_key(&key) {
-                    return None;
-                }
-                self.get_type_for_surface(handle, &key, for_display)
-            }
-            Some(IdentifierWithContext {
-                identifier,
-                context: IdentifierContext::ClassDef { docstring_range: _ },
-            }) => {
-                let key = Key::Definition(ShortIdentifier::new(&identifier));
-                let bindings = self.get_bindings(handle)?;
-                if !bindings.is_valid_key(&key) {
-                    return None;
-                }
-                self.get_type_for_surface(handle, &key, for_display)
-            }
-            Some(IdentifierWithContext {
-                identifier,
-                context: IdentifierContext::Parameter,
-            }) => {
-                let key = Key::Definition(ShortIdentifier::new(&identifier));
-                let bindings = self.get_bindings(handle)?;
-                if !bindings.is_valid_key(&key) {
-                    return None;
-                }
-                self.get_type_for_surface(handle, &key, for_display)
-            }
-            Some(IdentifierWithContext {
-                identifier,
-                context: IdentifierContext::TypeParameter,
-            }) => {
-                let key = Key::Definition(ShortIdentifier::new(&identifier));
-                let bindings = self.get_bindings(handle)?;
-                if !bindings.is_valid_key(&key) {
-                    return None;
-                }
-                self.get_type_for_surface(handle, &key, for_display)
-            }
-            Some(IdentifierWithContext {
-                identifier,
-                context: IdentifierContext::ExceptionHandler,
-            }) => {
-                let key = Key::Definition(ShortIdentifier::new(&identifier));
-                let bindings = self.get_bindings(handle)?;
-                if !bindings.is_valid_key(&key) {
-                    return None;
-                }
-                self.get_type_for_surface(handle, &key, for_display)
-            }
-            Some(IdentifierWithContext {
-                identifier,
-                context: IdentifierContext::PatternMatch(_),
-            }) => {
-                let key = Key::Definition(ShortIdentifier::new(&identifier));
-                let bindings = self.get_bindings(handle)?;
-                if !bindings.is_valid_key(&key) {
-                    return None;
-                }
-                self.get_type_for_surface(handle, &key, for_display)
-            }
-            Some(IdentifierWithContext {
-                identifier,
-                context: IdentifierContext::KeywordArgument(callee_kind),
-            }) => self
-                .find_definition_for_keyword_argument(
-                    handle,
-                    &identifier,
-                    &callee_kind,
-                    FindPreference::default(),
-                )
-                .first()
-                .and_then(|item| {
-                    let code_at_range = item.module.code_at(item.definition_range);
-                    // If refinement failed, definition_range points to the callee itself,
-                    // not a matching parameter. In that case, return None.
-                    if code_at_range != identifier.id.as_str() {
-                        return None;
-                    }
-                    let name = Name::new(code_at_range);
-                    let id = Identifier::new(name.clone(), item.definition_range);
-                    let key = Key::Definition(ShortIdentifier::new(&id));
-                    let bindings = self.get_bindings(handle)?;
-                    if !bindings.is_valid_key(&key) {
-                        return None;
-                    }
-                    self.get_type_for_surface(handle, &key, for_display)
-                }),
-            Some(IdentifierWithContext {
-                identifier: _,
-                context: IdentifierContext::Attribute { range, .. },
-            }) => {
+            ResolutionKind::Trace(range) => {
+                // In callee position, prefer the chosen-overload return type.
                 if let Some(ExprCall {
-                    node_index: _,
-                    range: _,
-                    func,
-                    arguments,
+                    func, arguments, ..
                 }) = &self.callee_at(handle, position)
                     && func.range() == range
                     && let Some(ret) = self.get_chosen_overload_trace_for_surface(
@@ -1251,18 +1208,7 @@ impl<'a> Transaction<'a> {
                     self.get_type_trace_for_surface(handle, range, for_display)
                 }
             }
-            Some(IdentifierWithContext {
-                identifier,
-                context: IdentifierContext::MutableCapture,
-            }) => {
-                let key = Key::MutableCapture(ShortIdentifier::new(&identifier));
-                let bindings = self.get_bindings(handle)?;
-                if !bindings.is_valid_key(&key) {
-                    return None;
-                }
-                self.get_type_for_surface(handle, &key, for_display)
-            }
-            None => self.type_from_expression_at_impl(handle, position, false, for_display),
+            ResolutionKind::NoType => None,
         }
     }
 

@@ -5,6 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use std::cmp::Ordering;
+use std::cmp::Reverse;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
@@ -13,17 +15,27 @@ use std::str::FromStr;
 use anyhow::Context as _;
 use anyhow::bail;
 use clap::Parser;
+use dupe::Dupe as _;
+use pyrefly_build::handle::Handle;
+use pyrefly_build::source_db::LiveSourceDatabase;
+use pyrefly_build::source_db::ModuleEnumerator;
+use pyrefly_build::source_db::SourceDatabase;
 use pyrefly_config::base::Preset;
 use pyrefly_config::error::ErrorDisplayConfig;
 use pyrefly_config::error_kind::Severity;
+use pyrefly_python::module_name::ModuleName;
+use pyrefly_python::module_path::ModulePath;
+use pyrefly_python::module_path::ModuleStyle;
 use pyrefly_python::sys_info::PythonPlatform;
 use pyrefly_python::sys_info::PythonVersion;
+use pyrefly_python::sys_info::SysInfo;
 use pyrefly_util::fs_anyhow;
 use pyrefly_util::thread_pool::ThreadCount;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 use starlark_map::small_map::SmallMap;
+use vec1::Vec1;
 
 use crate::commands::util::CommandExitStatus;
 
@@ -117,6 +129,38 @@ struct BazelFileInput {
     logical_path: PathBuf,
     physical_path: PathBuf,
     is_check_root: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExplicitModuleEntry {
+    module_name: ModuleName,
+    module_path: ModulePath,
+    logical_path: PathBuf,
+    is_check_root: bool,
+    rank: ExplicitModuleRank,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ExplicitModuleRank {
+    is_stub_package: Reverse<bool>,
+    search_root_order: usize,
+    extension_priority: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedModuleName {
+    module_name: ModuleName,
+    search_root_order: usize,
+    root_relative_path: PathBuf,
+}
+
+#[derive(Debug)]
+struct BazelCheckSourceDatabase {
+    // Entries for each module are sorted best-first; lookup relies on first()
+    // being the default candidate when no style filter matches.
+    candidates: SmallMap<ModuleName, Vec1<ExplicitModuleEntry>>,
+    modules_to_check: Vec<Handle>,
+    path_to_handle: SmallMap<ModulePath, Handle>,
 }
 
 impl BazelCheckInput {
@@ -502,6 +546,252 @@ fn build_bazel_file_inputs(input: &BazelCheckInput) -> anyhow::Result<Vec<BazelF
     Ok(check_roots.into_iter().chain(overlay_entries).collect())
 }
 
+fn strip_top_level_stubs_suffix(path: &Path) -> PathBuf {
+    let mut components = path.components();
+    let Some(first) = components.next() else {
+        return path.to_path_buf();
+    };
+    let mut stripped_path = match first {
+        Component::Normal(os_str) => os_str
+            .to_str()
+            .and_then(|name| name.strip_suffix("-stubs"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(os_str)),
+        _ => PathBuf::from(first.as_os_str()),
+    };
+    components.for_each(|component| stripped_path.push(component));
+    stripped_path
+}
+
+fn module_name_for_logical_path_under_search_roots(
+    logical_path: &Path,
+    ordered_search_roots: &[BazelSearchRoot],
+) -> anyhow::Result<ResolvedModuleName> {
+    let Some((search_root_order, search_root, root_relative_path)) = ordered_search_roots
+        .iter()
+        .enumerate()
+        .find_map(|(order, root)| {
+            logical_path
+                .strip_prefix(&root.logical)
+                .ok()
+                .map(|relative| (order, root, relative.to_path_buf()))
+        })
+    else {
+        bail!(
+            "Bazel logical path `{}` is not under any search root",
+            logical_path.display(),
+        );
+    };
+    let module_relative_path = strip_top_level_stubs_suffix(&root_relative_path);
+    let module_name = ModuleName::from_relative_path(&module_relative_path).with_context(|| {
+        format!(
+            "failed to derive module name from Bazel logical path `{}` under search root `{}`",
+            logical_path.display(),
+            search_root.logical.display(),
+        )
+    })?;
+    Ok(ResolvedModuleName {
+        module_name,
+        search_root_order,
+        root_relative_path,
+    })
+}
+
+fn is_top_level_stub_package(root_relative_path: &Path) -> bool {
+    root_relative_path.components().next().is_some_and(|component| {
+        matches!(component, Component::Normal(os_str) if os_str.to_str().is_some_and(|name| name.ends_with("-stubs")))
+    })
+}
+
+fn ensure_logical_and_physical_styles_match(
+    logical_path: &Path,
+    module_path: &ModulePath,
+) -> anyhow::Result<()> {
+    let logical_style = ModuleStyle::of_path(logical_path);
+    let physical_style = module_path.style();
+    if logical_style != physical_style {
+        bail!(
+            "Bazel logical path `{}` has style `{:?}`, but physical path `{}` has style `{:?}`",
+            logical_path.display(),
+            logical_style,
+            module_path.as_path().display(),
+            physical_style,
+        );
+    }
+    Ok(())
+}
+
+fn extension_priority(style: ModuleStyle) -> u8 {
+    match style {
+        ModuleStyle::Interface => 0,
+        ModuleStyle::Executable => 1,
+    }
+}
+
+fn compare_explicit_module_entries(
+    left: &ExplicitModuleEntry,
+    right: &ExplicitModuleEntry,
+) -> Ordering {
+    left.rank
+        .cmp(&right.rank)
+        .then_with(|| left.logical_path.cmp(&right.logical_path))
+        .then_with(|| left.module_path.as_path().cmp(right.module_path.as_path()))
+}
+
+fn build_explicit_entries(
+    file_inputs: Vec<BazelFileInput>,
+    search_roots: &[BazelSearchRoot],
+    target_label: &str,
+) -> anyhow::Result<Vec<ExplicitModuleEntry>> {
+    let mut entries = Vec::new();
+    for file_input in file_inputs {
+        match module_name_for_logical_path_under_search_roots(
+            &file_input.logical_path,
+            search_roots,
+        ) {
+            Ok(resolved) => {
+                let module_path = ModulePath::filesystem(file_input.physical_path.clone());
+                ensure_logical_and_physical_styles_match(&file_input.logical_path, &module_path)?;
+                let module_style = module_path.style();
+                entries.push(ExplicitModuleEntry {
+                    module_name: resolved.module_name,
+                    module_path,
+                    logical_path: file_input.logical_path.clone(),
+                    is_check_root: file_input.is_check_root,
+                    rank: ExplicitModuleRank {
+                        is_stub_package: Reverse(is_top_level_stub_package(
+                            &resolved.root_relative_path,
+                        )),
+                        search_root_order: resolved.search_root_order,
+                        extension_priority: extension_priority(module_style),
+                    },
+                });
+            }
+            Err(error) if file_input.is_check_root => {
+                bail!(
+                    "Bazel check root `{}` for target `{}` is not importable: {error:#}",
+                    file_input.raw_short_path,
+                    target_label,
+                );
+            }
+            Err(_) => {
+                // Non-check-root overlays only participate when importable under the target search roots.
+            }
+        }
+    }
+
+    let mut by_key: SmallMap<(ModuleName, ModulePath), ExplicitModuleEntry> = SmallMap::new();
+    for entry in entries {
+        match by_key.get_mut(&(entry.module_name, entry.module_path.dupe())) {
+            Some(existing) => {
+                let is_check_root = existing.is_check_root || entry.is_check_root;
+                if compare_explicit_module_entries(&entry, existing).is_lt() {
+                    *existing = entry;
+                }
+                existing.is_check_root = is_check_root;
+            }
+            None => {
+                by_key.insert((entry.module_name, entry.module_path.dupe()), entry);
+            }
+        }
+    }
+
+    Ok(by_key.into_values().collect())
+}
+
+impl BazelCheckSourceDatabase {
+    fn new(entries: Vec<ExplicitModuleEntry>, sys_info: SysInfo) -> Self {
+        let mut accumulated: SmallMap<ModuleName, Vec<ExplicitModuleEntry>> = SmallMap::new();
+        entries.into_iter().for_each(|entry| {
+            accumulated
+                .entry(entry.module_name)
+                .or_default()
+                .push(entry);
+        });
+
+        let candidates = accumulated
+            .into_iter()
+            .map(|(module_name, mut entries)| {
+                entries.sort_by(compare_explicit_module_entries);
+                (
+                    module_name,
+                    Vec1::try_from_vec(entries).expect("inserted at least one entry"),
+                )
+            })
+            .collect::<SmallMap<_, _>>();
+        let handle = |module_name: &ModuleName, module_path: &ModulePath| {
+            Handle::new(module_name.dupe(), module_path.dupe(), sys_info.dupe())
+        };
+        let modules_to_check = candidates
+            .iter()
+            .flat_map(|(module_name, entries)| {
+                entries
+                    .iter()
+                    .filter(|entry| entry.is_check_root)
+                    .map(|entry| handle(module_name, &entry.module_path))
+            })
+            .collect::<Vec<_>>();
+        // TODO: This matches buck-check behavior, but still collapses the rare
+        // case where multiple logical modules intentionally share one physical artifact.
+        let path_to_handle = candidates
+            .iter()
+            .flat_map(|(module_name, entries)| {
+                entries.iter().map(|entry| {
+                    (
+                        entry.module_path.dupe(),
+                        handle(module_name, &entry.module_path),
+                    )
+                })
+            })
+            .collect::<SmallMap<_, _>>();
+
+        Self {
+            candidates,
+            modules_to_check,
+            path_to_handle,
+        }
+    }
+}
+
+impl SourceDatabase for BazelCheckSourceDatabase {
+    fn may_contain_module(&self, module: ModuleName) -> bool {
+        self.candidates.contains_key(&module)
+    }
+
+    fn lookup(
+        &self,
+        module: ModuleName,
+        _: Option<&Path>,
+        style_filter: Option<ModuleStyle>,
+    ) -> Option<ModulePath> {
+        let candidates = self.candidates.get(&module)?;
+        style_filter
+            .and_then(|style| {
+                candidates
+                    .iter()
+                    .find(|entry| entry.module_path.style() == style)
+            })
+            .or_else(|| Some(candidates.first()))
+            .map(|entry| entry.module_path.dupe())
+    }
+
+    fn handle_from_module_path(&self, module_path: &ModulePath) -> Option<Handle> {
+        self.path_to_handle
+            .get(module_path)
+            .map(|handle| handle.dupe())
+    }
+
+    fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
+        None
+    }
+}
+
+impl ModuleEnumerator for BazelCheckSourceDatabase {
+    fn modules_to_check(&self) -> Vec<Handle> {
+        self.modules_to_check.clone()
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct BazelDiagnostics {
     diagnostics: Vec<Value>,
@@ -537,9 +827,15 @@ impl BazelCheckArgs {
             min_severity: _,
         } = self;
         let input = read_input_file(&input_path)?;
-        let _file_inputs = build_bazel_file_inputs(&input)?;
+        let file_inputs = build_bazel_file_inputs(&input)?;
         let config = input.config.parse()?;
-        let _search_roots = build_search_roots(&input.search_path, config.python_version)?;
+        let search_roots = build_search_roots(&input.search_path, config.python_version)?;
+        let explicit_entries =
+            build_explicit_entries(file_inputs, &search_roots, &input.target.label)?;
+        let _source_db = BazelCheckSourceDatabase::new(
+            explicit_entries,
+            SysInfo::new(config.python_version, config.system_platform),
+        );
         write_output(
             &output_path,
             &BazelDiagnostics {
@@ -1345,6 +1641,208 @@ mod tests {
                 .to_string()
                 .contains("conflicts with another overlay"),
         );
+    }
+
+    fn search_root(logical: &str, physical: &str) -> BazelSearchRoot {
+        BazelSearchRoot {
+            logical: path(logical),
+            physical: path(physical),
+        }
+    }
+
+    fn file_input(
+        raw_short_path: &str,
+        logical_path: &str,
+        physical_path: &str,
+        is_check_root: bool,
+    ) -> BazelFileInput {
+        BazelFileInput {
+            raw_short_path: raw_short_path.to_owned(),
+            logical_path: path(logical_path),
+            physical_path: path(physical_path),
+            is_check_root,
+        }
+    }
+
+    fn explicit_module_entry(
+        module_name: &str,
+        logical_path: &str,
+        physical_path: &str,
+        is_check_root: bool,
+        rank: ExplicitModuleRank,
+    ) -> ExplicitModuleEntry {
+        ExplicitModuleEntry {
+            module_name: ModuleName::from_str(module_name),
+            module_path: ModulePath::filesystem(path(physical_path)),
+            logical_path: path(logical_path),
+            is_check_root,
+            rank,
+        }
+    }
+
+    #[test]
+    fn module_name_uses_first_containing_search_root_and_top_level_stubs_suffix() {
+        let roots = vec![search_root("_main/pkg", "pkg"), search_root("_main", ".")];
+        let resolved =
+            module_name_for_logical_path_under_search_roots(Path::new("_main/pkg/app.py"), &roots)
+                .expect("module should resolve");
+        assert_eq!(resolved.module_name, ModuleName::from_str("app"));
+        assert_eq!(resolved.search_root_order, 0);
+        assert_eq!(resolved.root_relative_path, path("app.py"));
+
+        let roots = vec![search_root("rules_python+", "external/rules_python+")];
+        let resolved = module_name_for_logical_path_under_search_roots(
+            Path::new("rules_python+/foo-stubs/bar/baz.pyi"),
+            &roots,
+        )
+        .expect("stub package module should resolve");
+        assert_eq!(resolved.module_name, ModuleName::from_str("foo.bar.baz"));
+        assert_eq!(resolved.root_relative_path, path("foo-stubs/bar/baz.pyi"));
+    }
+
+    #[test]
+    fn source_db_style_filter_prefers_owned_style_with_fallback() {
+        let entries = vec![
+            explicit_module_entry(
+                "pkg.mod",
+                "_main/pkg/mod.py",
+                "runtime/pkg/mod.py",
+                true,
+                ExplicitModuleRank {
+                    is_stub_package: Reverse(false),
+                    search_root_order: 0,
+                    extension_priority: 1,
+                },
+            ),
+            explicit_module_entry(
+                "pkg.mod",
+                "_main/pkg/mod.pyi",
+                "stubs/pkg/mod.pyi",
+                false,
+                ExplicitModuleRank {
+                    is_stub_package: Reverse(false),
+                    search_root_order: 1,
+                    extension_priority: 0,
+                },
+            ),
+        ];
+        let source_db = BazelCheckSourceDatabase::new(entries, SysInfo::default());
+
+        assert_eq!(
+            source_db.lookup(ModuleName::from_str("pkg.mod"), None, None),
+            Some(ModulePath::filesystem(path("runtime/pkg/mod.py"))),
+        );
+        assert_eq!(
+            source_db.lookup(
+                ModuleName::from_str("pkg.mod"),
+                None,
+                Some(ModuleStyle::Interface),
+            ),
+            Some(ModulePath::filesystem(path("stubs/pkg/mod.pyi"))),
+        );
+        assert_eq!(
+            source_db.lookup(
+                ModuleName::from_str("pkg.mod"),
+                None,
+                Some(ModuleStyle::Executable),
+            ),
+            Some(ModulePath::filesystem(path("runtime/pkg/mod.py"))),
+        );
+        assert_eq!(
+            source_db.lookup(
+                ModuleName::from_str("pkg.missing"),
+                None,
+                Some(ModuleStyle::Interface),
+            ),
+            None,
+        );
+        assert_eq!(source_db.modules_to_check().len(), 1);
+    }
+
+    #[test]
+    fn explicit_entries_reject_logical_physical_style_mismatch() {
+        let roots = vec![search_root("_main", ".")];
+        let error = build_explicit_entries(
+            vec![file_input(
+                "pkg/mod.pyi",
+                "_main/pkg/mod.pyi",
+                "bazel-out/pkg/mod.py",
+                true,
+            )],
+            &roots,
+            "//pkg:generated",
+        )
+        .expect_err("logical and physical module styles should agree");
+
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("_main/pkg/mod.pyi") && message.contains("bazel-out/pkg/mod.py"),
+            "error should name both conflicting paths: {message}",
+        );
+    }
+
+    #[test]
+    fn source_db_rank_prefers_stub_packages_before_search_root_order() {
+        let entries = vec![
+            explicit_module_entry(
+                "foo.bar",
+                "_main/foo/bar.py",
+                "runtime/foo/bar.py",
+                false,
+                ExplicitModuleRank {
+                    is_stub_package: Reverse(false),
+                    search_root_order: 0,
+                    extension_priority: 1,
+                },
+            ),
+            explicit_module_entry(
+                "foo.bar",
+                "external/foo-stubs/bar.pyi",
+                "stubs/foo-stubs/bar.pyi",
+                false,
+                ExplicitModuleRank {
+                    is_stub_package: Reverse(true),
+                    search_root_order: 1,
+                    extension_priority: 0,
+                },
+            ),
+        ];
+        let source_db = BazelCheckSourceDatabase::new(entries, SysInfo::default());
+        assert_eq!(
+            source_db.lookup(ModuleName::from_str("foo.bar"), None, None),
+            Some(ModulePath::filesystem(path("stubs/foo-stubs/bar.pyi"))),
+        );
+    }
+
+    #[test]
+    fn check_root_outside_search_roots_is_rejected_but_overlay_is_skipped() {
+        let roots = vec![search_root("_main/pkg", "pkg")];
+        let explicit = build_explicit_entries(
+            vec![file_input(
+                "other/dep.py",
+                "_main/other/dep.py",
+                "other/dep.py",
+                false,
+            )],
+            &roots,
+            "//pkg:lib",
+        )
+        .expect("non-importable overlay should be skipped");
+        assert!(explicit.is_empty());
+
+        let error = build_explicit_entries(
+            vec![file_input(
+                "other/app.py",
+                "_main/other/app.py",
+                "other/app.py",
+                true,
+            )],
+            &roots,
+            "//pkg:app",
+        )
+        .expect_err("non-importable check root should fail");
+        assert!(format!("{error:#}").contains("//pkg:app"));
+        assert!(format!("{error:#}").contains("other/app.py"));
     }
 
     #[test]

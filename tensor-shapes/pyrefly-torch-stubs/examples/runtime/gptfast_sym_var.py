@@ -401,9 +401,10 @@ class Attention(nn.Module, Generic[D, NHead, NLocalHeads]):
         self.head_dim = config.head_dim
         self.n_local_heads = config.n_local_heads
         self.dim = config.dim
-        self._register_load_state_dict_pre_hook(self.load_hook)
+        self._register_load_state_dict_pre_hook(Attention.load_hook)
 
-    def load_hook(self, state_dict, prefix, *args):
+    @staticmethod
+    def load_hook(state_dict, prefix, *args):
         if prefix + "wq.weight" in state_dict:
             wq = state_dict.pop(prefix + "wq.weight")
             wk = state_dict.pop(prefix + "wk.weight")

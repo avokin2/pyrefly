@@ -3099,9 +3099,15 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     }
 
     fn is_pytorch_tensor_type(ty: &Type) -> bool {
+        fn is_torch_tensor_class(cls: &ClassType) -> bool {
+            let module = cls.class_object().module_name();
+            let module = module.as_str();
+            cls.name().as_str() == "Tensor" && matches!(module, "torch" | "torch._tensor")
+        }
+
         match ty {
-            Type::ClassType(cls) => cls.has_qname("torch", "Tensor"),
-            Type::ShapedArray(shaped_array) => shaped_array.base_class.has_qname("torch", "Tensor"),
+            Type::ClassType(cls) => is_torch_tensor_class(cls),
+            Type::ShapedArray(shaped_array) => is_torch_tensor_class(&shaped_array.base_class),
             _ => false,
         }
     }

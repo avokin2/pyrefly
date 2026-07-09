@@ -93,6 +93,41 @@ def zeros(*size: int, device: device | None = None) -> Tensor: ...
     e
 }
 
+fn reexported_torch_env_with_lint() -> TestEnv {
+    let mut e = TestEnv::new().enable_pytorch_efficiency_lint_error();
+    e.add(
+        "torch._tensor",
+        r#"
+class Tensor:
+    def item(self) -> int | float: ...
+    def to(self, device: object) -> "Tensor": ...
+    def cuda(self) -> "Tensor": ...
+"#,
+    );
+    e.add(
+        "torch",
+        r#"
+from torch._tensor import Tensor as Tensor
+
+class device: ...
+
+def zeros(*size: int, device: device | None = None) -> Tensor: ...
+"#,
+    );
+    e
+}
+
+fn user_reexported_torch_env_with_lint() -> TestEnv {
+    let mut e = reexported_torch_env_with_lint();
+    e.add(
+        "mytorch",
+        r#"
+from torch import Tensor as Tensor
+"#,
+    );
+    e
+}
+
 testcase!(
     test_tensor_item_call,
     env_with_lint(),
@@ -126,6 +161,33 @@ def f(x: torch.Tensor, device: torch.device) -> None:
     x.cuda()  # E: `Tensor.cuda()` hard-codes the target device
     print(x)  # E: printing a `Tensor` causes implicit GPU-to-CPU synchronization
     torch.zeros(2, 3).to(device)  # E: `torch.zeros(...).to(device)` creates the tensor on CPU first, then copies it
+"#,
+);
+
+testcase!(
+    test_reexported_torch_tensor_lints,
+    reexported_torch_env_with_lint(),
+    r#"
+import torch
+
+def f(x: torch.Tensor, device: torch.device) -> None:
+    x.item()  # E: `Tensor.item()` causes implicit GPU-to-CPU synchronization
+    x.cuda()  # E: `Tensor.cuda()` hard-codes the target device
+    print(x)  # E: printing a `Tensor` causes implicit GPU-to-CPU synchronization
+    torch.zeros(2, 3).to(device)  # E: `torch.zeros(...).to(device)` creates the tensor on CPU first, then copies it
+"#,
+);
+
+testcase!(
+    test_user_reexported_torch_tensor_lints,
+    user_reexported_torch_env_with_lint(),
+    r#"
+import mytorch
+
+def f(x: mytorch.Tensor) -> None:
+    x.item()  # E: `Tensor.item()` causes implicit GPU-to-CPU synchronization
+    x.cuda()  # E: `Tensor.cuda()` hard-codes the target device
+    print(x)  # E: printing a `Tensor` causes implicit GPU-to-CPU synchronization
 "#,
 );
 

@@ -1364,6 +1364,19 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                             ),
                             context,
                         );
+                    } else if constructor_kind == ConstructorKind::BareClassName
+                        && metadata.is_explicitly_abstract()
+                    {
+                        self.error_with_context(
+                            errors,
+                            arguments_range,
+                            ErrorKind::BadInstantiation,
+                            format!(
+                                "Cannot instantiate `{}` because it directly extends `ABC` or uses `ABCMeta`",
+                                cls.name()
+                            ),
+                            context,
+                        );
                     }
                 }
                 if cls.has_qname("builtins", "bool") {

@@ -1647,11 +1647,17 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 })
                 .forall(tparams)
             }
-            // Callback protocol. We convert it to a function so we can add function metadata.
+            // Convert non-descriptor callback protocols to functions so that they can carry function metadata.
             Type::ClassType(cls)
                 if self
                     .get_metadata_for_class(cls.class_object())
-                    .is_protocol() =>
+                    .is_protocol()
+                    && self
+                        .get_class_member(cls.class_object(), &dunder::GET)
+                        .is_none()
+                    && self
+                        .get_class_member(cls.class_object(), &dunder::SET)
+                        .is_none() =>
             {
                 let call_attr = self.instance_as_dunder_call(&cls).and_then(|call_attr| {
                     if let Type::BoundMethod(m) = call_attr {

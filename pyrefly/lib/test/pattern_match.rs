@@ -36,7 +36,7 @@ testcase!(
     test_pattern_crash,
     r#"
 # Used to crash, see https://github.com/facebook/pyrefly/issues/490
-match None:
+match None: # E: Missing cases: None
     case {a: 1}: # E: # E: # E:
         pass
 "#,
@@ -259,6 +259,95 @@ def f0(x: A | B):
 );
 
 testcase!(
+    test_match_await_exhaustive_no_implicit_return,
+    r#"
+from typing import NoReturn
+
+class Ok[T]:
+    __match_args__ = ("value",)
+    value: T
+
+class Err[E]:
+    __match_args__ = ("value",)
+    value: E
+
+class NotFound:
+    pass
+
+def handle_error(error: NotFound) -> NoReturn:
+    raise Exception()
+
+async def get_result() -> Ok[list[int]] | Err[NotFound]:
+    raise Exception()
+
+async def f() -> list[int]:
+    match await get_result():
+        case Ok(value):
+            return value
+        case Err(error):
+            handle_error(error)
+"#,
+);
+
+testcase!(
+    test_non_exhaustive_match_call_subject_diagnostic,
+    r#"
+from typing import final
+
+@final
+class Ok[T]:
+    __match_args__ = ("value",)
+    value: T
+
+@final
+class Err[E]:
+    __match_args__ = ("value",)
+    value: E
+
+@final
+class NotFound:
+    pass
+
+def get_result() -> Ok[int] | Err[NotFound]:
+    raise Exception()
+
+def f() -> None:
+    match get_result():  # E: get_result()
+        case Ok(value):
+            pass
+"#,
+);
+
+testcase!(
+    test_non_exhaustive_match_await_subject_diagnostic,
+    r#"
+from typing import final
+
+@final
+class Ok[T]:
+    __match_args__ = ("value",)
+    value: T
+
+@final
+class Err[E]:
+    __match_args__ = ("value",)
+    value: E
+
+@final
+class NotFound:
+    pass
+
+async def get_result() -> Ok[int] | Err[NotFound]:
+    raise Exception()
+
+async def f() -> None:
+    match await get_result():  # E: await get_result()
+        case Ok(value):
+            pass
+"#,
+);
+
+testcase!(
     test_match_sequence_pattern_narrows_tuple_out_of_union,
     r#"
 from typing import assert_never
@@ -364,7 +453,7 @@ def f(x: A | B) -> A | B:
     return x
 
 def test(x: A | B):
-    # A guard does not narrow the fallthrough for an anonymous subject, matching the named-subject
+    # A guard does not narrow the fallthrough for a synthetic subject, matching the named-subject
     # behavior in test_negation_of_guarded_pattern / test_class_match_with_guard_not_exhaustive.
     match f(x):
         case value if isinstance(value, A):
@@ -1146,7 +1235,7 @@ class Color(Enum):
 def make_color() -> Color: ...
 
 def f(y: Color) -> None:
-    match make_color():
+    match make_color():  # E: Missing cases: Color.GREEN
         case Color.RED as y:
             return
     reveal_type(y)  # E: revealed type: Color

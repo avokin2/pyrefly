@@ -152,9 +152,29 @@ fn has_function_ancestor(parent: &NestingContext) -> bool {
     }
 }
 
-/// True if the class's top-level binding was removed by a module-scope `del`.
-fn is_deleted_class(bindings: &Bindings, cls: &ClassBinding) -> bool {
-    cls.parent.is_toplevel() && bindings.module_deletes().contains(&cls.def.name.id)
+/// True if the class, or an enclosing class, was removed by a module-scope `del`.
+/// After `del X` at module scope the entire `X.*` subtree is unreachable, so a nested
+/// class (and its methods/attrs) must be excluded along with `X` itself. We therefore
+/// test the outermost enclosing name: function-nested classes are already filtered by
+/// `has_function_ancestor`, so every context reached here is a class.
+fn is_deleted_class(module: &Module, bindings: &Bindings, cls: &ClassBinding) -> bool {
+    let mut nesting = &cls.parent;
+    let outermost = loop {
+        match nesting.parent() {
+            None => break cls.def.name.id.as_str(),
+            Some(parent) if parent.is_toplevel() => {
+                let short_id = nesting
+                    .identifier()
+                    .expect("non-toplevel NestingContext must have an identifier");
+                break module.code_at(short_id.range());
+            }
+            Some(parent) => nesting = parent,
+        }
+    };
+    bindings
+        .module_deletes()
+        .iter()
+        .any(|n| n.as_str() == outermost)
 }
 
 /// Build a class's fully-qualified name: module prefix, nesting context, then class name. Returns
@@ -619,7 +639,9 @@ fn parse_instance_attrs(
             BindingClass::ClassDef(cls) => cls,
             BindingClass::FunctionalClassDef(..) => continue,
         };
-        if has_function_ancestor(&cls_binding.parent) || is_deleted_class(bindings, cls_binding) {
+        if has_function_ancestor(&cls_binding.parent)
+            || is_deleted_class(module, bindings, cls_binding)
+        {
             continue;
         }
 
@@ -724,7 +746,9 @@ fn parse_functions(
                 match bindings.get(class_key) {
                     BindingClass::ClassDef(cls) => {
                         // Skip methods of function-nested and `del`eted classes
-                        if has_function_ancestor(&cls.parent) || is_deleted_class(bindings, cls) {
+                        if has_function_ancestor(&cls.parent)
+                            || is_deleted_class(module, bindings, cls)
+                        {
                             continue;
                         }
                         // Skip private class methods (single-underscore prefix).
@@ -1175,7 +1199,7 @@ fn parse_classes(
         if has_function_ancestor(parent) {
             continue;
         }
-        if is_deleted_class(bindings, cls_binding) {
+        if is_deleted_class(module, bindings, cls_binding) {
             continue;
         }
         let class_type = match answers.get_idx(class_idx) {
@@ -2644,7 +2668,8 @@ mod tests {
         compare_snapshot("del_module_level.expected.json", &report);
     }
 
-    /// Methods and instance attrs of a `del`eted class must not appear either (issue #4021).
+    /// Methods and instance attrs of a `del`eted class — and its whole nested
+    /// subtree — must not appear either (issue #4021).
     #[test]
     fn test_report_del_class() {
         let report = build_module_report_for_test("del_class.py");

@@ -253,15 +253,15 @@ def shaped_array(*, shape: str) -> typing.Callable[[type], type]:
     return decorator
 
 
-class TypeVar:
-    """TypeVar with arithmetic support for tensor shape dimensions.
+class SymVar:
+    """Symbolic variable with arithmetic support for tensor shape dimensions.
 
     Like typing.TypeVar but arithmetic operations (N + 1, N * 2, etc.)
     return self instead of raising TypeError. Setting
     __class__ = typing.TypeVar makes isinstance(x, typing.TypeVar)
     return True, so Generic[N] and TypedDict + Generic[N] both work.
 
-    In pyrefly, shape_extensions.TypeVar is treated identically to
+    In pyrefly, shape_extensions.SymVar is treated identically to
     typing.TypeVar.
     """
 

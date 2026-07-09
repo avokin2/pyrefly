@@ -4414,12 +4414,19 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     ) -> Type {
         let result = self.expr_check(e, None, errors);
         match special_export {
-            Some(SpecialExport::TypeVar) => {
+            Some(special @ (SpecialExport::TypeVar | SpecialExport::SymVar)) => {
                 self.error(
                     errors,
                     e.range(),
                     ErrorKind::InvalidTypeVar,
-                    "TypeVar must be assigned to a variable".to_owned(),
+                    format!(
+                        "{} must be assigned to a variable",
+                        match special {
+                            SpecialExport::TypeVar => "TypeVar",
+                            SpecialExport::SymVar => "SymVar",
+                            _ => unreachable!("guarded by outer match"),
+                        }
+                    ),
                 );
             }
             Some(SpecialExport::ParamSpec) => {

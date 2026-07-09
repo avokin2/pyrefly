@@ -22,6 +22,7 @@ fn shaped_array_env() -> TestEnv {
 from typing import Any, Callable
 
 shaped_array: Any
+def SymVar(name: str, *, bound: Any = ...) -> Any: ...
 class SizeTuple:
     def __class_getitem__(cls, params: Any) -> Any: ...
 class Elements[T]: ...
@@ -1137,6 +1138,25 @@ def ordinary_typevar_value[T: int](x: T) -> None:
 
 def ordinary_unrestricted_typevar_value[T](x: T) -> None:
     x + 1  # E: `+` is not supported between `T` and `Literal[1]`
+"#,
+);
+
+testcase!(
+    test_legacy_symvar_treated_as_typevar,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import SymVar
+from torch import Tensor
+from typing import Generic, reveal_type
+
+N = SymVar("N")
+M = SymVar("M")
+
+class Box(Generic[N]): ...
+
+def f(x: Tensor[[N, M]], y: Box[N]) -> None:
+    reveal_type(x)  # E: revealed type: Tensor[[N, M]]
+    reveal_type(y)  # E: revealed type: Box[N]
 "#,
 );
 

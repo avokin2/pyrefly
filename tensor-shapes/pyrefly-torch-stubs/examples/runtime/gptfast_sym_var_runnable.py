@@ -17,7 +17,7 @@ from typing import Any, Generic, Optional, TypedDict
 
 import torch
 import torch.nn as nn
-from shape_extensions import Dim, Elements, SizeTuple, TypeVar
+from shape_extensions import Dim, Elements, SizeTuple, SymVar
 from torch import Tensor
 from torch.nn import functional as F
 from torch.nn.attention.flex_attention import (
@@ -27,22 +27,22 @@ from torch.nn.attention.flex_attention import (
 )
 
 # Module-level type variable declarations
-VocabSize = TypeVar("VocabSize")
-BlockSize = TypeVar("BlockSize")
-D = TypeVar("D")
-NHead = TypeVar("NHead")
-NLayer = TypeVar("NLayer")
-IntermediateSize = TypeVar("IntermediateSize")
-NLocalHeads = TypeVar("NLocalHeads")
-MaxBatchSize = TypeVar("MaxBatchSize")
-MaxSeqLen = TypeVar("MaxSeqLen")
-NHeads = TypeVar("NHeads")
-HeadDim = TypeVar("HeadDim")
-B = TypeVar("B")
-T = TypeVar("T")
-S = TypeVar("S")
-SeqLen = TypeVar("SeqLen")
-Bs = TypeVar("Bs", bound=SizeTuple)
+VocabSize = SymVar("VocabSize")
+BlockSize = SymVar("BlockSize")
+D = SymVar("D")
+NHead = SymVar("NHead")
+NLayer = SymVar("NLayer")
+IntermediateSize = SymVar("IntermediateSize")
+NLocalHeads = SymVar("NLocalHeads")
+MaxBatchSize = SymVar("MaxBatchSize")
+MaxSeqLen = SymVar("MaxSeqLen")
+NHeads = SymVar("NHeads")
+HeadDim = SymVar("HeadDim")
+B = SymVar("B")
+T = SymVar("T")
+S = SymVar("S")
+SeqLen = SymVar("SeqLen")
+Bs = SymVar("Bs", bound=SizeTuple)
 
 
 class RopeScalingDict(TypedDict, total=False):

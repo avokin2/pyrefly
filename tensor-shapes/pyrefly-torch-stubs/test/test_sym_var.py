@@ -3,13 +3,13 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Test shape_extensions.TypeVar for tensor shape dimensions.
+"""Test shape_extensions.SymVar for tensor shape dimensions.
 
-shape_extensions.TypeVar is treated identically to typing.TypeVar in pyrefly.
+shape_extensions.SymVar is treated identically to typing.TypeVar in pyrefly.
 This test verifies that:
-1. TypeVar("N") works for shape annotations
+1. SymVar("N") works for shape annotations
 2. SizeTuple carriers work for variadic shapes
-3. Generic works with shape_extensions.TypeVar for class-level type parameters
+3. Generic works with shape_extensions.SymVar for class-level type parameters
 4. Shape arithmetic (N+1, N*2) works in annotations
 """
 
@@ -18,11 +18,11 @@ from typing import assert_type, Generic, TYPE_CHECKING
 from shape_extensions import Elements, SizeTuple
 
 if TYPE_CHECKING:
-    from shape_extensions import TypeVar
+    from shape_extensions import SymVar
     from torch import Tensor
 
-N = TypeVar("N")
-M = TypeVar("M")
+N = SymVar("N")
+M = SymVar("M")
 
 
 # ============================================================================

@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 import numpy as np
-from shape_extensions import assert_shape, Dim, TypeVar
+from shape_extensions import assert_shape, Dim, SymVar
 
-N = TypeVar("N")
+N = SymVar("N")
 
 
 def square_svd_components(

@@ -716,7 +716,7 @@ impl<'a> BindingsBuilder<'a> {
                         && let Some(special) = self.as_special_export(&call.func)
                     {
                         match special {
-                            SpecialExport::TypeVar => {
+                            SpecialExport::TypeVar | SpecialExport::SymVar => {
                                 self.assign_type_var(name, call);
                                 return;
                             }
@@ -866,6 +866,7 @@ impl<'a> BindingsBuilder<'a> {
                     {
                         match special {
                             SpecialExport::TypeVar
+                            | SpecialExport::SymVar
                             | SpecialExport::ParamSpec
                             | SpecialExport::TypeVarTuple => {
                                 let ident = Ast::expr_name_identifier(name.clone());
@@ -875,7 +876,7 @@ impl<'a> BindingsBuilder<'a> {
                                     AnnAssignHasValue::Yes,
                                 );
                                 match special {
-                                    SpecialExport::TypeVar => {
+                                    SpecialExport::TypeVar | SpecialExport::SymVar => {
                                         self.assign_type_var(&name, call);
                                     }
                                     SpecialExport::ParamSpec => {

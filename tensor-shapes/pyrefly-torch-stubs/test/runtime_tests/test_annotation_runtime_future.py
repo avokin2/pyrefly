@@ -11,7 +11,7 @@
 With postponed evaluation, annotations are stored as strings and never
 evaluated at definition time. This additionally avoids the TypeVar
 arithmetic crash (N + 1 etc.), which remains a problem without future
-annotations when using PEP 695 TypeVar (shape_extensions.TypeVar solves it differently).
+annotations when using PEP 695 TypeVar (shape_extensions.SymVar solves it differently).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import unittest
 from typing import assert_type, Generic
 
 import torch
-from shape_extensions import assert_shape, Dim, TypeVar
+from shape_extensions import assert_shape, Dim, SymVar
 
 
 class TestSubscriptRuntime(unittest.TestCase):
@@ -210,12 +210,12 @@ class TestAssertTypeRuntime(unittest.TestCase):
 
 
 class TestTypeVarWithFutureAnnotations(unittest.TestCase):
-    """shape_extensions.TypeVar combined with future annotations — everything works."""
+    """shape_extensions.SymVar combined with future annotations — everything works."""
 
     def test_in_annotation(self):
-        """shape_extensions.TypeVar in annotations with future annotations."""
-        N = TypeVar("N")
-        M = TypeVar("M")
+        """shape_extensions.SymVar in annotations with future annotations."""
+        N = SymVar("N")
+        M = SymVar("M")
 
         def f(x: torch.Tensor[[N, M]]) -> torch.Tensor[[N, M]]:
             return x
@@ -225,8 +225,8 @@ class TestTypeVarWithFutureAnnotations(unittest.TestCase):
         assert_shape(result, (3, 4))
 
     def test_arithmetic_in_annotation(self):
-        """shape_extensions.TypeVar arithmetic in annotations with future annotations."""
-        N = TypeVar("N")
+        """shape_extensions.SymVar arithmetic in annotations with future annotations."""
+        N = SymVar("N")
 
         def f(x: torch.Tensor[[N, 3]]) -> torch.Tensor[[N + 1, 3]]:
             return x
@@ -237,8 +237,8 @@ class TestTypeVarWithFutureAnnotations(unittest.TestCase):
 
     def test_generic_class(self):
         """Generic class with future annotations."""
-        N = TypeVar("N")
-        M = TypeVar("M")
+        N = SymVar("N")
+        M = SymVar("M")
 
         class Layer(Generic[N, M]):
             def forward(self, x: torch.Tensor[[N]]) -> torch.Tensor[[M]]:

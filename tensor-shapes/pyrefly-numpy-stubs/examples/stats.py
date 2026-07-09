@@ -6,12 +6,12 @@
 from __future__ import annotations
 
 import numpy as np
-from shape_extensions import assert_shape, Dim, TypeVar
+from shape_extensions import assert_shape, Dim, SymVar
 
-N = TypeVar("N")
-P = TypeVar("P")
-K = TypeVar("K")
-C = TypeVar("C")
+N = SymVar("N")
+P = SymVar("P")
+K = SymVar("K")
+C = SymVar("C")
 
 
 def ordinary_least_squares(

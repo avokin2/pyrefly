@@ -1014,24 +1014,6 @@ fn return_annotation_range(bindings: &Bindings, return_idx: Idx<Key>) -> Option<
     }
 }
 
-/// Only the first parameter (`self`/`cls`) is allowed to be unannotated.
-fn is_function_completely_annotated(
-    bindings: &Bindings,
-    answers: &Answers,
-    undecorated_idx: Idx<KeyUndecoratedFunction>,
-) -> bool {
-    let fun = bindings.get(undecorated_idx);
-    let return_idx = bindings.key_to_idx(&Key::ReturnType(ShortIdentifier::new(&fun.def.name)));
-    if return_annotation_range(bindings, return_idx).is_none() {
-        return false;
-    }
-
-    let implicit_receiver = has_implicit_receiver(fun, answers, undecorated_idx);
-    params_with_keys(&fun.def.parameters, implicit_receiver)
-        .iter()
-        .all(|(key, param)| key.is_none() || param.annotation.is_some())
-}
-
 /// Only a bare `Any` counts as unknown; container types like `list[Any]` are known.
 fn is_type_known(ty: &Type) -> bool {
     !ty.is_any()
@@ -1229,36 +1211,16 @@ fn parse_classes(
     module: &Module,
     bindings: &Bindings,
     answers: &Answers,
-    transaction: &Transaction,
-    handle: &Handle,
     tco_classes: &SmallSet<Idx<KeyClass>>,
 ) -> Vec<ReportClass> {
     let mut classes = Vec::new();
-
-    // group method definitions by class
-    let mut methods_by_class: HashMap<Idx<KeyClass>, Vec<Idx<KeyUndecoratedFunction>>> =
-        HashMap::new();
-    for idx in bindings.keys::<Key>() {
-        if let Key::Definition(_) = bindings.idx_to_key(idx)
-            && let Binding::Function(x, _pred, _class_meta) = bindings.get(idx)
-        {
-            let undecorated_idx = bindings.get(*x).undecorated_idx;
-            if let Some(class_key) = bindings.get(undecorated_idx).class_key {
-                methods_by_class
-                    .entry(class_key)
-                    .or_default()
-                    .push(undecorated_idx);
-            }
-        }
-    }
 
     for class_idx in bindings.keys::<KeyClass>() {
         // Skip @type_check_only classes.
         if tco_classes.contains(&class_idx) {
             continue;
         }
-        let binding_class = bindings.get(class_idx);
-        let cls_binding = match binding_class {
+        let cls_binding = match bindings.get(class_idx) {
             BindingClass::ClassDef(cls) => cls,
             BindingClass::FunctionalClassDef(..) => continue,
         };
@@ -1271,65 +1233,13 @@ fn parse_classes(
         if is_deleted_class(module, bindings, cls_binding) {
             continue;
         }
-        let class_type = match answers.get_idx(class_idx) {
-            Some(result) => match &result.0 {
-                Some(cls) => cls.clone(),
-                None => continue,
-            },
-            None => continue,
-        };
-        let class_name = class_fqn(module, parent, name);
-        let mro = class_mro(bindings, answers, &class_type);
-        // Check methods defined directly on this class
-        let mut incomplete_attributes = Vec::new();
-        for &undecorated_idx in methods_by_class.get(&class_idx).into_iter().flatten() {
-            if !is_function_completely_annotated(bindings, answers, undecorated_idx) {
-                incomplete_attributes.push(IncompleteAttribute {
-                    name: bindings.get(undecorated_idx).def.name.to_string(),
-                    declared_in: class_name.clone(),
-                });
-            }
+        // Skip classes that fail to resolve.
+        if answers.get_idx(class_idx).is_none_or(|c| c.0.is_none()) {
+            continue;
         }
-        // Check inherited methods
-        for ancestor_class_type in mro.ancestors_no_object() {
-            let ancestor_class = ancestor_class_type.class_object();
-            // Skip methods inherited from builtins
-            if ancestor_class.module_name().as_str() == "builtins" {
-                continue;
-            }
-            let ancestor_name = class_fqn(
-                ancestor_class.module(),
-                ancestor_class.qname().parent(),
-                ancestor_class.name(),
-            );
-            let Some(ancestor_class_fields) = transaction.get_class_fields(handle, ancestor_class)
-            else {
-                continue;
-            };
-            for field_name in ancestor_class_fields.names() {
-                let field_name_str = field_name.to_string();
-                // Skip if we already have this attribute listed (it has been overridden
-                // by the current class or another class in the MRO)
-                if incomplete_attributes
-                    .iter()
-                    .any(|a| a.name == field_name_str)
-                {
-                    continue;
-                }
-                if !ancestor_class_fields.is_field_annotated(field_name) {
-                    incomplete_attributes.push(IncompleteAttribute {
-                        name: field_name_str,
-                        declared_in: ancestor_name.clone(),
-                    });
-                }
-            }
-        }
-        let location = range_to_location(module, cls_binding.def.range);
-        incomplete_attributes.sort();
         classes.push(ReportClass {
-            name: class_name,
-            incomplete_attributes,
-            location,
+            name: class_fqn(module, parent, name),
+            location: range_to_location(module, cls_binding.def.range),
         });
     }
     classes.sort();
@@ -1447,14 +1357,7 @@ impl ModuleSymbols {
             &tco_classes,
         );
         merge_overloads(&mut functions);
-        let classes = parse_classes(
-            &module,
-            &bindings,
-            &answers,
-            transaction,
-            handle,
-            &tco_classes,
-        );
+        let classes = parse_classes(&module, &bindings, &answers, &tco_classes);
         let mut variables = parse_variables(
             &module,
             &bindings,
@@ -1939,7 +1842,6 @@ mod tests {
     use pyrefly_python::module_name::ModuleName;
     use pyrefly_python::module_path::ModulePath;
     use pyrefly_python::sys_info::SysInfo;
-    use pyrefly_util::thread_pool::TEST_THREAD_COUNT;
 
     use super::*;
     use crate::state::require::Require;
@@ -3107,96 +3009,5 @@ def g(x: int) -> int:
         let env = TestEnv::new_with_site_package_paths(&[&path]);
         let report = build_module_report_for_test_with_env("schema_classes_attrs.py", env);
         compare_snapshot("schema_classes_attrs.expected.json", &report);
-    }
-
-    /// Two-module env: `derived.Derived` inherits an un-annotated field from `base.Base`.
-    fn base_derived_env() -> (TestEnv, Handle, Handle) {
-        let mut env = TestEnv::new();
-        env.add_with_path("base", "base.py", "class Base:\n    x = 1\n");
-        env.add_with_path(
-            "derived",
-            "derived.py",
-            "from base import Base\n\nclass Derived(Base):\n    pass\n",
-        );
-        let sys_info = env.sys_info();
-        let base = Handle::new(
-            ModuleName::from_str("base"),
-            ModulePath::memory(PathBuf::from("base.py")),
-            sys_info.dupe(),
-        );
-        let derived = Handle::new(
-            ModuleName::from_str("derived"),
-            ModulePath::memory(PathBuf::from("derived.py")),
-            sys_info,
-        );
-        (env, base, derived)
-    }
-
-    /// Collect `derived` from a run that retains all bindings/answers, as ground truth.
-    fn base_derived_reference() -> ModuleSymbols {
-        let (env, _, derived) = base_derived_env();
-        let (state, _) = env.to_state();
-        let symbols = ModuleSymbols::collect(&state.transaction(), &derived, false).unwrap();
-        assert!(
-            symbols
-                .classes
-                .iter()
-                .any(|c| !c.incomplete_attributes.is_empty()),
-            "Derived should report an inherited incomplete attribute from Base: {:?}",
-            symbols.classes
-        );
-        symbols
-    }
-
-    /// Inherited members survive base-bindings eviction via retained `Solutions` metadata.
-    #[test]
-    fn test_inherited_fields_survive_base_eviction() {
-        let (env, base, derived) = base_derived_env();
-        let state = State::new(env.config_finder(), TEST_THREAD_COUNT);
-        let mut transaction = state.new_transaction(Require::Exports, None);
-        transaction.set_memory(env.get_memory());
-
-        // `Require::Errors` evicts bindings/answers at each module's `Solutions` step.
-        transaction.run(&[base.dupe()], Require::Errors, None);
-        assert!(
-            transaction.get_bindings(&base).is_none(),
-            "base bindings should be evicted after solving at Require::Errors"
-        );
-
-        transaction.run(&[derived.dupe()], Require::Everything, None);
-        let symbols = ModuleSymbols::collect(&transaction, &derived, false).unwrap();
-        assert_eq!(
-            symbols.classes,
-            base_derived_reference().classes,
-            "evicting the base module's bindings must not change the derived class report"
-        );
-    }
-
-    /// Symbols collected by the hook during a `Require::Errors` run must match a retained run.
-    #[test]
-    fn test_solutions_hook_collection_matches_retained_run() {
-        let (env, base, derived) = base_derived_env();
-        let collected: Mutex<HashMap<Handle, ModuleSymbols>> = Mutex::new(HashMap::new());
-        let state = State::new(env.config_finder(), TEST_THREAD_COUNT);
-        let mut transaction = state.new_transaction(Require::Exports, None);
-        transaction.set_memory(env.get_memory());
-        transaction.set_solutions_hook(Some(Box::new(|handle, transaction| {
-            if let Some(symbols) = ModuleSymbols::collect(transaction, handle, false) {
-                collected.lock().insert(handle.dupe(), symbols);
-            }
-        })));
-
-        transaction.run(&[base.dupe(), derived.dupe()], Require::Errors, None);
-        assert!(
-            transaction.get_bindings(&derived).is_none(),
-            "bindings should be evicted after the run"
-        );
-
-        let symbols = collected.lock().remove(&derived).unwrap();
-        assert_eq!(
-            symbols.classes,
-            base_derived_reference().classes,
-            "hook-collected symbols must match symbols collected with bindings retained"
-        );
     }
 }

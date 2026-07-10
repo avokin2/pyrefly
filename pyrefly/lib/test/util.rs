@@ -120,6 +120,7 @@ pub struct TestEnv {
     incompatible_comparison_error: bool,
     string_as_iterable_warning: bool,
     strict_callable_subtyping: bool,
+    strict_partial_subtyping: bool,
     spec_compliant_overloads: bool,
     no_any_return_error: bool,
     no_any_return_explicit_error: bool,
@@ -157,6 +158,7 @@ impl TestEnv {
             incompatible_comparison_error: false,
             string_as_iterable_warning: false,
             strict_callable_subtyping: false,
+            strict_partial_subtyping: false,
             spec_compliant_overloads: false,
             no_any_return_error: false,
             no_any_return_explicit_error: false,
@@ -323,6 +325,11 @@ impl TestEnv {
         self
     }
 
+    pub fn enable_strict_partial_subtyping(mut self) -> Self {
+        self.strict_partial_subtyping = true;
+        self
+    }
+
     pub fn enable_spec_compliant_overloads(mut self) -> Self {
         self.spec_compliant_overloads = true;
         self
@@ -433,6 +440,7 @@ impl TestEnv {
         config.root.infer_return_types = Some(self.infer_return_types);
         config.root.infer_with_first_use = Some(self.infer_with_first_use);
         config.root.strict_callable_subtyping = Some(self.strict_callable_subtyping);
+        config.root.strict_partial_subtyping = Some(self.strict_partial_subtyping);
         config.root.spec_compliant_overloads = Some(self.spec_compliant_overloads);
         if config.root.errors.is_none() {
             config.root.errors = Some(ErrorDisplayConfig::new(HashMap::new()));

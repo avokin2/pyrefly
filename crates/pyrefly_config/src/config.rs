@@ -977,6 +977,14 @@ impl ConfigFile {
                  self.root.strict_callable_subtyping.unwrap())
     }
 
+    pub fn strict_partial_subtyping(&self, path: &Path) -> bool {
+        self.get_from_sub_configs(ConfigBase::get_strict_partial_subtyping, path)
+            .unwrap_or_else(||
+                 // we can use unwrap here, because the value in the root config must
+                 // be set in `ConfigFile::configure()`.
+                 self.root.strict_partial_subtyping.unwrap())
+    }
+
     pub fn spec_compliant_overloads(&self, path: &Path) -> bool {
         self.get_from_sub_configs(ConfigBase::get_spec_compliant_overloads, path)
             .unwrap_or_else(||
@@ -1325,6 +1333,7 @@ impl ConfigFile {
             apply_preset_default!(infer_return_types);
             apply_preset_default!(infer_with_first_use);
             apply_preset_default!(strict_callable_subtyping);
+            apply_preset_default!(strict_partial_subtyping);
             apply_preset_default!(spec_compliant_overloads);
             apply_preset_default!(ignore_errors_in_generated_code);
             apply_preset_default!(permissive_ignores);
@@ -1382,6 +1391,10 @@ impl ConfigFile {
 
         if self.root.strict_callable_subtyping.is_none() {
             self.root.strict_callable_subtyping = Some(false);
+        }
+
+        if self.root.strict_partial_subtyping.is_none() {
+            self.root.strict_partial_subtyping = Some(false);
         }
 
         if self.root.spec_compliant_overloads.is_none() {
@@ -1766,6 +1779,7 @@ mod tests {
                     infer_with_first_use: None,
                     pytorch_efficiency_lints: None,
                     strict_callable_subtyping: None,
+                    strict_partial_subtyping: None,
                     replace_imports_with_any: Some(vec![ModuleWildcard::new("fibonacci").unwrap()]),
                     ignore_missing_imports: Some(vec![ModuleWildcard::new("sprout").unwrap()]),
                     untyped_def_behavior: Some(UntypedDefBehavior::CheckAndInferReturnType),
@@ -1791,6 +1805,7 @@ mod tests {
                         infer_with_first_use: Some(false),
                         pytorch_efficiency_lints: None,
                         strict_callable_subtyping: Some(false),
+                        strict_partial_subtyping: None,
                         replace_imports_with_any: Some(Vec::new()),
                         ignore_missing_imports: Some(Vec::new()),
                         untyped_def_behavior: Some(UntypedDefBehavior::CheckAndInferReturnAny),
@@ -2218,6 +2233,7 @@ output-format = "omit-errors"
                 infer_with_first_use: Some(true),
                 pytorch_efficiency_lints: None,
                 strict_callable_subtyping: Some(false),
+                strict_partial_subtyping: Some(false),
                 extras: Default::default(),
                 permissive_ignores: Some(false),
                 enabled_ignores: None,
@@ -2493,6 +2509,7 @@ output-format = "omit-errors"
             Severity::Ignore
         );
         assert_eq!(config.root.strict_callable_subtyping, Some(true));
+        assert_eq!(config.root.strict_partial_subtyping, Some(true));
     }
 
     #[test]
@@ -3014,6 +3031,7 @@ output-format = "omit-errors"
                 infer_with_first_use: Some(true),
                 pytorch_efficiency_lints: None,
                 strict_callable_subtyping: Some(false),
+                strict_partial_subtyping: Some(false),
                 extras: Default::default(),
                 permissive_ignores: Some(false),
                 enabled_ignores: None,
@@ -3053,6 +3071,7 @@ output-format = "omit-errors"
                 infer_with_first_use: Some(true),
                 pytorch_efficiency_lints: None,
                 strict_callable_subtyping: Some(false),
+                strict_partial_subtyping: Some(false),
                 extras: Default::default(),
                 permissive_ignores: Some(false),
                 enabled_ignores: None,

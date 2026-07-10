@@ -1445,6 +1445,8 @@ impl<'a> Transaction<'a> {
                 tensor_shapes,
                 strict_callable_subtyping: config
                     .strict_callable_subtyping(module_data.handle.path().as_path()),
+                strict_partial_subtyping: config
+                    .strict_partial_subtyping(module_data.handle.path().as_path()),
                 spec_compliant_overloads: config
                     .spec_compliant_overloads(module_data.handle.path().as_path()),
                 recursion_limit_config: config.recursion_limit_config(),
@@ -2435,6 +2437,8 @@ impl<'a> Transaction<'a> {
                 tensor_shapes: self.tensor_shapes_available(&config, &m.handle, None),
                 strict_callable_subtyping: config
                     .strict_callable_subtyping(m.handle.path().as_path()),
+                strict_partial_subtyping: config
+                    .strict_partial_subtyping(m.handle.path().as_path()),
                 spec_compliant_overloads: config
                     .spec_compliant_overloads(m.handle.path().as_path()),
                 recursion_limit_config: config.recursion_limit_config(),

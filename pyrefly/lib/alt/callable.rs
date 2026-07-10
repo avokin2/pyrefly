@@ -1620,7 +1620,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         };
         let self_arg = self_obj.as_ref().map(|ty| CallArg::ty(ty, arguments_range));
         let argmap = match callable.params {
-            Params::List(params) => self.callable_infer_params(
+            Params::List(params) | Params::Partial(params) => self.callable_infer_params(
                 callable_name,
                 &params,
                 None,

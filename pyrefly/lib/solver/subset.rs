@@ -133,7 +133,7 @@ fn has_any_args_and_kwargs(args: &[Param]) -> bool {
 
 fn params_have_any_args_and_kwargs(params: &Params) -> bool {
     match params {
-        Params::List(args) => has_any_args_and_kwargs(args.items()),
+        Params::List(args) | Params::Partial(args) => has_any_args_and_kwargs(args.items()),
         Params::Ellipsis | Params::Materialization => false,
         Params::ParamSpec(_prefix, pspec) => {
             matches!(
@@ -526,6 +526,8 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
         l_params: &Params,
         u_params: &Params,
     ) -> Result<(), SubsetError> {
+        // A partial residual has the same call-shape as its parameter list, so `Partial` is folded
+        // into the `List` arms below.
         let result = match (l_params, u_params) {
             (Params::Ellipsis, Params::ParamSpec(_, pspec)) => {
                 self.is_subset_eq(&Type::Ellipsis, pspec)
@@ -534,13 +536,14 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                 self.is_subset_eq(pspec, &Type::Ellipsis)
             }
             (Params::Ellipsis, _) | (_, Params::Ellipsis) => Ok(()),
-            (Params::List(l_args), Params::List(u_args)) => {
-                self.is_subset_param_list(l_args.items(), u_args.items())
-            }
-            (Params::List(ls), Params::ParamSpec(args, pspec)) => {
+            (
+                Params::List(l_args) | Params::Partial(l_args),
+                Params::List(u_args) | Params::Partial(u_args),
+            ) => self.is_subset_param_list(l_args.items(), u_args.items()),
+            (Params::List(ls) | Params::Partial(ls), Params::ParamSpec(args, pspec)) => {
                 self.is_paramlist_subset_of_paramspec(ls, args, pspec)
             }
-            (Params::ParamSpec(args, pspec), Params::List(ls)) => {
+            (Params::ParamSpec(args, pspec), Params::List(ls) | Params::Partial(ls)) => {
                 self.is_paramspec_subset_of_paramlist(args, pspec, ls)
             }
             (Params::ParamSpec(ls, p1), Params::ParamSpec(us, p2)) => {
@@ -1841,6 +1844,25 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                 if cls.has_qname("types", "MethodType") =>
             {
                 Ok(())
+            }
+            // Only a `Callable` with `Params::Partial` params is an instance of
+            // `functools.partial[ret]`; a plain callable is not.
+            (Type::Callable(_) | Type::Function(_), Type::ClassType(cls))
+                if cls.has_qname("functools", "partial") =>
+            {
+                let l_sig = match got {
+                    Type::Callable(c) => &**c,
+                    Type::Function(f) => &f.signature,
+                    _ => unreachable!("guarded by pattern above"),
+                };
+                if !matches!(l_sig.params, Params::Partial(_)) {
+                    Err(SubsetError::Other)
+                } else {
+                    match cls.targs().as_slice().first() {
+                        Some(want_ret) => self.is_subset_eq(&l_sig.ret, want_ret),
+                        None => Err(SubsetError::Other),
+                    }
+                }
             }
             (Type::Overload(overload), want) => self.is_subset_overload(overload, want),
             (Type::BoundMethod(method), Type::Callable(_) | Type::Function(_))

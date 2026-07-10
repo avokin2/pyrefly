@@ -571,7 +571,9 @@ fn callable_param_indices(
     table: &mut TypeTableBuilder,
 ) -> Vec<usize> {
     match params {
-        Params::List(params) => param_list_to_indexed_shapes(context, params, table),
+        Params::List(params) | Params::Partial(params) => {
+            param_list_to_indexed_shapes(context, params, table)
+        }
         Params::ParamSpec(prefix, param_spec) => {
             let mut params = prefix
                 .iter()

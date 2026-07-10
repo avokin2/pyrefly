@@ -802,7 +802,7 @@ fn callable_shape(
 
 fn callable_param_types(context: &TypeShapeContext, params: &Params) -> Vec<TypeShape> {
     match params {
-        Params::List(params) => param_list_to_shapes(context, params),
+        Params::List(params) | Params::Partial(params) => param_list_to_shapes(context, params),
         Params::ParamSpec(prefix, param_spec) => prefix
             .iter()
             .map(|param| prefix_param_to_shape(context, param))

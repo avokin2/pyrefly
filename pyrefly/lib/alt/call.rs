@@ -2127,6 +2127,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 {
                     self.call_issubclass(&x.arguments.args[0], &x.arguments.args[1], errors)
                 }
+                // `f.register(C)(impl)`: applying the tagged factory decorator by call.
+                _ if let Type::KwCall(kw) = ty
+                    && matches!(&kw.func_metadata.kind, FunctionKind::SingleDispatchRegister(_))
+                    && x.arguments.args.len() == 1
+                    && x.arguments.keywords.is_empty() =>
+                {
+                    self.apply_singledispatch_register(
+                        ty,
+                        &x.arguments.args[0],
+                        &args,
+                        &kws,
+                        x.func.range(),
+                        x.arguments.range(),
+                        hint,
+                        errors,
+                    )
+                }
                 _ if let Some(fallback_first) = Self::singledispatch_register_first(ty) => self
                     .call_singledispatch_register(
                         fallback_first,

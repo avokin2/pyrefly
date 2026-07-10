@@ -332,12 +332,31 @@ impl<'a> BindingsBuilder<'a> {
         // The constraints (i.e., any positional arguments after the first)
         // and some keyword arguments are types.
         for arg in iargs {
+            if self.as_direct_shape_symvar(arg) {
+                self.error(
+                    arg.range(),
+                    ErrorKind::InvalidTypeVar,
+                    "`SymVar` cannot be used as a TypeVar constraint".to_owned(),
+                );
+                self.ensure_expr(arg, static_type_usage);
+                continue;
+            }
             self.ensure_type(arg, &mut None);
         }
         for kw in call.arguments.keywords.iter_mut() {
             if let Some(id) = &kw.arg
                 && (id.id == "bound" || id.id == "default")
             {
+                if self.as_direct_shape_symvar(&kw.value) {
+                    let role = if id.id == "bound" { "bound" } else { "default" };
+                    self.error(
+                        kw.value.range(),
+                        ErrorKind::InvalidTypeVar,
+                        format!("`SymVar` cannot be used as a TypeVar {role}"),
+                    );
+                    self.ensure_expr(&mut kw.value, static_type_usage);
+                    continue;
+                }
                 self.ensure_type(&mut kw.value, &mut None);
             } else {
                 self.ensure_expr(&mut kw.value, static_type_usage);

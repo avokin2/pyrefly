@@ -136,6 +136,34 @@ def process(items: List[str]):
 }
 
 #[test]
+fn test_symvar_type_parameter_marker_imports_are_used() {
+    let code = r#"
+from os import path
+from shape_extensions import SymVar
+import shape_extensions as se
+
+def direct[N: SymVar](x: N) -> N:
+    return x
+
+def module_alias[N: se.SymVar](x: N) -> N:
+    return x
+"#;
+    let shape_extensions = r#"
+from typing import _SpecialForm
+
+SymVar: _SpecialForm
+"#;
+    let (handles, state) = mk_multi_file_state(
+        &[("main", code), ("shape_extensions", shape_extensions)],
+        Require::Exports,
+        true,
+    );
+    let handle = handles.get("main").unwrap();
+    let report = get_unused_import_diagnostics(&state, handle);
+    assert_eq!(report, "Import `path` is unused");
+}
+
+#[test]
 fn test_new_type_import_used() {
     let code = r#"
 from typing import NewType

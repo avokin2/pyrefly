@@ -7,6 +7,7 @@
 
 use pyrefly_types::quantified::Quantified;
 use pyrefly_types::quantified::QuantifiedKind;
+use pyrefly_types::type_var::Restriction;
 use ruff_python_ast::name::Name;
 
 use crate::binding::binding::KeyExport;
@@ -24,10 +25,10 @@ fn shaped_array_env() -> TestEnv {
         "shape_extensions",
         "shape_extensions.pyi",
         r#"
-from typing import Any, Callable
+from typing import Any, Callable, _SpecialForm
 
 shaped_array: Any
-def SymVar(name: str, *, bound: Any = ...) -> Any: ...
+SymVar: _SpecialForm
 class SizeTuple:
     def __class_getitem__(cls, params: Any) -> Any: ...
 class Elements[T]: ...
@@ -355,6 +356,41 @@ class Box(Generic[N]): ...
         .expect("Box should have one type parameter");
     assert_eq!(param.name().as_str(), "N");
     assert_eq!(param.kind(), QuantifiedKind::SymVar);
+}
+
+#[test]
+fn test_non_shape_symvar_is_not_a_kind_marker() {
+    let mut env = shaped_array_env();
+    env.add(
+        "other",
+        r#"
+class SymVar: ...
+"#,
+    );
+    env.add(
+        "main",
+        r#"
+from other import SymVar
+from typing import Generic
+
+class Box[N: SymVar](Generic[N]): ...
+"#,
+    );
+    let (state, handle) = env.to_state();
+    let main = handle("main");
+    let cls = get_class("Box", &main, &state);
+    let solutions = state.transaction().get_solutions(&main).unwrap();
+    let tparams = solutions.get(&KeyTParams(cls.index()));
+    let param = tparams
+        .iter()
+        .next()
+        .expect("Box should have one type parameter");
+    assert_eq!(param.name().as_str(), "N");
+    assert_eq!(param.kind(), QuantifiedKind::TypeVar);
+    assert!(matches!(
+        param.restriction(),
+        Restriction::Bound(Type::ClassType(cls)) if cls.has_qname("other", "SymVar")
+    ));
 }
 
 testcase!(
@@ -1211,6 +1247,64 @@ def f(n: Dim[N], x: Tensor[[N, M]], y: Box[N]) -> None:
     reveal_type(n)  # E: revealed type: Dim[N]
     reveal_type(x)  # E: revealed type: Tensor[[N, M]]
     reveal_type(y)  # E: revealed type: Box[N]
+"#,
+);
+
+testcase!(
+    test_symvar_type_parameter_bound,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import Dim, SymVar
+from shape_extensions import SymVar as SV
+import shape_extensions
+import shape_extensions as se
+from torch import Tensor
+from typing import assert_type, reveal_type
+
+def identity[N: SymVar](x: N) -> N:
+    reveal_type(x)  # E: revealed type: N
+    return x
+
+def identity_alias[N: SV](x: N) -> N:
+    return x
+
+def identity_module[N: shape_extensions.SymVar](x: N) -> N:
+    return x
+
+def identity_module_alias[N: se.SymVar](x: N) -> N:
+    return x
+
+def shape[N: SymVar](n: Dim[N], x: Tensor[[N]]) -> None:
+    reveal_type(n)  # E: revealed type: Dim[N]
+    reveal_type(x)  # E: revealed type: Tensor[[N]]
+    assert_type(identity(1), int)
+"#,
+);
+
+testcase!(
+    test_symvar_special_form_is_only_a_kind_marker,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import SymVar
+from typing import TypeVar
+
+def ok[N: SymVar](x: object) -> None:
+    pass
+
+x: SymVar = 1  # E: Expected a type form, got instance of `_SpecialForm`
+y: SymVar[int] = 1  # E: Expected a type form, got instance of `object`
+T = TypeVar("T", bound=SymVar)  # E: `SymVar` cannot be used as a TypeVar bound # E: Expected a type form, got instance of `_SpecialForm`
+U = TypeVar("U", SymVar, int)  # E: `SymVar` cannot be used as a TypeVar constraint # E: Expected a type form, got instance of `_SpecialForm`
+V = TypeVar("V", default=SymVar)  # E: `SymVar` cannot be used as a TypeVar default # E: Expected a type form, got instance of `_SpecialForm`
+
+def bad_constraint[T: (SymVar, int)](x: T) -> None:  # E: `SymVar` cannot be used as a TypeVar constraint
+    pass
+
+def invalid_param(x: SymVar) -> None:  # E: Expected a type form, got instance of `_SpecialForm`
+    pass
+
+def invalid_return() -> SymVar:  # E: Expected a type form, got instance of `_SpecialForm`
+    pass
 "#,
 );
 

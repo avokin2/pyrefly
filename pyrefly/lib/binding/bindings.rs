@@ -1254,6 +1254,39 @@ impl<'a> BindingsBuilder<'a> {
         self.as_special_export_inner(e, &mut visited_names, &mut visited_keys)
     }
 
+    pub fn as_direct_shape_symvar(&self, e: &Expr) -> bool {
+        let shape_extensions = ModuleName::from_str("shape_extensions");
+        match e {
+            Expr::Name(name) => {
+                if name.id == "SymVar" && self.module_info.name() == shape_extensions {
+                    return true;
+                }
+                matches!(
+                    self.scopes.binding_idx_for_name(&name.id),
+                    Some((
+                        _,
+                        FlowStyle::Import(module, upstream_name)
+                    )) if module == shape_extensions && upstream_name == "SymVar"
+                )
+            }
+            Expr::Attribute(ExprAttribute {
+                value, attr: name, ..
+            }) if name == "SymVar" => {
+                let Expr::Name(base_name) = &**value else {
+                    return false;
+                };
+                matches!(
+                    self.scopes.binding_idx_for_name(&base_name.id),
+                    Some((
+                        _,
+                        FlowStyle::MergeableImport(module) | FlowStyle::ImportAs(module)
+                    )) if module == shape_extensions
+                )
+            }
+            _ => false,
+        }
+    }
+
     pub fn class_object_is_generic(&self, idx: Idx<Key>) -> bool {
         let Some(Binding::ClassDef(class_idx, _)) = self.idx_to_binding(idx) else {
             return false;
@@ -1961,14 +1994,32 @@ impl<'a> BindingsBuilder<'a> {
             };
             let kind = match x {
                 TypeParam::TypeVar(tv) => {
+                    let mut kind = QuantifiedKind::TypeVar;
                     if let Some(bound_expr) = &mut tv.bound {
                         if let Expr::Tuple(tuple) = &mut **bound_expr {
+                            let mut invalid_symvar_constraint = false;
                             let mut constraint_exprs = Vec::new();
                             for constraint in &mut tuple.elts {
-                                self.ensure_type_with_usage(constraint, &mut None, &mut usage);
-                                constraint_exprs.push(constraint.clone());
+                                if self.as_direct_shape_symvar(constraint) {
+                                    self.error(
+                                        constraint.range(),
+                                        ErrorKind::InvalidTypeVar,
+                                        "`SymVar` cannot be used as a TypeVar constraint"
+                                            .to_owned(),
+                                    );
+                                    invalid_symvar_constraint = true;
+                                    self.ensure_expr(constraint, &mut usage);
+                                } else {
+                                    self.ensure_type_with_usage(constraint, &mut None, &mut usage);
+                                    constraint_exprs.push(constraint.clone());
+                                }
                             }
-                            constraints = Some((constraint_exprs, bound_expr.range()))
+                            if !invalid_symvar_constraint {
+                                constraints = Some((constraint_exprs, bound_expr.range()))
+                            }
+                        } else if self.as_direct_shape_symvar(bound_expr) {
+                            self.ensure_expr(bound_expr, &mut usage);
+                            kind = QuantifiedKind::SymVar;
                         } else {
                             self.ensure_type_with_usage(bound_expr, &mut None, &mut usage);
                             bound = Some((**bound_expr).clone());
@@ -1978,7 +2029,7 @@ impl<'a> BindingsBuilder<'a> {
                         self.ensure_type_with_usage(default_expr, &mut None, &mut usage);
                         default = Some((**default_expr).clone());
                     }
-                    QuantifiedKind::TypeVar
+                    kind
                 }
                 TypeParam::ParamSpec(x) => {
                     if let Some(default_expr) = &mut x.default {

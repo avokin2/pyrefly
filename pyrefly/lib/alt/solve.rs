@@ -1909,7 +1909,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         tp: &TypeParameter,
         errors: &ErrorCollector,
     ) -> Quantified {
-        let restriction = if let Some(bound) = &tp.bound {
+        let kind = tp.kind;
+        let restriction = if matches!(kind, QuantifiedKind::SymVar) {
+            Restriction::Unrestricted
+        } else if let Some(bound) = &tp.bound {
             let bound_ty = self.expr_untype(bound, TypeFormContext::TypeVarConstraint, errors);
             Restriction::Bound(bound_ty)
         } else if let Some((constraints, range)) = &tp.constraints {
@@ -1941,7 +1944,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     || matches!(ty, Type::ClassType(cls) if cls.has_qname("shape_extensions", "Dim"))
             };
             let default = if self.solver().tensor_shapes
-                && matches!(&restriction, Restriction::Bound(bound) if is_dim_bound(bound))
+                && (matches!(kind, QuantifiedKind::SymVar)
+                    || matches!(&restriction, Restriction::Bound(bound) if is_dim_bound(bound)))
                 && let Expr::NumberLiteral(ruff_python_ast::ExprNumberLiteral { value, .. }) =
                     default_expr
                 && let ruff_python_ast::Number::Int(i) = value
@@ -1951,13 +1955,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             } else {
                 self.expr_untype(
                     default_expr,
-                    TypeFormContext::quantified_kind_default(tp.kind),
+                    TypeFormContext::quantified_kind_default(kind),
                     errors,
                 )
             };
             default_ty = Some(self.validate_type_var_default(
                 &tp.name,
-                tp.kind,
+                kind,
                 &default,
                 default_expr.range(),
                 &restriction,
@@ -1967,7 +1971,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let q = Quantified::new(
             tp.identity.clone(),
             tp.name.clone(),
-            tp.kind,
+            kind,
             default_ty,
             restriction,
             PreInferenceVariance::Undefined,

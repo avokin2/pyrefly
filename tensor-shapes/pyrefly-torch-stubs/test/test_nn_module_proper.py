@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 # ============================================================================
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class LinearLayer[N, M](nn.Module):
+class LinearLayer[N: SymVar, M: SymVar](nn.Module):
     """
     Linear layer with class-level dimension parameters
     N and M should be visible in all methods
@@ -65,7 +65,7 @@ def test_linear_with_matmul():
 # ============================================================================
 
 
-class TwoLayerMLP[N, M, K](nn.Module):
+class TwoLayerMLP[N: SymVar, M: SymVar, K: SymVar](nn.Module):
     """
     Two-layer MLP with class-level dimension parameters
     """
@@ -114,7 +114,7 @@ def test_mlp_with_matmul():
 # ============================================================================
 
 
-class SelfAttention[D](nn.Module):
+class SelfAttention[D: SymVar](nn.Module):
     """Self-attention with class-level dimension"""
 
     def forward[B, T](self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
@@ -146,7 +146,7 @@ def test_self_attention():
 # ============================================================================
 
 
-class ConvBlock[C_in, C_out](nn.Module):
+class ConvBlock[C_in: SymVar, C_out: SymVar](nn.Module):
     """Convolutional block with class-level channel dims"""
 
     # Declare weight as class attribute with generic type
@@ -182,7 +182,7 @@ def test_conv_block():
 # ============================================================================
 
 
-class ResidualBlock[C](nn.Module):
+class ResidualBlock[C: SymVar](nn.Module):
     """Residual block with class-level channel dimension"""
 
     # Declare weight as class attribute with generic type

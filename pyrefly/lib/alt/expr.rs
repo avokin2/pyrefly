@@ -3468,76 +3468,6 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }
     }
 
-    fn contains_quantified(ty: &Type, param: &Quantified) -> bool {
-        ty.any(|ty| {
-            matches!(ty, Type::Quantified(q) | Type::QuantifiedValue(q) if q.as_ref() == param)
-        })
-    }
-
-    fn is_dim_bound(ty: &Type) -> bool {
-        matches!(ty, Type::Dim(_))
-            || matches!(ty, Type::ClassType(cls) if cls.has_qname("shape_extensions", "Dim"))
-    }
-
-    fn type_mentions_param_as_dimension(
-        &self,
-        ty: &Type,
-        param: &Quantified,
-        depth: usize,
-    ) -> bool {
-        if depth > 8 {
-            return false;
-        }
-        match ty {
-            Type::Dim(inner) => Self::contains_quantified(inner, param),
-            Type::Size(_) => Self::contains_quantified(ty, param),
-            Type::ShapedArray(tensor) => match tensor.shape.as_tuple() {
-                Tuple::Concrete(dims) => {
-                    dims.iter().any(|dim| Self::contains_quantified(dim, param))
-                }
-                Tuple::Unbounded(middle) => Self::contains_quantified(middle, param),
-                Tuple::Unpacked(unpacked) => {
-                    let (prefix, middle, suffix) = &**unpacked;
-                    prefix
-                        .iter()
-                        .chain(suffix)
-                        .any(|dim| Self::contains_quantified(dim, param))
-                        || Self::contains_quantified(middle, param)
-                }
-            },
-            Type::ClassType(cls) => cls.targs().iter_paired().any(|(nested_param, nested_arg)| {
-                Self::contains_quantified(nested_arg, param)
-                    && self.class_tparam_used_in_shape_context(
-                        cls.class_object(),
-                        nested_param,
-                        depth + 1,
-                    )
-            }),
-            _ => {
-                let mut found = false;
-                ty.recurse(&mut |ty| {
-                    found |= self.type_mentions_param_as_dimension(ty, param, depth + 1);
-                });
-                found
-            }
-        }
-    }
-
-    fn class_tparam_used_in_shape_context(
-        &self,
-        cls: &Class,
-        param: &Quantified,
-        depth: usize,
-    ) -> bool {
-        if matches!(param.restriction(), Restriction::Bound(bound) if Self::is_dim_bound(bound)) {
-            return true;
-        }
-        self.get_class_field_map(cls).values().any(|field| {
-            let (ty, _, _) = field.for_variance_inference();
-            self.type_mentions_param_as_dimension(ty, param, depth)
-        })
-    }
-
     fn proxy_method_subscript_infer(
         &self,
         cls: &Class,
@@ -3650,6 +3580,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let variadic_idx = tparams_vec
             .iter()
             .position(|param| param.is_type_var_tuple());
+        let int_type = self.stdlib.int().clone().to_type();
         let param_for_arg = |idx: usize| {
             if let Some(variadic_idx) = variadic_idx {
                 let suffix_len = tparams_vec.len() - variadic_idx - 1;
@@ -3667,27 +3598,41 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         args.iter()
             .enumerate()
             .map(|(idx, arg)| {
-                if let Some(param) = param_for_arg(idx)
-                    && (param.is_type_var() || param.is_type_var_tuple())
-                    && self.class_tparam_used_in_shape_context(cls, param, 0)
-                    && !matches!(arg, Expr::Starred(_))
-                {
-                    self.parse_dimension_expr(arg, errors)
-                        .unwrap_or_else(Type::any_error)
-                } else {
-                    self.expr_untype(arg, TypeFormContext::TypeArgument, errors)
+                if let Some(param) = param_for_arg(idx) {
+                    if param.kind() == QuantifiedKind::SymVar && !matches!(arg, Expr::Starred(_)) {
+                        return self
+                            .parse_dimension_expr(arg, errors)
+                            .unwrap_or_else(Type::any_error);
+                    }
+                    if param.kind() == QuantifiedKind::TypeVar
+                        && let Expr::List(ExprList { elts, .. }) = arg
+                        && Self::is_size_tuple_carrier_bound(
+                            &param.upper_bound(self.stdlib, self.heap),
+                            &int_type,
+                        )
+                    {
+                        return self
+                            .parse_size_tuple_shape_args(elts, errors)
+                            .map(|shape| shape_to_tuple_carrier_arg(&shape))
+                            .unwrap_or_else(Type::any_error);
+                    }
                 }
+                self.expr_untype(arg, TypeFormContext::TypeArgument, errors)
             })
             .collect()
     }
 
-    /// Returns whether `ty` is a valid upper bound for a `SizeTuple`-carrier `TypeVar`.
+    /// Returns whether `ty` is the normalized upper bound for a bare `SizeTuple`
+    /// carrier `TypeVar`.
     ///
     /// When the user writes `[S: SizeTuple]`, Pyrefly normalizes `SizeTuple` to a
-    /// `tuple` type, so the carrier bound stored in the `TypeVar`'s restriction is
-    /// `Type::Tuple`.
-    fn is_size_tuple_carrier_bound(ty: &Type) -> bool {
-        matches!(ty, Type::Tuple(_))
+    /// `tuple[int, ...]` type. Other tuple bounds are ordinary type bounds and
+    /// must not enable compact shape-list parsing.
+    fn is_size_tuple_carrier_bound(ty: &Type, int_type: &Type) -> bool {
+        match ty {
+            Type::Tuple(Tuple::Unbounded(inner)) => inner.as_ref() == int_type,
+            _ => false,
+        }
     }
 
     /// Returns whether `ty` can legally be the argument inside `Elements[...]`.
@@ -3695,16 +3640,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     /// Valid carriers are concrete tuple types, type aliases (which normalize to
     /// tuples), and `TypeVar`s whose upper bound is a `SizeTuple` (i.e., a tuple type).
     fn is_size_tuple_elements_carrier(&self, ty: &Type) -> bool {
-        match ty {
-            Type::Tuple(_) | Type::UntypedAlias(_) => true,
-            Type::Quantified(q) if q.is_type_var() => {
-                Self::is_size_tuple_carrier_bound(&q.upper_bound(self.stdlib, self.heap))
-            }
-            Type::TypeVar(tv) => {
-                Self::is_size_tuple_carrier_bound(&tv.upper_bound(self.stdlib, self.heap))
-            }
-            _ => false,
-        }
+        let upper_bound = match ty {
+            Type::Tuple(_) | Type::UntypedAlias(_) => return true,
+            Type::Quantified(q) if q.is_type_var() => q.upper_bound(self.stdlib, self.heap),
+            Type::TypeVar(tv) => tv.upper_bound(self.stdlib, self.heap),
+            _ => return false,
+        };
+        let int_type = self.stdlib.int().clone().to_type();
+        Self::is_size_tuple_carrier_bound(&upper_bound, &int_type)
     }
 
     fn is_shape_elements_class(&self, cls: &Class) -> bool {

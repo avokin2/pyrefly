@@ -26,13 +26,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, assert_type, TYPE_CHECKING
+from typing import assert_type, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -142,9 +142,7 @@ class SerialMaskNet[InD, OutD](nn.Module):
         return result
 
 
-class ParallelMaskNet[InD: Dim[Any], BlkD: Dim[Any] = 64, OutD: Dim[Any] = 64](
-    nn.Module
-):
+class ParallelMaskNet[InD: SymVar, BlkD: SymVar = 64, OutD: SymVar = 64](nn.Module):
     """Parallel MaskNet: multiple independent MaskBlocks, outputs concatenated."""
 
     def __init__(
@@ -205,7 +203,7 @@ class ParallelMaskNet[InD: Dim[Any], BlkD: Dim[Any] = 64, OutD: Dim[Any] = 64](
         return result
 
 
-class MaskNetBackbone[F, D, OutD: Dim[Any]](nn.Module):
+class MaskNetBackbone[F, D, OutD: SymVar](nn.Module):
     """MaskNet backbone: instance-guided feature masking.
 
     Args:

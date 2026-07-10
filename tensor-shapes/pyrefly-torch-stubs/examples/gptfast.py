@@ -19,7 +19,7 @@ from torch.nn.attention.flex_attention import (
 
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -33,13 +33,13 @@ class RopeScalingDict(TypedDict, total=False):
 
 
 class ModelArgsDict[
-    VocabSize,
-    BlockSize,
-    D,
-    NHead,
-    NLayer,
-    IntermediateSize,
-    NLocalHeads,
+    VocabSize: SymVar,
+    BlockSize: SymVar,
+    D: SymVar,
+    NHead: SymVar,
+    NLayer: SymVar,
+    IntermediateSize: SymVar,
+    NLocalHeads: SymVar,
 ](TypedDict, total=False):
     """Type for transformer configuration dictionaries."""
 
@@ -71,13 +71,13 @@ def get_mask_mod(mask_mod: _mask_mod_signature, offset: int | Tensor):
 
 @dataclass
 class ModelArgs[
-    VocabSize,
-    BlockSize,
-    D,
-    NHead,
-    NLayer,
-    IntermediateSize,
-    NLocalHeads,
+    VocabSize: SymVar,
+    BlockSize: SymVar,
+    D: SymVar,
+    NHead: SymVar,
+    NLayer: SymVar,
+    IntermediateSize: SymVar,
+    NLocalHeads: SymVar,
 ]:
     block_size: Dim[BlockSize] = 2048  # type: ignore[assignment]
     vocab_size: Dim[VocabSize] = 32000  # type: ignore[assignment]
@@ -296,7 +296,9 @@ def apply_rotary_emb[B, T, NHeads, HeadDim](
     return x_out2.type_as(x)  # type: ignore[bad-return]  # Issue 7: algebraic equivalence
 
 
-class KVCache[MaxBatchSize, MaxSeqLen, NHeads, HeadDim](nn.Module):
+class KVCache[MaxBatchSize: SymVar, MaxSeqLen: SymVar, NHeads: SymVar, HeadDim: SymVar](
+    nn.Module
+):
     k_cache: Tensor[[MaxBatchSize, NHeads, MaxSeqLen, HeadDim]]
     v_cache: Tensor[[MaxBatchSize, NHeads, MaxSeqLen, HeadDim]]
 
@@ -334,7 +336,7 @@ class KVCache[MaxBatchSize, MaxSeqLen, NHeads, HeadDim](nn.Module):
         return k_out, v_out
 
 
-class FeedForward[D, IntermediateSize](nn.Module):
+class FeedForward[D: SymVar, IntermediateSize: SymVar](nn.Module):
     def __init__(
         self, config: ModelArgs[Any, Any, D, Any, Any, IntermediateSize, Any]
     ) -> None:
@@ -368,7 +370,7 @@ class RMSNorm[D](nn.Module):
         return output * self.weight
 
 
-class Attention[D, NHead, NLocalHeads](nn.Module):
+class Attention[D: SymVar, NHead: SymVar, NLocalHeads: SymVar](nn.Module):
     def __init__(self, config: ModelArgs[Any, Any, D, NHead, Any, Any, NLocalHeads]):
         super().__init__()
         assert config.dim % config.n_head == 0
@@ -449,13 +451,13 @@ class Attention[D, NHead, NLocalHeads](nn.Module):
 
 
 class Transformer[
-    VocabSize,
-    BlockSize,
-    D,
-    NHead,
-    NLayer,
-    IntermediateSize,
-    NLocalHeads,
+    VocabSize: SymVar,
+    BlockSize: SymVar,
+    D: SymVar,
+    NHead: SymVar,
+    NLayer: SymVar,
+    IntermediateSize: SymVar,
+    NLocalHeads: SymVar,
 ](nn.Module):
     def __init__(
         self,
@@ -544,7 +546,12 @@ class Transformer[
         return cls(ModelArgs.from_name(name))
 
 
-class TransformerBlock[D, NHead, IntermediateSize, NLocalHeads](nn.Module):
+class TransformerBlock[
+    D: SymVar,
+    NHead: SymVar,
+    IntermediateSize: SymVar,
+    NLocalHeads: SymVar,
+](nn.Module):
     attention: Attention[D, NHead, NLocalHeads]
     feed_forward: FeedForward[D, IntermediateSize]
     ffn_norm: RMSNorm[D]

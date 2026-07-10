@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 # A no-arg factory that produces a shape-preserving activation module.
@@ -30,7 +30,7 @@ ShapePreservingActivation = (
 # ============================================================================
 
 
-class ResNetBlock[C](nn.Module):
+class ResNetBlock[C: SymVar](nn.Module):
     """Shape-preserving residual block: (B, C, H, W) -> (B, C, H, W)."""
 
     def __init__(self, c: Dim[C], act_fn: ShapePreservingActivation) -> None:
@@ -52,7 +52,7 @@ class ResNetBlock[C](nn.Module):
         return out
 
 
-class ResNetDownsampleBlock[C_in, C_out](nn.Module):
+class ResNetDownsampleBlock[C_in: SymVar, C_out: SymVar](nn.Module):
     """Downsampling residual block: (B, C_in, H, W) -> (B, C_out, H', W')."""
 
     def __init__(
@@ -84,7 +84,7 @@ class ResNetDownsampleBlock[C_in, C_out](nn.Module):
         return out
 
 
-class ResNetGroup[C](nn.Module):
+class ResNetGroup[C: SymVar](nn.Module):
     """A group of shape-preserving ResNet blocks at channel C."""
 
     def __init__(
@@ -107,7 +107,7 @@ class ResNetGroup[C](nn.Module):
 # ============================================================================
 
 
-class ResNetModel[NumClasses](nn.Module):
+class ResNetModel[NumClasses: SymVar](nn.Module):
     """ResNet with recursive downsample chain (Pattern C — exponential).
 
     Architecture:

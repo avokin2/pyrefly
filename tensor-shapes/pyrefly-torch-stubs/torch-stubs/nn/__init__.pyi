@@ -20,7 +20,7 @@ from typing import (
     TypeVar,
 )
 
-from shape_extensions import Elements, SizeTuple
+from shape_extensions import Elements, SizeTuple, SymVar
 
 if TYPE_CHECKING:
     from shape_extensions import Dim as _Dim, ProxyMethod, uses_shape_dsl
@@ -114,7 +114,7 @@ def Buffer[Shape: SizeTuple](
     ...
 
 # Linear layer
-class Linear[IN, OUT](Module):
+class Linear[IN: SymVar, OUT: SymVar](Module):
     """Applies a linear transformation to the incoming data: y = xA^T + b"""
 
     weight: Tensor[[OUT, IN]]
@@ -145,7 +145,7 @@ class GELU(Module):
     def forward[Shape: SizeTuple](self, input: Tensor[Shape]) -> Tensor[Shape]: ...
 
 # Embedding
-class Embedding[NUM_EMB, EMB_DIM](Module):
+class Embedding[NUM_EMB: SymVar, EMB_DIM: SymVar](Module):
     """A simple lookup table that stores embeddings of a fixed dictionary and size"""
 
     weight: Tensor[[NUM_EMB, EMB_DIM]]
@@ -487,9 +487,14 @@ class Identity(Module):
 # Convolution Modules
 # ==============================================================================
 
-class Conv1d[InC, OutC, K, S: _Dim[Any] = 1, P: _Dim[Any] = 0, D: _Dim[Any] = 1](
-    Module
-):
+class Conv1d[
+    InC: SymVar,
+    OutC: SymVar,
+    K: SymVar,
+    S: SymVar = 1,
+    P: SymVar = 0,
+    D: SymVar = 1,
+](Module):
     """1D convolution. Tracks channel and spatial dimensions.
 
     Type parameters S, P, D are bound from constructor arguments via _Dim[T].
@@ -516,9 +521,14 @@ class Conv1d[InC, OutC, K, S: _Dim[Any] = 1, P: _Dim[Any] = 0, D: _Dim[Any] = 1]
         self, input: Tensor[[B, InC, L]]
     ) -> Tensor[[B, OutC, (L + 2 * P - D * (K - 1) - 1) // S + 1]]: ...
 
-class Conv2d[InC, OutC, K, S: _Dim[Any] = 1, P: _Dim[Any] = 0, D: _Dim[Any] = 1](
-    Module
-):
+class Conv2d[
+    InC: SymVar,
+    OutC: SymVar,
+    K: SymVar,
+    S: SymVar = 1,
+    P: SymVar = 0,
+    D: SymVar = 1,
+](Module):
     """2D convolution. Tracks channel and spatial dimensions.
 
     Type parameters S, P, D are bound from constructor arguments via _Dim[T].
@@ -560,9 +570,14 @@ class Conv2d[InC, OutC, K, S: _Dim[Any] = 1, P: _Dim[Any] = 0, D: _Dim[Any] = 1]
         ]
     ]: ...
 
-class Conv3d[InC, OutC, K, S: _Dim[Any] = 1, P: _Dim[Any] = 0, D: _Dim[Any] = 1](
-    Module
-):
+class Conv3d[
+    InC: SymVar,
+    OutC: SymVar,
+    K: SymVar,
+    S: SymVar = 1,
+    P: SymVar = 0,
+    D: SymVar = 1,
+](Module):
     """3D convolution. Tracks channel and spatial dimensions.
 
     Type parameters S, P, D are bound from constructor arguments via _Dim[T].
@@ -598,13 +613,13 @@ class Conv3d[InC, OutC, K, S: _Dim[Any] = 1, P: _Dim[Any] = 0, D: _Dim[Any] = 1]
     ]: ...
 
 class ConvTranspose1d[
-    InC,
-    OutC,
-    K,
-    S: _Dim[Any] = 1,
-    P: _Dim[Any] = 0,
-    OP: _Dim[Any] = 0,
-    D: _Dim[Any] = 1,
+    InC: SymVar,
+    OutC: SymVar,
+    K: SymVar,
+    S: SymVar = 1,
+    P: SymVar = 0,
+    OP: SymVar = 0,
+    D: SymVar = 1,
 ](Module):
     """1D transposed convolution. Tracks channel and spatial dimensions.
 
@@ -634,13 +649,13 @@ class ConvTranspose1d[
     ) -> Tensor[[B, OutC, (L - 1) * S - 2 * P + D * (K - 1) + OP + 1]]: ...
 
 class ConvTranspose2d[
-    InC,
-    OutC,
-    K,
-    S: _Dim[Any] = 1,
-    P: _Dim[Any] = 0,
-    OP: _Dim[Any] = 0,
-    D: _Dim[Any] = 1,
+    InC: SymVar,
+    OutC: SymVar,
+    K: SymVar,
+    S: SymVar = 1,
+    P: SymVar = 0,
+    OP: SymVar = 0,
+    D: SymVar = 1,
 ](Module):
     """2D transposed convolution. Tracks channel and spatial dimensions.
 
@@ -677,13 +692,13 @@ class ConvTranspose2d[
     ]: ...
 
 class ConvTranspose3d[
-    InC,
-    OutC,
-    K,
-    S: _Dim[Any] = 1,
-    P: _Dim[Any] = 0,
-    OP: _Dim[Any] = 0,
-    D: _Dim[Any] = 1,
+    InC: SymVar,
+    OutC: SymVar,
+    K: SymVar,
+    S: SymVar = 1,
+    P: SymVar = 0,
+    OP: SymVar = 0,
+    D: SymVar = 1,
 ](Module):
     """3D transposed convolution. Tracks channel and spatial dimensions.
 
@@ -822,31 +837,31 @@ class AvgPool3d(Module):
     )
     def forward(self, input: Tensor) -> Tensor: ...
 
-class AdaptiveAvgPool1d[OL](Module):
+class AdaptiveAvgPool1d[OL: SymVar](Module):
     """1D adaptive average pooling"""
     def __init__(self, output_size: _Dim[OL]) -> None: ...
     def forward[B, C](self, input: Tensor[[B, C, Any]]) -> Tensor[[B, C, OL]]: ...
 
-class AdaptiveAvgPool2d[OH, OW](Module):
+class AdaptiveAvgPool2d[OH: SymVar, OW: SymVar](Module):
     """2D adaptive average pooling"""
     def __init__(self, output_size: tuple[_Dim[OH], _Dim[OW]]) -> None: ...
     def forward[B, C](
         self, input: Tensor[[B, C, Any, Any]]
     ) -> Tensor[[B, C, OH, OW]]: ...
 
-class AdaptiveAvgPool3d[OD, OH, OW](Module):
+class AdaptiveAvgPool3d[OD: SymVar, OH: SymVar, OW: SymVar](Module):
     """3D adaptive average pooling"""
     def __init__(self, output_size: tuple[_Dim[OD], _Dim[OH], _Dim[OW]]) -> None: ...
     def forward[B, C](
         self, input: Tensor[[B, C, Any, Any, Any]]
     ) -> Tensor[[B, C, OD, OH, OW]]: ...
 
-class AdaptiveMaxPool1d[OL](Module):
+class AdaptiveMaxPool1d[OL: SymVar](Module):
     """1D adaptive max pooling"""
     def __init__(self, output_size: _Dim[OL], return_indices: bool = False) -> None: ...
     def forward[B, C](self, input: Tensor[[B, C, Any]]) -> Tensor[[B, C, OL]]: ...
 
-class AdaptiveMaxPool2d[OH, OW](Module):
+class AdaptiveMaxPool2d[OH: SymVar, OW: SymVar](Module):
     """2D adaptive max pooling"""
     def __init__(
         self, output_size: tuple[_Dim[OH], _Dim[OW]], return_indices: bool = False
@@ -855,7 +870,7 @@ class AdaptiveMaxPool2d[OH, OW](Module):
         self, input: Tensor[[B, C, Any, Any]]
     ) -> Tensor[[B, C, OH, OW]]: ...
 
-class AdaptiveMaxPool3d[OD, OH, OW](Module):
+class AdaptiveMaxPool3d[OD: SymVar, OH: SymVar, OW: SymVar](Module):
     """3D adaptive max pooling"""
     def __init__(
         self,
@@ -1201,7 +1216,7 @@ class ReplicationPad2d(Module):
     def forward(self, input: Tensor) -> Tensor: ...
 
 # Embedding variants
-class EmbeddingBag[NUM_EMB, EMB_DIM](Module):
+class EmbeddingBag[NUM_EMB: SymVar, EMB_DIM: SymVar](Module):
     """Computes sums or means of 'bags' of embeddings.
 
     Unlike Embedding, EmbeddingBag aggregates over variable-length groups

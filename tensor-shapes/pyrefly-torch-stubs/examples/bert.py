@@ -11,7 +11,7 @@ Original: pytorch/benchmark/torchbenchmark/models/BERT_pytorch/bert_pytorch/mode
 
 import math
 from collections.abc import Callable
-from typing import Any, assert_type, TYPE_CHECKING
+from typing import assert_type, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from shape_extensions import Elements, SizeTuple
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class LayerNorm[Features](nn.Module):
+class LayerNorm[Features: SymVar](nn.Module):
     """Construct a layernorm module (See citation for details)."""
 
     a_2: Tensor[[Features]]
@@ -50,7 +50,7 @@ class LayerNorm[Features](nn.Module):
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 
-class SublayerConnection[Hidden](nn.Module):
+class SublayerConnection[Hidden: SymVar](nn.Module):
     """
     A residual connection followed by a layer norm.
     Note for code simplicity the norm is first as opposed to last.
@@ -70,7 +70,7 @@ class SublayerConnection[Hidden](nn.Module):
         return x + self.dropout(sublayer(self.norm(x)))
 
 
-class PositionwiseFeedForward[DModel, DFF](nn.Module):
+class PositionwiseFeedForward[DModel: SymVar, DFF: SymVar](nn.Module):
     """Implements FFN equation."""
 
     def __init__(
@@ -122,7 +122,7 @@ class Attention(nn.Module):
         return torch.matmul(p_attn, value), p_attn
 
 
-class MultiHeadedAttention[DModel, H](nn.Module):
+class MultiHeadedAttention[DModel: SymVar, H: SymVar](nn.Module):
     """Take in model size and number of heads."""
 
     def __init__(self, h: Dim[H], d_model: Dim[DModel], dropout: float = 0.1) -> None:
@@ -193,7 +193,7 @@ class MultiHeadedAttention[DModel, H](nn.Module):
 # ============================================================================
 
 
-class TokenEmbedding[VocabSize: Dim[Any], EmbedSize: Dim[Any] = 512](
+class TokenEmbedding[VocabSize: SymVar, EmbedSize: SymVar = 512](
     nn.Embedding[VocabSize, EmbedSize]
 ):
     def __init__(
@@ -229,7 +229,7 @@ class SegmentEmbedding(nn.Embedding):
         super().__init__(3, embed_size, padding_idx=0)
 
 
-class BERTEmbedding[VocabSize: Dim[Any], EmbedSize: Dim[Any]](nn.Module):
+class BERTEmbedding[VocabSize: SymVar, EmbedSize: SymVar](nn.Module):
     """
     BERT Embedding which is consisted with under features
         1. TokenEmbedding : normal embedding matrix
@@ -264,7 +264,7 @@ class BERTEmbedding[VocabSize: Dim[Any], EmbedSize: Dim[Any]](nn.Module):
 # ============================================================================
 
 
-class SelfAttentionWrapper[DModel, H](nn.Module):
+class SelfAttentionWrapper[DModel: SymVar, H: SymVar](nn.Module):
     """Wraps MultiHeadedAttention for self-attention (Q=K=V=x).
 
     The original uses a LambdaModule (TorchScript JIT wrapper) to convert the
@@ -284,7 +284,7 @@ class SelfAttentionWrapper[DModel, H](nn.Module):
         return self.attention(x, x, x, mask=self.mask)
 
 
-class TransformerBlock[Hidden, H](nn.Module):
+class TransformerBlock[Hidden: SymVar, H: SymVar](nn.Module):
     """
     Bidirectional Encoder = Transformer (self-attention)
     Transformer = MultiHead_Attention + Feed_Forward with sublayer connection
@@ -323,7 +323,7 @@ class TransformerBlock[Hidden, H](nn.Module):
 # ============================================================================
 
 
-class BERT[VocabSize: Dim[Any], Hidden: Dim[Any] = 768, H: Dim[Any] = 12](nn.Module):
+class BERT[VocabSize: SymVar, Hidden: SymVar = 768, H: SymVar = 12](nn.Module):
     """
     BERT model : Bidirectional Encoder Representations from Transformers.
     """
@@ -386,7 +386,7 @@ class BERT[VocabSize: Dim[Any], Hidden: Dim[Any] = 768, H: Dim[Any] = 12](nn.Mod
 # ============================================================================
 
 
-class NextSentencePrediction[Hidden](nn.Module):
+class NextSentencePrediction[Hidden: SymVar](nn.Module):
     """
     2-class classification model : is_next, is_not_next
     """
@@ -400,7 +400,7 @@ class NextSentencePrediction[Hidden](nn.Module):
         return self.softmax(self.linear(x[:, 0]))
 
 
-class MaskedLanguageModel[Hidden: Dim[Any], VocabSize: Dim[Any]](nn.Module):
+class MaskedLanguageModel[Hidden: SymVar, VocabSize: SymVar](nn.Module):
     """
     predicting origin token from masked input sequence
     n-class classification problem, n-class = vocab_size
@@ -415,7 +415,7 @@ class MaskedLanguageModel[Hidden: Dim[Any], VocabSize: Dim[Any]](nn.Module):
         return self.softmax(self.linear(x))
 
 
-class BERTLM[VocabSize: Dim[Any], Hidden: Dim[Any], H: Dim[Any]](nn.Module):
+class BERTLM[VocabSize: SymVar, Hidden: SymVar, H: SymVar](nn.Module):
     """
     BERT Language Model
     Next Sentence Prediction Model + Masked Language Model

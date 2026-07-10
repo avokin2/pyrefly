@@ -29,11 +29,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
-class ResBlock[NF: Dim[Any] = 128](nn.Module):
+class ResBlock[NF: SymVar = 128](nn.Module):
     def __init__(self, n_freq: Dim[NF] = 128) -> None:
         super().__init__()
         self.resblock_model = nn.Sequential(
@@ -57,10 +57,10 @@ class ResBlock[NF: Dim[Any] = 128](nn.Module):
 
 
 class MelResNet[
-    NF: Dim[Any] = 128,
-    NH: Dim[Any] = 128,
-    NO: Dim[Any] = 128,
-    K: Dim[Any] = 5,
+    NF: SymVar = 128,
+    NH: SymVar = 128,
+    NO: SymVar = 128,
+    K: SymVar = 5,
 ](nn.Module):
     def __init__(
         self,
@@ -120,10 +120,10 @@ class Stretch2d[TS, FS](nn.Module):
 
 
 class UpsampleNetwork[
-    NF: Dim[Any] = 128,
-    NH: Dim[Any] = 128,
-    NO: Dim[Any] = 128,
-    K: Dim[Any] = 5,
+    NF: SymVar = 128,
+    NH: SymVar = 128,
+    NO: SymVar = 128,
+    K: SymVar = 5,
 ](nn.Module):
     def __init__(
         self,
@@ -188,13 +188,13 @@ class UpsampleNetwork[
 
 
 class WaveRNN[
-    NC: Dim[Any],
-    NR: Dim[Any] = 512,
-    NFC: Dim[Any] = 512,
-    NF: Dim[Any] = 128,
-    NH: Dim[Any] = 128,
-    NO: Dim[Any] = 128,
-    K: Dim[Any] = 5,
+    NC: SymVar,
+    NR: SymVar = 512,
+    NFC: SymVar = 512,
+    NF: SymVar = 128,
+    NH: SymVar = 128,
+    NO: SymVar = 128,
+    K: SymVar = 5,
 ](nn.Module):
     def __init__(
         self,

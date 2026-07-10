@@ -10,11 +10,11 @@ from typing import assert_type, TYPE_CHECKING
 from torch.nn import Module, ModuleList
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
-class Block[N](Module):
+class Block[N: SymVar](Module):
     """Transformer block with self-attention and MLP. Generic over embedding dim, num heads, and block size."""
 
     def __init__(self, x: Dim[N]):

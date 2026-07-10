@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 # They are generic in C so the same type signature works at every level.
 
 
-class Encode[C, K](nn.Module):
+class Encode[C: SymVar, K: SymVar](nn.Module):
     """Adds K channels: Tensor[[B, C]] -> Tensor[[B, C + K]]."""
 
     def __init__(self, c: Dim[C], k: Dim[K]) -> None:
@@ -45,7 +45,7 @@ class Encode[C, K](nn.Module):
         return self.linear(x)
 
 
-class Decode[C, K](nn.Module):
+class Decode[C: SymVar, K: SymVar](nn.Module):
     """Removes K channels using skip connection.
 
     Takes deep features (C + K channels) and skip features (C channels),
@@ -63,7 +63,7 @@ class Decode[C, K](nn.Module):
         return self.linear(combined)
 
 
-class Bottleneck[C](nn.Module):
+class Bottleneck[C: SymVar](nn.Module):
     """Identity-shaped bottleneck: Tensor[[B, C]] -> Tensor[[B, C]]."""
 
     def __init__(self, c: Dim[C]) -> None:
@@ -585,7 +585,7 @@ def test_dense_chain_one():
 # so that (C + GR) + GR*(I-1) simplifies to C + GR*I.
 
 
-class SymbolicDenseLayer[GR](nn.Module):
+class SymbolicDenseLayer[GR: SymVar](nn.Module):
     """DenseNet layer with symbolic growth rate."""
 
     def forward[B, C, H, W](

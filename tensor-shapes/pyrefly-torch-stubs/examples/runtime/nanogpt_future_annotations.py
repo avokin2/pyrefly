@@ -27,7 +27,7 @@ from shape_extensions import Elements, SizeTuple
 from torch.nn import functional as F
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -49,11 +49,11 @@ class LayerNorm[M](nn.Module):
 
 @dataclass
 class GPTConfig[
-    VocabSize,
-    BlockSize,
-    NEmbedding,
-    NHead,
-    NLayer,
+    VocabSize: SymVar,
+    BlockSize: SymVar,
+    NEmbedding: SymVar,
+    NHead: SymVar,
+    NLayer: SymVar,
 ]:
     """Configuration for GPT model, generic over key dimensions"""
 
@@ -66,7 +66,9 @@ class GPTConfig[
     bias: bool = True  # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
 
-class CausalSelfAttention[NEmbedding, NHead, BlockSize](nn.Module):
+class CausalSelfAttention[NEmbedding: SymVar, NHead: SymVar, BlockSize: SymVar](
+    nn.Module
+):
     """Multi-head causal self-attention. Generic over embedding dim, num heads, and block size."""
 
     def __init__(self, config: GPTConfig[Any, BlockSize, NEmbedding, NHead, Any]):
@@ -178,7 +180,7 @@ class CausalSelfAttention[NEmbedding, NHead, BlockSize](nn.Module):
         return y
 
 
-class MLP[NEmbedding](nn.Module):
+class MLP[NEmbedding: SymVar](nn.Module):
     """Multi-layer perceptron. Generic over embedding dimension."""
 
     def __init__(self, config: GPTConfig[Any, Any, NEmbedding, Any, Any]):
@@ -204,7 +206,7 @@ class MLP[NEmbedding](nn.Module):
         return x
 
 
-class Block[NEmbedding, NHead, BlockSize](nn.Module):
+class Block[NEmbedding: SymVar, NHead: SymVar, BlockSize: SymVar](nn.Module):
     """Transformer block with self-attention and MLP. Generic over embedding dim, num heads, and block size."""
 
     def __init__(self, config: GPTConfig[Any, BlockSize, NEmbedding, NHead, Any]):
@@ -227,11 +229,11 @@ class Block[NEmbedding, NHead, BlockSize](nn.Module):
 
 
 class GPTConfigArgs[
-    VocabSize,
-    BlockSize,
-    NEmbedding,
-    NHead,
-    NLayer,
+    VocabSize: SymVar,
+    BlockSize: SymVar,
+    NEmbedding: SymVar,
+    NHead: SymVar,
+    NLayer: SymVar,
 ](TypedDict):
     """TypedDict for GPTConfig constructor arguments, generic over key dimensions"""
 
@@ -244,7 +246,12 @@ class GPTConfigArgs[
     dropout: float
 
 
-class TransformerModules[VocabSize, BlockSize, NEmbedding, NHead](TypedDict):
+class TransformerModules[
+    VocabSize: SymVar,
+    BlockSize: SymVar,
+    NEmbedding: SymVar,
+    NHead: SymVar,
+](TypedDict):
     """TypedDict defining the structure of GPT transformer modules. Generic over key dimensions."""
 
     wte: nn.Embedding[VocabSize, NEmbedding]  # token embeddings
@@ -254,7 +261,13 @@ class TransformerModules[VocabSize, BlockSize, NEmbedding, NHead](TypedDict):
     ln_f: LayerNorm[NEmbedding]  # final layer norm
 
 
-class GPT[VocabSize, BlockSize, NEmbedding, NHead, NLayer](nn.Module):
+class GPT[
+    VocabSize: SymVar,
+    BlockSize: SymVar,
+    NEmbedding: SymVar,
+    NHead: SymVar,
+    NLayer: SymVar,
+](nn.Module):
     """GPT Language Model. Generic over vocabulary size, block size, embedding dim, num heads, and num layers."""
 
     def __init__(

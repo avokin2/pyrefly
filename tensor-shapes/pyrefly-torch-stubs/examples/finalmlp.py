@@ -29,16 +29,16 @@ import torch
 import torch.nn as nn
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
 @dataclass
 class FinalMLPConfig[
-    M1Out: Dim[Any] = 256,
-    M2Out: Dim[Any] = 256,
-    NH: Dim[Any] = 1,
-    K: Dim[Any] = 16,
+    M1Out: SymVar = 256,
+    M2Out: SymVar = 256,
+    NH: SymVar = 1,
+    K: SymVar = 16,
 ]:
     mlp1_hidden_units: list[int] = field(default_factory=lambda: [512, 256])
     mlp1_output_dim: Dim[M1Out] = 256  # type: ignore[bad-assignment]
@@ -161,10 +161,10 @@ class InteractionAggregation[XD, YD, OutD, NH](nn.Module):
 class FinalMLPLayer[
     F,
     D,
-    K: Dim[Any],
-    M1Out: Dim[Any],
-    M2Out: Dim[Any],
-    NH: Dim[Any],
+    K: SymVar,
+    M1Out: SymVar,
+    M2Out: SymVar,
+    NH: SymVar,
 ](nn.Module):
     """Single FinalMLP interaction layer: [B, F, D] -> [B, K, D].
 
@@ -235,10 +235,10 @@ class FinalMLPLayer[
 class FinalMLPBackbone[
     F,
     D,
-    M1Out: Dim[Any],
-    M2Out: Dim[Any],
-    NH: Dim[Any],
-    K: Dim[Any],
+    M1Out: SymVar,
+    M2Out: SymVar,
+    NH: SymVar,
+    K: SymVar,
 ](nn.Module):
     """Multi-layer FinalMLP backbone: stacks FinalMLPLayers for iterative interaction.
 

@@ -1236,7 +1236,7 @@ testcase!(
     r#"
 from shape_extensions import Dim, SymVar
 from torch import Tensor
-from typing import Generic, reveal_type
+from typing import Generic, assert_type, reveal_type
 
 N = SymVar("N")
 M = SymVar("M")
@@ -1305,6 +1305,91 @@ def invalid_param(x: SymVar) -> None:  # E: Expected a type form, got instance o
 
 def invalid_return() -> SymVar:  # E: Expected a type form, got instance of `_SpecialForm`
     pass
+"#,
+);
+
+testcase!(
+    test_symvar_class_type_parameter_accepts_dimension_expressions,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import Dim, SymVar
+from typing import Generic, assert_type, reveal_type
+
+class ExplicitBox[N: SymVar]: ...
+
+N = SymVar("N")
+M = SymVar("M")
+
+class LegacyBox(Generic[N]): ...
+
+def explicit[N: SymVar](x: ExplicitBox[N + 1]) -> None:
+    assert_type(x, ExplicitBox[N + 1])
+
+def legacy(x: LegacyBox[N + M]) -> None:
+    reveal_type(x)  # E: revealed type: LegacyBox[(N + M)]
+"#,
+);
+
+testcase!(
+    test_dim_field_does_not_make_class_type_parameter_symbolic,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import Dim
+
+class FieldBox[N]:
+    dim: Dim[N]
+
+def f[N](x: FieldBox[N + 1]) -> None:  # E: `+` is not supported between `N` and `Literal[1]`  # E: Expected a type form, got instance of `int`
+    pass
+"#,
+);
+
+testcase!(
+    test_sizetuple_elements_carrier_class_args_are_not_scalar_symvars,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import Elements, SizeTuple, SymVar
+from typing import assert_type
+
+class TupleBox[Shape: SizeTuple]: ...
+class PlainBox[N]: ...
+
+def carrier[Bs: SizeTuple, N: SymVar](
+    x: TupleBox[[*Elements[Bs], N + 1]],
+    y: TupleBox[SizeTuple[*Elements[Bs], N + 1]],
+) -> None:
+    assert_type(x, TupleBox[[*Elements[Bs], N + 1]])
+    assert_type(y, TupleBox[SizeTuple[*Elements[Bs], N + 1]])
+
+def scalar[N](x: PlainBox[N + 1]) -> None:  # E: `+` is not supported between `N` and `Literal[1]`  # E: Expected a type form, got instance of `int`
+    pass
+"#,
+);
+
+testcase!(
+    test_tuple_bound_class_arg_does_not_enable_compact_shape_syntax,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+class TupleBoundBox[S: tuple[str, ...]]: ...
+
+def f[N](x: TupleBoundBox[[N + 1]]) -> None:  # E: `ParamSpec` cannot be used for type parameter  # E: `+` is not supported between `N` and `Literal[1]`  # E: Expected a type form, got instance of `int`
+    pass
+"#,
+);
+
+testcase!(
+    test_typevartuple_and_sizetuple_class_args_parse_separately,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import Elements, SizeTuple, SymVar
+from typing import assert_type
+
+class Mixed[*Ts, Shape: SizeTuple, N: SymVar]: ...
+
+def f[*Ts, Shape: SizeTuple, N: SymVar](
+    x: Mixed[*Ts, [*Elements[Shape], N + 1], N + 2],
+) -> None:
+    assert_type(x, Mixed[*Ts, [*Elements[Shape], N + 1], N + 2])
 "#,
 );
 

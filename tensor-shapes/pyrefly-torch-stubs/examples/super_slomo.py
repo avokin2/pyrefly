@@ -31,7 +31,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class Down[InC, OutC](nn.Module):
+class Down[InC: SymVar, OutC: SymVar](nn.Module):
     """Average Pooling --> Conv + LeakyReLU --> Conv + LeakyReLU
 
     Halves spatial dims via avg_pool2d(2), transforms channels.
@@ -74,7 +74,7 @@ class Down[InC, OutC](nn.Module):
         return x2
 
 
-class Up[InC, OutC](nn.Module):
+class Up[InC: SymVar, OutC: SymVar](nn.Module):
     """Bilinear interpolation --> Conv + LeakyReLU --> Cat + Conv + LeakyReLU
 
     Doubles spatial dims via F.interpolate(scale_factor=2), then concatenates
@@ -110,7 +110,7 @@ class Up[InC, OutC](nn.Module):
 # ============================================================================
 
 
-class UNet[InC, OutC](nn.Module):
+class UNet[InC: SymVar, OutC: SymVar](nn.Module):
     """UNet architecture for Super SloMo.
 
     Used twice in the full model:
@@ -235,7 +235,7 @@ class UNet[InC, OutC](nn.Module):
 # - Variable reassignment x → x_coord, y → y_coord (shape changes)
 
 
-class BackWarp[W, H](nn.Module):
+class BackWarp[W: SymVar, H: SymVar](nn.Module):
     """Backwarping module: warps an image using optical flow.
 
     Given optical flow F_0_1 and frame I1, generates I0 via grid_sample.

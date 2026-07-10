@@ -24,7 +24,7 @@ import torch
 import torch.nn as nn
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class DoubleConv[InC, OutC](nn.Module):
+class DoubleConv[InC: SymVar, OutC: SymVar](nn.Module):
     """(convolution => [BN] => ReLU) * 2
 
     Shape: (B, InC, H, W) -> (B, OutC, H, W)  [spatial-preserving]
@@ -62,7 +62,7 @@ class DoubleConv[InC, OutC](nn.Module):
         return out
 
 
-class Down[InC, OutC](nn.Module):
+class Down[InC: SymVar, OutC: SymVar](nn.Module):
     """Downscaling with maxpool then double conv.
 
     Shape: (B, InC, H, W) -> (B, OutC, H//2, W//2)
@@ -85,7 +85,7 @@ class Down[InC, OutC](nn.Module):
         return out
 
 
-class Up[C_in, C_out](nn.Module):
+class Up[C_in: SymVar, C_out: SymVar](nn.Module):
     """Upscaling with transposed convolution, then skip-connection cat, then double conv.
 
     x1: (B, C_in, H, W)        — deep feature map from previous layer
@@ -110,7 +110,7 @@ class Up[C_in, C_out](nn.Module):
         return self.conv(x)
 
 
-class UpBilinear[C_cat, C_out](nn.Module):
+class UpBilinear[C_cat: SymVar, C_out: SymVar](nn.Module):
     """Upscaling with bilinear interpolation, then skip-connection cat, then double conv.
 
     x1: (B, C1, H, W)   — deep feature map (channels = C_cat // 2 in standard UNet)
@@ -138,7 +138,7 @@ class UpBilinear[C_cat, C_out](nn.Module):
         return self.conv(x)
 
 
-class OutConv[InC, OutC](nn.Module):
+class OutConv[InC: SymVar, OutC: SymVar](nn.Module):
     """1x1 convolution for final output.
 
     Shape: (B, InC, H, W) -> (B, OutC, H, W)
@@ -162,7 +162,7 @@ class OutConv[InC, OutC](nn.Module):
 # ============================================================================
 
 
-class UNet[NChannels, NClasses](nn.Module):
+class UNet[NChannels: SymVar, NClasses: SymVar](nn.Module):
     """U-Net: encoder-decoder with skip connections.
 
     Non-bilinear variant using ConvTranspose2d for upsampling.
@@ -252,7 +252,7 @@ class UNet[NChannels, NClasses](nn.Module):
 # ============================================================================
 
 
-class UNetBilinear[NChannels, NClasses](nn.Module):
+class UNetBilinear[NChannels: SymVar, NClasses: SymVar](nn.Module):
     """U-Net with bilinear upsampling.
 
     Uses nn.Upsample(scale_factor=2, mode='bilinear') instead of

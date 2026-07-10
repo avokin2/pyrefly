@@ -1275,6 +1275,65 @@ Widget docstring"#
 }
 
 #[test]
+fn hover_on_dict_constructor_is_multiline() {
+    let code = r#"
+x: dict[str, int]
+#  ^
+"#;
+    let report = get_batched_lsp_operations_report(&[("main", code)], |state, handle, position| {
+        match get_hover(&state.transaction(), handle, position, false) {
+            Some(Hover {
+                contents: HoverContents::Markup(markup),
+                ..
+            }) => markup.value,
+            _ => "None".to_owned(),
+        }
+    });
+    assert_eq!(
+        r#"
+# main.py
+2 | x: dict[str, int]
+       ^
+```python
+(class) dict: ((
+    *args: Any,
+    **kwargs: Any
+) -> dict[Unknown, Unknown]) | Overload[
+  () -> dict[Unknown, Unknown]
+  (**kwargs: Unknown) -> dict[str, Unknown]
+  (map: SupportsKeysAndGetItem[Unknown, Unknown], /) -> dict[Unknown, Unknown]
+  (
+    map: SupportsKeysAndGetItem[str, Unknown],
+    /,
+    **kwargs: Unknown
+) -> dict[str, Unknown]
+  (iterable: Iterable[tuple[Unknown, Unknown]], /) -> dict[Unknown, Unknown]
+  (
+    iterable: Iterable[tuple[str, Unknown]],
+    /,
+    **kwargs: Unknown
+) -> dict[str, Unknown]
+  (iterable: Iterable[list[str]], /) -> dict[str, str]
+  (iterable: Iterable[list[bytes]], /) -> dict[bytes, bytes]
+]
+```
+---
+dict() -> new empty dictionary  
+dict(mapping) -> new dictionary initialized from a mapping object's  
+&nbsp;&nbsp;&nbsp;&nbsp;(key, value) pairs  
+dict(iterable) -> new dictionary initialized as if via:  
+&nbsp;&nbsp;&nbsp;&nbsp;d = {}  
+&nbsp;&nbsp;&nbsp;&nbsp;for k, v in iterable:  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;d[k] = v  
+dict(**kwargs) -> new dictionary initialized with the name=value pairs  
+&nbsp;&nbsp;&nbsp;&nbsp;in the keyword argument list.  For example:  dict(one=1, two=2)
+"#
+        .trim(),
+        report.trim(),
+    );
+}
+
+#[test]
 fn hover_on_first_component_of_multi_part_import() {
     let mymod_init = r#"# mymod/__init__.py
 def version() -> str: ...

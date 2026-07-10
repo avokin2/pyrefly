@@ -106,6 +106,23 @@ fn ok_or(b: bool, e: SubsetError) -> Result<(), SubsetError> {
     b.then_some(()).ok_or(e)
 }
 
+// Class specialization can turn `*args: *Ts` into `*args: *tuple[*Ts]`.
+// For vararg-vs-vararg comparisons, those spellings mean the same parameter
+// sequence. Do not strip the wrapper when the other side is also a tuple,
+// since `tuple[*Ts]` still needs normal tuple subtyping against `tuple[T, ...]`.
+fn canonical_vararg_unpack_inner<'a>(ty: &'a Type, other: &Type) -> &'a Type {
+    if matches!(other, Type::Tuple(_)) {
+        return ty;
+    }
+    if let Type::Tuple(Tuple::Unpacked(unpacked)) = ty {
+        let (prefix, middle, suffix) = unpacked.as_ref();
+        if prefix.is_empty() && suffix.is_empty() {
+            return middle;
+        }
+    }
+    ty
+}
+
 /// Return whether `type[ty]` is broad enough to accept an arbitrary class object.
 fn accepts_all_class_objects(ty: &Type) -> bool {
     match ty {
@@ -360,7 +377,10 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                     Some(Param::Varargs(_, Type::Unpack(l))),
                     Some(Param::Varargs(_, Type::Unpack(u))),
                 ) => {
-                    self.is_subset_eq(u, l)?;
+                    self.is_subset_eq(
+                        canonical_vararg_unpack_inner(u, l),
+                        canonical_vararg_unpack_inner(l, u),
+                    )?;
                     l_arg = l_args.next();
                     u_arg = u_args.next();
                 }

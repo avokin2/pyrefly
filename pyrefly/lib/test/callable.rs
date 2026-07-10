@@ -79,6 +79,16 @@ f("hello")  # E: `str` is not assignable to upper bound `int` of type variable `
 );
 
 testcase!(
+    test_callable_typevartuple_varargs_homogeneous_tuple,
+    r#"
+from typing import Callable
+
+def test[*Ts](f: Callable[[*tuple[object, ...]], object]) -> Callable[[*Ts], object]:
+    return f
+"#,
+);
+
+testcase!(
     test_callable_annotation_only_typevar,
     TestEnv::one_with_path(
         "foo",

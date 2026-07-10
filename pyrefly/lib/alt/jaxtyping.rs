@@ -290,7 +290,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     // verifies the shape param is an actual type parameter of the class.
                     .expect("shaped-array metadata should refer to a class type parameter");
                 match shape_param.kind() {
-                    QuantifiedKind::TypeVar => {
+                    QuantifiedKind::TypeVar | QuantifiedKind::SymVar => {
                         let carrier = base_class.targs_mut().as_mut().get_mut(shape_idx).expect(
                             // Pyrefly always constructs ClassType with one targ per tparam.
                             "class type should have an argument for each type parameter",
@@ -391,9 +391,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 let var_name = var_name.strip_prefix('#').unwrap_or(var_name);
                 let q = match self.shaped_array_shape_for_class_type(&base_class) {
                     Some(shape_param) => match shape_param.kind() {
-                        QuantifiedKind::TypeVar => {
-                            self.get_or_create_jaxtyping_shape_carrier(Name::new(var_name))
-                        }
+                        QuantifiedKind::TypeVar | QuantifiedKind::SymVar => self
+                            .get_or_create_jaxtyping_shape_carrier(
+                                Name::new(var_name),
+                                shape_param.kind(),
+                            ),
                         QuantifiedKind::TypeVarTuple => unreachable!(
                             "shaped-array metadata validation rejects TypeVarTuple shape parameters"
                         ),

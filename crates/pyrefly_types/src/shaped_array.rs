@@ -22,7 +22,6 @@ use crate::dimension::SizeExpr;
 use crate::dimension::canonicalize;
 use crate::lit_int::LitInt;
 use crate::literal::Lit;
-use crate::quantified::QuantifiedKind;
 use crate::tuple::Tuple;
 use crate::types::Type;
 
@@ -616,8 +615,7 @@ pub fn shape_to_tuple_carrier(shape: &ShapedArrayShape) -> Type {
 /// Detects a tuple-carrier shape variable occupying the variadic middle of an
 /// unpacked shape.
 pub fn is_tuple_carrier_shape_middle(ty: &Type) -> bool {
-    matches!(ty, Type::Var(_))
-        || matches!(ty, Type::Quantified(q) if q.kind() == QuantifiedKind::TypeVar)
+    matches!(ty, Type::Var(_)) || matches!(ty, Type::Quantified(q) if q.is_type_var())
 }
 
 /// Convert a projected tuple-carrier shape back to the class type argument.

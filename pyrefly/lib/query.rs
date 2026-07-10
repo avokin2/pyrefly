@@ -304,7 +304,7 @@ fn is_static_method(ty: &Type) -> bool {
 fn bound_of_type_var(ty: &Type) -> Option<&Type> {
     match ty {
         Type::Quantified(q) | Type::QuantifiedValue(q)
-            if q.kind == QuantifiedKind::TypeVar
+            if q.is_type_var()
                 && let Restriction::Bound(bound) = &q.restriction =>
         {
             Some(bound)

@@ -96,6 +96,12 @@ use crate::types::type_info::TypeInfo;
 use crate::types::types::Type;
 use crate::types::types::Var;
 
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum JaxtypingQuantifiedKey {
+    Dim(Name),
+    ShapeCarrier(Name, QuantifiedKind),
+}
+
 pub struct TypeCheckOptions<'a> {
     errors: &'a ErrorCollector,
     context: &'a dyn Fn() -> TypeCheckContext,
@@ -1722,11 +1728,11 @@ pub struct AnswersSolver<'a, Ans: LookupAnswer> {
     pub recurser: &'a VarRecurser,
     pub stdlib: &'a Stdlib,
     pub heap: &'a TypeHeap,
-    /// Cache for jaxtyping dimension name → Quantified type mappings.
-    /// Module-scoped: the same dimension name always maps to the same Quantified,
+    /// Cache for jaxtyping synthetic quantifieds.
+    /// Module-scoped: the same dimension key always maps to the same Quantified,
     /// which is correct because each function independently wraps its signature
     /// in a Forall (just like legacy TypeVars defined at module scope).
-    jaxtyping_dims: RefCell<FxHashMap<Name, Quantified>>,
+    jaxtyping_dims: RefCell<FxHashMap<JaxtypingQuantifiedKey, Quantified>>,
 }
 
 /// RAII guard that releases write locks on panic during SCC batch commit.
@@ -1812,7 +1818,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         // (default) anchor. Shared with `get_or_create_jaxtyping_shape_carrier`, which
         // uses the same map, so ordinals stay unique across both.
         let ordinal = dims.len() as u32;
-        dims.entry(name.clone())
+        dims.entry(JaxtypingQuantifiedKey::Dim(name.clone()))
             .or_insert_with(|| {
                 let identity = QuantifiedIdentity::new(
                     self.module().name(),
@@ -1820,9 +1826,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     QuantifiedOrigin::SyntheticCallableResidual,
                 );
                 match kind {
-                    QuantifiedKind::TypeVar => Quantified::type_var(
-                        name,
+                    QuantifiedKind::TypeVar | QuantifiedKind::SymVar => Quantified::new(
                         identity,
+                        name,
+                        kind,
                         None,
                         Restriction::Unrestricted,
                         PreInferenceVariance::Invariant,
@@ -1838,31 +1845,41 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .clone()
     }
 
-    /// Get or create a tuple-carrier TypeVar for a jaxtyping variadic shape name.
+    /// Get or create a tuple-carrier TypeVar or SymVar for a jaxtyping variadic shape name.
     ///
     /// A variadic jaxtyping shape (`*name`) whose enclosing shaped-array class uses a
-    /// `TypeVar` (SizeTuple) shape parameter needs a carrier TypeVar bounded by
+    /// `TypeVar`/`SymVar` (SizeTuple) shape parameter needs a carrier bounded by
     /// `tuple[int, ...]`, rather than the `TypeVarTuple` produced for `*Shape` classes.
-    pub fn get_or_create_jaxtyping_shape_carrier(&self, name: Name) -> Quantified {
+    pub fn get_or_create_jaxtyping_shape_carrier(
+        &self,
+        name: Name,
+        kind: QuantifiedKind,
+    ) -> Quantified {
         let mut dims = self.jaxtyping_dims.borrow_mut();
         // See `get_or_create_jaxtyping_dim`: the shared map's size is a collision-free ordinal.
         let ordinal = dims.len() as u32;
-        dims.entry(name.clone())
+        dims.entry(JaxtypingQuantifiedKey::ShapeCarrier(name.clone(), kind))
             .or_insert_with(|| {
                 let identity = QuantifiedIdentity::new(
                     self.module().name(),
                     AnchorIndex::new(TextRange::default(), ordinal),
                     QuantifiedOrigin::SyntheticCallableResidual,
                 );
-                Quantified::type_var(
-                    name,
-                    identity,
-                    None,
-                    Restriction::Bound(Type::Tuple(Tuple::Unbounded(Box::new(
-                        self.heap.mk_class_type(self.stdlib.int().clone()),
-                    )))),
-                    PreInferenceVariance::Invariant,
-                )
+                match kind {
+                    QuantifiedKind::TypeVar | QuantifiedKind::SymVar => Quantified::new(
+                        identity,
+                        name,
+                        kind,
+                        None,
+                        Restriction::Bound(Type::Tuple(Tuple::Unbounded(Box::new(
+                            self.heap.mk_class_type(self.stdlib.int().clone()),
+                        )))),
+                        PreInferenceVariance::Invariant,
+                    ),
+                    QuantifiedKind::TypeVarTuple | QuantifiedKind::ParamSpec => {
+                        unreachable!("jaxtyping shape carriers must be TypeVar or SymVar")
+                    }
+                }
             })
             .clone()
     }

@@ -2234,8 +2234,15 @@ pub enum Binding {
         TextRange,
         Option<Box<MultiTargetReceiver>>,
     ),
-    /// TypeVar, ParamSpec, or TypeVarTuple
-    TypeVar(Box<(Option<Idx<KeyAnnotation>>, Identifier, Box<ExprCall>)>),
+    /// TypeVar or SymVar
+    TypeVar(
+        Box<(
+            Option<Idx<KeyAnnotation>>,
+            Identifier,
+            Box<ExprCall>,
+            QuantifiedKind,
+        )>,
+    ),
     ParamSpec(Box<(Option<Idx<KeyAnnotation>>, Identifier, Box<ExprCall>)>),
     TypeVarTuple(Box<(Option<Idx<KeyAnnotation>>, Identifier, Box<ExprCall>)>),
     /// An expression returned from a function.
@@ -2415,8 +2422,8 @@ impl DisplayWith<Bindings> for Binding {
                 write!(f, ")")
             }
             Self::TypeVar(x) => {
-                let (a, name, call) = x.as_ref();
-                write!(f, "TypeVar({}, {name}, {})", ann(a), m.display(call))
+                let (a, name, call, kind) = x.as_ref();
+                write!(f, "{kind}({}, {name}, {})", ann(a), m.display(call))
             }
             Self::ParamSpec(x) => {
                 let (a, name, call) = x.as_ref();

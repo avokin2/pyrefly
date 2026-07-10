@@ -62,6 +62,7 @@ use crate::export::definitions::MutableCaptureKind;
 use crate::export::special::SpecialExport;
 use crate::state::loader::FindingOrError;
 use crate::types::alias::resolve_typeshed_alias;
+use crate::types::quantified::QuantifiedKind;
 use crate::types::special_form::SpecialForm;
 use crate::types::types::AnyStyle;
 
@@ -78,6 +79,14 @@ pub(crate) const SPECIAL_IMPORT_FUNCTIONS: &[&str] = &[
 /// Returns true if the given name is a special import function.
 pub(crate) fn is_special_import_function(name: &str) -> bool {
     SPECIAL_IMPORT_FUNCTIONS.contains(&name)
+}
+
+fn special_type_var_kind(special: SpecialExport) -> Option<QuantifiedKind> {
+    match special {
+        SpecialExport::TypeVar => Some(QuantifiedKind::TypeVar),
+        SpecialExport::SymVar => Some(QuantifiedKind::SymVar),
+        _ => None,
+    }
 }
 
 /// Returns true if the module name represents a directory import
@@ -310,7 +319,7 @@ impl<'a> BindingsBuilder<'a> {
         }
     }
 
-    fn assign_type_var(&mut self, name: &ExprName, call: &mut ExprCall) {
+    fn assign_type_var(&mut self, name: &ExprName, call: &mut ExprCall, kind: QuantifiedKind) {
         // Type var declarations are static types only; skip them for first-usage type inference.
         let static_type_usage = &mut Usage::StaticTypeInformation {
             is_annotation: false,
@@ -339,6 +348,7 @@ impl<'a> BindingsBuilder<'a> {
                 ann,
                 Ast::expr_name_identifier(name.clone()),
                 Box::new(call.clone()),
+                kind,
             )))
         })
     }
@@ -715,11 +725,11 @@ impl<'a> BindingsBuilder<'a> {
                     if let Expr::Call(call) = &mut *x.value
                         && let Some(special) = self.as_special_export(&call.func)
                     {
+                        if let Some(kind) = special_type_var_kind(special) {
+                            self.assign_type_var(name, call, kind);
+                            return;
+                        }
                         match special {
-                            SpecialExport::TypeVar | SpecialExport::SymVar => {
-                                self.assign_type_var(name, call);
-                                return;
-                            }
                             SpecialExport::ParamSpec => {
                                 self.assign_param_spec(name, call);
                                 return;
@@ -875,17 +885,18 @@ impl<'a> BindingsBuilder<'a> {
                                     &mut x.annotation,
                                     AnnAssignHasValue::Yes,
                                 );
-                                match special {
-                                    SpecialExport::TypeVar | SpecialExport::SymVar => {
-                                        self.assign_type_var(&name, call);
+                                if let Some(kind) = special_type_var_kind(special) {
+                                    self.assign_type_var(&name, call, kind);
+                                } else {
+                                    match special {
+                                        SpecialExport::ParamSpec => {
+                                            self.assign_param_spec(&name, call);
+                                        }
+                                        SpecialExport::TypeVarTuple => {
+                                            self.assign_type_var_tuple(&name, call);
+                                        }
+                                        _ => unreachable!("filtered by outer match"),
                                     }
-                                    SpecialExport::ParamSpec => {
-                                        self.assign_param_spec(&name, call);
-                                    }
-                                    SpecialExport::TypeVarTuple => {
-                                        self.assign_type_var_tuple(&name, call);
-                                    }
-                                    _ => unreachable!("filtered by outer match"),
                                 }
                                 return;
                             }

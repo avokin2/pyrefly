@@ -216,7 +216,7 @@ pub enum TypeFormContext {
 impl TypeFormContext {
     pub fn quantified_kind_default(x: QuantifiedKind) -> Self {
         match x {
-            QuantifiedKind::TypeVar => TypeFormContext::TypeVarDefault,
+            QuantifiedKind::TypeVar | QuantifiedKind::SymVar => TypeFormContext::TypeVarDefault,
             QuantifiedKind::ParamSpec => TypeFormContext::ParamSpecDefault,
             QuantifiedKind::TypeVarTuple => TypeFormContext::TypeVarTupleDefault,
         }
@@ -2955,16 +2955,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         // already caught by InvalidVariance at the usage site.
         let metadata = self.get_metadata_for_class(class);
         if metadata.is_protocol()
-            && tparams.as_vec().iter().any(|p| {
-                p.kind() == QuantifiedKind::TypeVar
-                    && p.variance() == PreInferenceVariance::Invariant
-            })
+            && tparams
+                .as_vec()
+                .iter()
+                .any(|p| p.is_type_var() && p.variance() == PreInferenceVariance::Invariant)
         {
             let inferred = self.infer_variance_ignoring_declared(class);
             for tparam in tparams.as_vec() {
-                if tparam.kind() != QuantifiedKind::TypeVar
-                    || tparam.variance() != PreInferenceVariance::Invariant
-                {
+                if !tparam.is_type_var() || tparam.variance() != PreInferenceVariance::Invariant {
                     continue;
                 }
                 let inferred_v = inferred.get(tparam.name());
@@ -3141,7 +3139,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     ) -> Type {
         fn quantified_error(kind: QuantifiedKind) -> ErrorKind {
             match kind {
-                QuantifiedKind::TypeVar => ErrorKind::InvalidTypeVar,
+                QuantifiedKind::TypeVar | QuantifiedKind::SymVar => ErrorKind::InvalidTypeVar,
                 QuantifiedKind::ParamSpec => ErrorKind::InvalidParamSpec,
                 QuantifiedKind::TypeVarTuple => ErrorKind::InvalidTypeVarTuple,
             }
@@ -3239,13 +3237,15 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     self.heap.mk_any_error()
                 }
             }
-            QuantifiedKind::TypeVar => {
+            QuantifiedKind::TypeVar | QuantifiedKind::SymVar => {
                 if default.is_kind_param_spec() || default.is_kind_type_var_tuple() {
                     self.error(
                         errors,
                         range,
                         ErrorKind::InvalidTypeVar,
-                        format!( "Default for `TypeVar` may not be a `TypeVarTuple` or `ParamSpec`, got `{default}`"),
+                        format!(
+                            "Default for `{kind}` may not be a `TypeVarTuple` or `ParamSpec`, got `{default}`"
+                        ),
                     );
                     self.heap.mk_any_error()
                 } else {
@@ -5431,9 +5431,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 errors,
             ),
             Binding::TypeVar(x) => {
-                let (ann, name, call) = x.as_ref();
+                let (ann, name, call, kind) = x.as_ref();
                 let ty = self
-                    .typevar_from_call(name.clone(), call, errors)
+                    .typevar_from_call(name.clone(), call, *kind, errors)
                     .to_type(self.heap);
                 if let Some(k) = ann
                     && let AnnotationWithTarget {

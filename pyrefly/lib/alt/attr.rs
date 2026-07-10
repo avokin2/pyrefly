@@ -2224,7 +2224,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             return None;
         }
         let shape_param = self.shaped_array_shape_for_class_type(cls)?;
-        if shape_param.kind() != QuantifiedKind::TypeVar {
+        if !shape_param.is_type_var() {
             return None;
         }
         Some(self.shaped_array_classtype_to_shaped_array_type(cls))

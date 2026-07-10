@@ -7,11 +7,16 @@
 
 use pyrefly_types::quantified::Quantified;
 use pyrefly_types::quantified::QuantifiedKind;
+use ruff_python_ast::name::Name;
 
+use crate::binding::binding::KeyExport;
+use crate::binding::binding::KeyTParams;
 use crate::test::class_keywords::get_class_metadata;
 use crate::test::util::TestEnv;
+use crate::test::util::get_class;
 use crate::test::util::testcase_for_macro;
 use crate::testcase;
+use crate::types::types::Type;
 
 fn shaped_array_env() -> TestEnv {
     let mut env = TestEnv::new();
@@ -304,6 +309,54 @@ class TupleCarrierArray[Shape, DType]: ...
     assert_shaped_array_shape(shape, "Shape", QuantifiedKind::TypeVar);
 }
 
+#[test]
+fn test_legacy_symvar_binding_has_symvar_kind() {
+    let mut env = shaped_array_env();
+    env.add(
+        "main",
+        r#"
+from shape_extensions import SymVar
+
+N = SymVar("N")
+"#,
+    );
+    let (state, handle) = env.to_state();
+    let main = handle("main");
+    let solutions = state.transaction().get_solutions(&main).unwrap();
+    match &**solutions.get(&KeyExport(Name::new("N"))) {
+        Type::TypeVar(tv) => assert_eq!(tv.kind(), QuantifiedKind::SymVar),
+        ty => panic!("expected `N` to solve to a raw SymVar, got `{ty}`"),
+    }
+}
+
+#[test]
+fn test_legacy_symvar_generic_class_tparam_has_symvar_kind() {
+    let mut env = shaped_array_env();
+    env.add(
+        "main",
+        r#"
+from shape_extensions import SymVar
+from typing import Generic
+
+N = SymVar("N")
+
+class Box(Generic[N]): ...
+"#,
+    );
+    let (state, handle) = env.to_state();
+    let main = handle("main");
+    let cls = get_class("Box", &main, &state);
+    let solutions = state.transaction().get_solutions(&main).unwrap();
+    let tparams = solutions.get(&KeyTParams(cls.index()));
+    assert_eq!(tparams.len(), 1);
+    let param = tparams
+        .iter()
+        .next()
+        .expect("Box should have one type parameter");
+    assert_eq!(param.name().as_str(), "N");
+    assert_eq!(param.kind(), QuantifiedKind::SymVar);
+}
+
 testcase!(
     test_shaped_array_invalid_metadata,
     shaped_array_env(),
@@ -353,10 +406,10 @@ class DuplicateDecoratorAfterInvalid[Shape]: ...
 @shaped_array(shape="Missing")  # E: Shape parameter `Missing` is not a type parameter of class `ShapeNotFound`
 class ShapeNotFound[Shape]: ...
 
-@shaped_array(shape="Shape")  # E: Shape parameter `Shape` must be a `TypeVar`, got `TypeVarTuple`
+@shaped_array(shape="Shape")  # E: Shape parameter `Shape` must be a `TypeVar` or `SymVar`, got `TypeVarTuple`
 class TypeVarTupleShape[*Shape]: ...
 
-@shaped_array(shape="Shape")  # E: Shape parameter `Shape` must be a `TypeVar`, got `ParamSpec`
+@shaped_array(shape="Shape")  # E: Shape parameter `Shape` must be a `TypeVar` or `SymVar`, got `ParamSpec`
 class ShapeIsParamSpec[**Shape, DType]: ...
 "#,
 );
@@ -1142,10 +1195,10 @@ def ordinary_unrestricted_typevar_value[T](x: T) -> None:
 );
 
 testcase!(
-    test_legacy_symvar_treated_as_typevar,
+    test_legacy_symvar_treated_as_symvar,
     shaped_array_env_with_shaped_torch(),
     r#"
-from shape_extensions import SymVar
+from shape_extensions import Dim, SymVar
 from torch import Tensor
 from typing import Generic, reveal_type
 
@@ -1154,7 +1207,8 @@ M = SymVar("M")
 
 class Box(Generic[N]): ...
 
-def f(x: Tensor[[N, M]], y: Box[N]) -> None:
+def f(n: Dim[N], x: Tensor[[N, M]], y: Box[N]) -> None:
+    reveal_type(n)  # E: revealed type: Dim[N]
     reveal_type(x)  # E: revealed type: Tensor[[N, M]]
     reveal_type(y)  # E: revealed type: Box[N]
 "#,

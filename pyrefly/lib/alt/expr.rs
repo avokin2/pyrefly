@@ -2023,8 +2023,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         &self,
         name: Identifier,
         x: &ExprCall,
+        kind: QuantifiedKind,
         errors: &ErrorCollector,
     ) -> TypeVar {
+        let construct = kind.to_string();
         let mut arg_name = false;
         let mut restriction = None;
         let mut default = None;
@@ -2038,7 +2040,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         x.range,
                         ErrorKind::InvalidTypeVar,
                         format!(
-                            "TypeVar must be assigned to a variable named `{}`",
+                            "{construct} must be assigned to a variable named `{}`",
                             lit.value.to_str()
                         ),
                     );
@@ -2048,7 +2050,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     errors,
                     arg.range(),
                     ErrorKind::InvalidTypeVar,
-                    "Expected first argument of TypeVar to be a string literal".to_owned(),
+                    format!("Expected first argument of {construct} to be a string literal"),
                 );
             }
         };
@@ -2092,7 +2094,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                                 errors,
                                 kw.range,
                                 ErrorKind::InvalidTypeVar,
-                                "TypeVar cannot have both constraints and bound".to_owned(),
+                                format!("{construct} cannot have both constraints and bound"),
                             );
                             restriction = Some(Restriction::Unrestricted);
                         } else {
@@ -2127,7 +2129,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                             errors,
                             kw.range,
                             ErrorKind::InvalidTypeVar,
-                            format!("Unexpected keyword argument `{}` to TypeVar", id.id),
+                            format!("Unexpected keyword argument `{}` to {construct}", id.id),
                         );
                     }
                 },
@@ -2136,7 +2138,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         errors,
                         kw.range,
                         ErrorKind::InvalidTypeVar,
-                        "Cannot pass unpacked keyword arguments to TypeVar".to_owned(),
+                        format!("Cannot pass unpacked keyword arguments to {construct}"),
                     );
                 }
             }
@@ -2159,7 +2161,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 x.range,
                 ErrorKind::InvalidTypeVar,
                 format!(
-                    "Expected at least 2 constraints in TypeVar `{}`, got {}",
+                    "Expected at least 2 constraints in {construct} `{}`, got {}",
                     name.id,
                     cs.len(),
                 ),
@@ -2171,7 +2173,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         if let Some((default_ty, default_range)) = default {
             default_value = Some(self.validate_type_var_default(
                 &name.id,
-                QuantifiedKind::TypeVar,
+                kind,
                 &default_ty,
                 default_range,
                 &restriction,
@@ -2181,9 +2183,10 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
         let variance = variance.unwrap_or(PreInferenceVariance::Invariant);
 
-        TypeVar::new(
+        TypeVar::new_with_kind(
             name,
             self.module().dupe(),
+            kind,
             restriction,
             default_value,
             variance,
@@ -3135,14 +3138,16 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .get(shape_idx)
             .expect("class type should have an argument for each type parameter");
         match shape_param.kind() {
-            QuantifiedKind::TypeVar => match tuple_carrier_to_shape(shape_arg) {
-                Some(shape) => ShapedArrayType::new(cls.clone(), shape).with_shape_arg_style(
-                    ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
-                ),
-                None => ShapedArrayType::shapeless(cls.clone()).with_shape_arg_style(
-                    ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
-                ),
-            },
+            QuantifiedKind::TypeVar | QuantifiedKind::SymVar => {
+                match tuple_carrier_to_shape(shape_arg) {
+                    Some(shape) => ShapedArrayType::new(cls.clone(), shape).with_shape_arg_style(
+                        ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
+                    ),
+                    None => ShapedArrayType::shapeless(cls.clone()).with_shape_arg_style(
+                        ShapedArrayShapeArgStyle::TupleCarrier { index: shape_idx },
+                    ),
+                }
+            }
             QuantifiedKind::TypeVarTuple => unreachable!(
                 "shaped-array metadata validation rejects TypeVarTuple shape parameters"
             ),
@@ -3169,7 +3174,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     ) -> ShapedArrayType {
         match self.shaped_array_shape_for_class_type(&tensor.base_class) {
             Some(shape_param) => match shape_param.kind() {
-                QuantifiedKind::TypeVar => {
+                QuantifiedKind::TypeVar | QuantifiedKind::SymVar => {
                     let shape_idx = self
                         .get_class_tparams(tensor.base_class.class_object())
                         .iter()
@@ -3849,7 +3854,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .position(|param| param == &shape_param)
             .expect("shaped-array metadata should refer to a class type parameter");
         match shape_param.kind() {
-            QuantifiedKind::TypeVar => {}
+            QuantifiedKind::TypeVar | QuantifiedKind::SymVar => {}
             QuantifiedKind::TypeVarTuple => unreachable!(
                 "shaped-array metadata validation rejects TypeVarTuple shape parameters"
             ),

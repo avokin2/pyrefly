@@ -1717,7 +1717,7 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
             }
             // Size <: Quantified - expand, canonicalize Size, and compare
             // A SizeExpr like (A + A) // 2 might simplify to A (a Quantified)
-            (Type::Size(s), Type::Quantified(q)) if matches!(q.kind, QuantifiedKind::TypeVar) => {
+            (Type::Size(s), Type::Quantified(q)) if q.is_type_var() => {
                 let mut got_expanded = Type::Size(s.clone());
                 self.solver.expand_with_bounds(&mut got_expanded);
                 let got_canonical = got_expanded.canonicalize();
@@ -1736,7 +1736,7 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                 }
             }
             // Quantified <: Size - expand Size, canonicalize, and compare
-            (Type::Quantified(q), Type::Size(s)) if matches!(q.kind, QuantifiedKind::TypeVar) => {
+            (Type::Quantified(q), Type::Size(s)) if q.is_type_var() => {
                 let mut want_expanded = Type::Size(s.clone());
                 self.solver.expand_with_bounds(&mut want_expanded);
                 let got_canonical = Type::Quantified(q.clone());
@@ -2568,9 +2568,10 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
     ) -> Result<(), SubsetError> {
         let (shape_param, got_arg) = self.shape_param_and_arg(got)?;
         let (want_param, want_arg) = self.shape_param_and_arg(want)?;
-        if shape_param.kind() != QuantifiedKind::TypeVar {
+        if !shape_param.is_type_var() {
             return Err(SubsetError::InternalError(
-                "ShapedArrayType registered a non-TypeVar as its shape parameter".to_owned(),
+                "ShapedArrayType registered a non-TypeVar/non-SymVar as its shape parameter"
+                    .to_owned(),
             ));
         }
 
@@ -2647,7 +2648,9 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
         let (shape_param, _) = self.shape_param_and_arg(shaped_array)?;
         let shape_arg = match shape_param.kind() {
             QuantifiedKind::TypeVarTuple => shape_to_tuple_carrier(&shaped_array.shape),
-            QuantifiedKind::TypeVar => shape_to_tuple_carrier_arg(&shaped_array.shape),
+            QuantifiedKind::TypeVar | QuantifiedKind::SymVar => {
+                shape_to_tuple_carrier_arg(&shaped_array.shape)
+            }
             QuantifiedKind::ParamSpec => {
                 return Err(SubsetError::InternalError(
                     "ShapedArrayType registered a ParamSpec as its shape parameter".to_owned(),
@@ -2679,7 +2682,7 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
     ) -> Result<ClassType, SubsetError> {
         let base_class = &shaped_array.base_class;
         let erased_shape_arg = match shape_param.kind() {
-            QuantifiedKind::TypeVar => Type::any_implicit(),
+            QuantifiedKind::TypeVar | QuantifiedKind::SymVar => Type::any_implicit(),
             QuantifiedKind::TypeVarTuple => {
                 return Err(SubsetError::InternalError(
                     "ShapedArrayType registered a TypeVarTuple as its shape parameter".to_owned(),

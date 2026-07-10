@@ -112,6 +112,13 @@ pub(crate) enum CalleeKind {
     Unknown,
 }
 
+/// The receiver type, method name, and call surface for an operator dunder.
+struct OperatorDunder {
+    base_type: Type,
+    dunder_name: Name,
+    range: TextRange,
+}
+
 fn callee_kind_from_call(call: &ExprCall) -> CalleeKind {
     match call.func.as_ref() {
         Expr::Name(name) => CalleeKind::Function(Ast::expr_name_identifier(name.clone())),
@@ -2015,7 +2022,7 @@ impl<'a> Transaction<'a> {
     ///
     /// Returns:
     /// - `Ok(None)` — no operator node found in `covering_nodes`
-    /// - `Ok(Some((base_type, dunder_name)))` — operator with a navigable dunder
+    /// - `Ok(Some(dunder))` — operator with a navigable dunder
     /// - `Err(NotAnIdentifier)` — operator without a dunder (`not`, `is`, `is not`)
     /// - `Err(AnswersNotFound)` — operator found but answers unavailable
     /// - `Err(TypeTraceNotFound)` — operator found but base expression has no type trace
@@ -2023,7 +2030,7 @@ impl<'a> Transaction<'a> {
         &self,
         handle: &Handle,
         covering_nodes: &[AnyNodeRef],
-    ) -> Result<Option<(Type, Name)>, EmptyResponseReason> {
+    ) -> Result<Option<OperatorDunder>, EmptyResponseReason> {
         // Look up the type of an expression, distinguishing "no answers"
         // from "answers available but no type trace for this range."
         let type_at = |range: TextRange| -> Result<Type, EmptyResponseReason> {
@@ -2042,8 +2049,14 @@ impl<'a> Transaction<'a> {
                     for op in &compare.ops {
                         // Handle membership test operators (in/not in) - uses __contains__ on the right operand
                         if matches!(op, CmpOp::In | CmpOp::NotIn) {
-                            let result = type_at(compare.comparators.first()?.range())
-                                .map(|right_type| (right_type, dunder::CONTAINS));
+                            let result =
+                                type_at(compare.comparators.first()?.range()).map(|right_type| {
+                                    OperatorDunder {
+                                        base_type: right_type,
+                                        dunder_name: dunder::CONTAINS,
+                                        range: compare.range(),
+                                    }
+                                });
                             return Some(result);
                         }
                         // is / is not — no dunder
@@ -2059,8 +2072,12 @@ impl<'a> Transaction<'a> {
                         }
                         // Handle rich comparison operators
                         if let Some(dunder_name) = dunder::rich_comparison_dunder(*op) {
-                            let result = type_at(compare.left.range())
-                                .map(|left_type| (left_type, dunder_name));
+                            let result =
+                                type_at(compare.left.range()).map(|left_type| OperatorDunder {
+                                    base_type: left_type,
+                                    dunder_name,
+                                    range: compare.range(),
+                                });
                             return Some(result);
                         }
                     }
@@ -2068,7 +2085,21 @@ impl<'a> Transaction<'a> {
                 }
                 AnyNodeRef::ExprBinOp(binop) => {
                     let dunder_name = Name::new_static(binop.op.dunder());
-                    Some(type_at(binop.left.range()).map(|left_type| (left_type, dunder_name)))
+                    Some(type_at(binop.left.range()).map(|left_type| OperatorDunder {
+                        base_type: left_type,
+                        dunder_name,
+                        range: binop.range(),
+                    }))
+                }
+                AnyNodeRef::StmtAugAssign(augassign) => {
+                    let dunder_name = Name::new_static(augassign.op.in_place_dunder());
+                    Some(
+                        type_at(augassign.target.range()).map(|left_type| OperatorDunder {
+                            base_type: left_type,
+                            dunder_name,
+                            range: augassign.range(),
+                        }),
+                    )
                 }
                 AnyNodeRef::ExprUnaryOp(unaryop) => {
                     let dunder_name = match unaryop.op {
@@ -2080,7 +2111,11 @@ impl<'a> Transaction<'a> {
                         }),
                     };
                     Some(dunder_name.and_then(|name| {
-                        type_at(unaryop.operand.range()).map(|operand_type| (operand_type, name))
+                        type_at(unaryop.operand.range()).map(|operand_type| OperatorDunder {
+                            base_type: operand_type,
+                            dunder_name: name,
+                            range: unaryop.range(),
+                        })
                     }))
                 }
                 AnyNodeRef::ExprSubscript(subscript) => {
@@ -2090,15 +2125,29 @@ impl<'a> Transaction<'a> {
                         ExprContext::Del => Some(dunder::DELITEM),
                         ExprContext::Invalid => None,
                     }?;
-                    Some(type_at(subscript.value.range()).map(|base_type| (base_type, dunder_name)))
+                    Some(
+                        type_at(subscript.value.range()).map(|base_type| OperatorDunder {
+                            base_type,
+                            dunder_name,
+                            range: subscript.range(),
+                        }),
+                    )
                 }
                 // Handle iteration `in` keyword in for loops
-                AnyNodeRef::StmtFor(stmt_for) => {
-                    Some(type_at(stmt_for.iter.range()).map(|iter_type| (iter_type, dunder::ITER)))
-                }
+                AnyNodeRef::StmtFor(stmt_for) => Some(type_at(stmt_for.iter.range()).map(
+                    |iter_type| OperatorDunder {
+                        base_type: iter_type,
+                        dunder_name: dunder::ITER,
+                        range: stmt_for.iter.range(),
+                    },
+                )),
                 // Handle iteration `in` keyword in comprehensions
                 AnyNodeRef::Comprehension(comp) => {
-                    Some(type_at(comp.iter.range()).map(|iter_type| (iter_type, dunder::ITER)))
+                    Some(type_at(comp.iter.range()).map(|iter_type| OperatorDunder {
+                        base_type: iter_type,
+                        dunder_name: dunder::ITER,
+                        range: comp.iter.range(),
+                    }))
                 }
                 _ => None,
             })
@@ -2133,6 +2182,16 @@ impl<'a> Transaction<'a> {
         self.get_chosen_overload_trace_for_surface(handle, subscript.range(), true)
     }
 
+    pub(crate) fn operator_type_at(&self, handle: &Handle, position: TextSize) -> Option<Type> {
+        if self.identifier_at(handle, position).is_some() {
+            return None;
+        }
+        let module = self.get_ast(handle)?;
+        let covering_nodes = Ast::locate_node(&module, position);
+        let dunder = self.find_operator_dunder(handle, &covering_nodes).ok()??;
+        self.get_chosen_overload_trace_for_surface(handle, dunder.range, true)
+    }
+
     /// Try operator-based go-to-definition. Returns `Ok(None)` when there is
     /// no operator at the cursor, `Ok(Some(...))` on success, or
     /// `Err(...)` when an operator was found but couldn't be resolved.
@@ -2142,10 +2201,14 @@ impl<'a> Transaction<'a> {
         covering_nodes: &[AnyNodeRef],
         preference: FindPreference,
     ) -> Result<Option<Vec1<FindDefinitionItemWithDocstring>>, EmptyResponseReason> {
-        let Some((base_type, dunder_name)) = self.find_operator_dunder(handle, covering_nodes)?
-        else {
+        let Some(dunder) = self.find_operator_dunder(handle, covering_nodes)? else {
             return Ok(None);
         };
+        let OperatorDunder {
+            base_type,
+            dunder_name,
+            range: _,
+        } = dunder;
         let dunder_str = dunder_name.to_string();
         let defs = self
             .find_attribute_definition_for_base_type(handle, preference, base_type, &dunder_name)

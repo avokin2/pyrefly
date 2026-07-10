@@ -1730,7 +1730,7 @@ def test_union(x: A  | B):
 );
 
 testcase!(
-    bug = "type[ClassDef(..)] and type[ClassType(..)] should be type (or the direct metaclass?)",
+    bug = "type[ClassType(..)] should be type (or the direct metaclass?)",
     test_attribute_access_on_type_class,
     r#"
 # handy hack to get a type[X] for any X
@@ -1744,8 +1744,29 @@ class D[T]:
     @classmethod
     def m(cls, x: T): ...
 
-ty(C).m(0) # E: Expr::attr_infer_for_type attribute base undefined
+ty(C).m(0) # E: Class `type` has no class attribute `m`
 ty(D[int]).m(0) # E: Expr::attr_infer_for_type attribute base undefined
+"#,
+);
+
+testcase!(
+    test_attribute_access_on_classdef_metaclass,
+    r#"
+class Meta(type):
+    def __setattr__(cls, name: str, value: int) -> None: ...
+    def __getattribute__(cls, name: str) -> object: ...
+
+class C(metaclass=Meta):
+    pass
+
+C.__class__.__setattr__(C, "x", 0)
+C.__class__.__setattr__(C, "x", "bad") # E: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
+C.__class__.__getattribute__(C, "x")
+
+class DefaultMeta:
+    pass
+
+DefaultMeta.__class__.mro(DefaultMeta)
 "#,
 );
 
@@ -1762,7 +1783,7 @@ class TD(TypedDict):
     x: int
 
 ty(TD(x = 0))(x = 0)
-ty(TD).mro() # E: Expr::attr_infer_for_type attribute base undefined
+ty(TD).mro() # E: Missing argument `self` in function `type.mro`
 "#,
 );
 

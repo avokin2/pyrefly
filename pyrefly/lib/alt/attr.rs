@@ -2356,6 +2356,17 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     acc.push(class_base)
                 }
             }
+            Type::Type(f) if matches!(&*f, Type::ClassDef(_)) => {
+                let Type::ClassDef(class) = *f else {
+                    unreachable!("guarded by matches! above")
+                };
+                // type[ClassDef(C)] is C.__class__: C's metaclass, viewed as a class object.
+                let metaclass = self
+                    .get_metadata_for_class(&class)
+                    .metaclass(self.stdlib)
+                    .clone();
+                acc.push(AttributeBase1::ClassObject(ClassBase::ClassType(metaclass)))
+            }
             Type::QuantifiedValue(q) => acc.push(AttributeBase1::QuantifiedValue(*q)),
             Type::Type(f) if matches!(&*f, Type::Quantified(_)) => {
                 let Type::Quantified(quantified) = *f else {

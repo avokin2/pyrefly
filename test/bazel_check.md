@@ -20,10 +20,31 @@ $ mkdir -p $TMPDIR/bazel_error/pkg && cd $TMPDIR/bazel_error && \
 > $JQ -r '[(.diagnostics | length), .diagnostics[0].target, .diagnostics[0].path, .diagnostics[0].name] | join(" ")' out.json; \
 > exit $rc
 Target //pkg:app
+
 ERROR * [bad-assignment] (glob)
 *pkg/app.py* (glob)
 * (glob+)
 1 //pkg:app pkg/app.py bad-assignment
+[1]
+```
+
+## Root workspace canonical target label is normalized
+
+```scrut {output_stream: stdout}
+$ mkdir -p $TMPDIR/bazel_canonical_label && cd $TMPDIR/bazel_canonical_label && \
+> echo "x: int = 'bad'" > app.py && \
+> printf '%s' '{"target":{"label":"@@//:app","workspace_name":"_main","package":"","name":"app","rule_kind":"py_binary"},"check_roots":{"sources":["app.py"]},"search_path":{"workspace_name":"_main","python_import_all_repositories":false},"config":{"python_version":"3.12","system_platform":"linux"}}' > input.json && \
+> $PYREFLY bazel-check --output out.json input.json > stdout.txt 2> stderr.txt; rc=$?; \
+> test ! -s stdout.txt && \
+> cat stderr.txt && \
+> $JQ -r '.diagnostics[0].target' out.json; \
+> exit $rc
+Target //:app
+
+ERROR * [bad-assignment] (glob)
+*app.py* (glob)
+* (glob+)
+//:app
 [1]
 ```
 
@@ -68,6 +89,7 @@ $ mkdir -p $TMPDIR/bazel_generated/bazel-out/darwin-fastbuild/bin && cd $TMPDIR/
 > $JQ -r '[(.diagnostics | length), .diagnostics[0].path, .diagnostics[0].target] | join(" ")' out.json; \
 > exit $rc
 Target //pkg:generated
+
 ERROR * [bad-assignment] (glob)
 *bazel-out/darwin-fastbuild/bin/generated.py* (glob)
 * (glob+)
@@ -104,6 +126,7 @@ $ mkdir -p $TMPDIR/bazel_reveal/pkg && cd $TMPDIR/bazel_reveal && \
 > cat stderr.txt && \
 > $JQ -r '[(.diagnostics | length), .diagnostics[0].path, .diagnostics[0].name] | join(" ")' out.json
 Target //pkg:app
+
  INFO revealed type: Literal[1] [reveal-type]
 *pkg/app.py* (glob)
 * (glob+)

@@ -7,11 +7,13 @@
 
 use std::cmp::Ordering;
 use std::cmp::Reverse;
+use std::io::Write as _;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use anstream::stderr;
 use anyhow::Context as _;
 use anyhow::bail;
 use clap::Parser;
@@ -37,6 +39,7 @@ use serde::Serialize;
 use serde_json::Value;
 use starlark_map::small_map::SmallMap;
 use vec1::Vec1;
+use yansi::Paint;
 
 use crate::commands::check::write_errors_to_stderr;
 use crate::commands::util::CommandExitStatus;
@@ -862,6 +865,14 @@ fn bazel_diagnostics_from_errors<'a>(target: &'a str, errors: &[Error]) -> Bazel
     }
 }
 
+fn display_target_label(input_label: &str) -> &str {
+    if input_label.starts_with("@@//") {
+        &input_label[2..]
+    } else {
+        input_label
+    }
+}
+
 fn read_input_file(path: &Path) -> anyhow::Result<BazelCheckInput> {
     let data = fs_anyhow::read(path)
         .with_context(|| format!("failed to read Bazel input JSON `{}`", path.display()))?;
@@ -906,10 +917,19 @@ impl BazelCheckArgs {
             .into_iter()
             .filter(|error| keep_in_bazel_output(error, min_severity))
             .collect::<Vec<_>>();
-        let diagnostics = bazel_diagnostics_from_errors(&input.target.label, &displayed_errors);
+        let target_label = display_target_label(&input.target.label);
+        let diagnostics = bazel_diagnostics_from_errors(target_label, &displayed_errors);
         write_output(&output_path, &diagnostics)?;
         if !displayed_errors.is_empty() {
-            eprintln!("Target {}", input.target.label);
+            // `stderr()` is an anstream stream, so it strips the color codes itself
+            // when color is disabled; no need to branch on the color choice here.
+            writeln!(
+                stderr(),
+                "{}\n",
+                Paint::magenta(&format!("Target {target_label}"))
+                    .bold()
+                    .underline()
+            )?;
             write_errors_to_stderr(Path::new(""), &displayed_errors, true)?;
         }
         if displayed_errors
@@ -990,6 +1010,13 @@ mod tests {
         assert_eq!(input.target.package, "pkg");
         assert_eq!(input.target.name, "app");
         assert_eq!(input.target.rule_kind, "py_binary");
+    }
+
+    #[test]
+    fn display_target_label_normalizes_root_workspace_canonical_label_only() {
+        assert_eq!(display_target_label("@@//:app"), "//:app");
+        assert_eq!(display_target_label("//pkg:app"), "//pkg:app");
+        assert_eq!(display_target_label("@@repo//pkg:app"), "@@repo//pkg:app");
     }
 
     #[test]

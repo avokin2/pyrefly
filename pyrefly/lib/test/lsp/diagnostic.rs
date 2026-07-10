@@ -160,7 +160,7 @@ SymVar: _SpecialForm
     );
     let handle = handles.get("main").unwrap();
     let report = get_unused_import_diagnostics(&state, handle);
-    assert_eq!(report, "Import `path` is unused");
+    assert_eq!(report, "Import `path` may be unused");
 }
 
 #[test]

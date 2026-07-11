@@ -1026,3 +1026,106 @@ d = untyped(1)
 class C: ...
 "#,
 );
+
+testcase!(
+    test_untyped_function_decorator,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any
+
+my_decorator: Any = lambda f: f
+
+@my_decorator  # E: Untyped function decorator obscures the type of function `g`
+def g() -> int:
+    return 1
+"#,
+);
+
+testcase!(
+    test_untyped_method_decorator,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any
+
+my_decorator: Any = lambda f: f
+
+class C:
+    @my_decorator  # E: Untyped function decorator obscures the type of function `m`
+    def m(self) -> int:
+        return 1
+"#,
+);
+
+testcase!(
+    test_unannotated_function_decorator_no_error,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+# An unannotated decorator function's own type is a callable, not `Any`, so it does not
+# fire (matching the class-decorator rule).
+def my_decorator(f):
+    return f
+
+@my_decorator
+def g() -> int:
+    return 1
+"#,
+);
+
+testcase!(
+    test_typed_function_decorator_no_error,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Callable
+
+def typed(f: Callable[[], int]) -> Callable[[], int]:
+    return f
+
+@typed
+def h() -> int:
+    return 1
+"#,
+);
+
+testcase!(
+    test_function_decorator_explicit_any_return_no_error,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any
+
+def anydec(f) -> Any: ...
+
+@anydec
+def k() -> int:
+    return 1
+"#,
+);
+
+testcase!(
+    test_implicit_any_function_decorator,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+def untyped(x):
+    return x
+
+# `d` has an implicit `Any` type (from an untyped call), which obscures the function too.
+d = untyped(1)
+
+@d  # E: Untyped function decorator obscures the type of function `g`
+def g() -> int:
+    return 1
+"#,
+);
+
+testcase!(
+    test_untyped_function_decorator_suppressed,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any
+
+my_decorator: Any = lambda f: f
+
+@my_decorator  # pyrefly: ignore[untyped-function-decorator]
+def g() -> int:
+    return 1
+"#,
+);

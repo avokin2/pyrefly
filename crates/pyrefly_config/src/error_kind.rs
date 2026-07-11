@@ -389,6 +389,8 @@ pub enum ErrorKind {
     UnsupportedOperation,
     /// A class decorator whose own type is `Any`, obscuring the decorated class type.
     UntypedClassDecorator,
+    /// A function decorator whose own type is `Any`, obscuring the decorated function type.
+    UntypedFunctionDecorator,
     /// Import is missing an expected stubs package
     UntypedImport,
     /// Result of async function call is never used or awaited
@@ -532,6 +534,7 @@ impl ErrorKind {
             ErrorKind::UnreachableMatchCase => Severity::Warn,
             ErrorKind::UnresolvableDunderAll => Severity::Warn,
             ErrorKind::UntypedClassDecorator => Severity::Ignore,
+            ErrorKind::UntypedFunctionDecorator => Severity::Ignore,
             ErrorKind::UntypedImport => Severity::Warn,
             ErrorKind::UnusedIgnore => Severity::Ignore,
             ErrorKind::UnusedTypeIgnore => Severity::Ignore,

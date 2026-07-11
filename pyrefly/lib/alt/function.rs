@@ -494,6 +494,20 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     if is_class_property_decorator_type(&decorator.ty) {
                         found_class_property = true;
                     }
+                    if matches!(
+                        &decorator.ty,
+                        Type::Any(AnyStyle::Implicit | AnyStyle::Explicit)
+                    ) {
+                        self.error(
+                            errors,
+                            range,
+                            ErrorKind::UntypedFunctionDecorator,
+                            format!(
+                                "Untyped function decorator obscures the type of function `{}`",
+                                def.name
+                            ),
+                        );
+                    }
                     true
                 }
             };

@@ -337,6 +337,24 @@ mod tests {
     }
 
     #[test]
+    fn test_migrate_from_pyright_untyped_function_decorator() {
+        let mut pyright_cfg = default_pyright_config();
+        pyright_cfg.errors.report_untyped_function_decorator = Some(Severity::Error);
+
+        let mut pyrefly_cfg = ConfigFile::default();
+
+        let error_codes = ErrorCodes;
+        let result = error_codes.migrate_from_pyright(&pyright_cfg, &mut pyrefly_cfg);
+
+        assert!(result.is_ok());
+        let errors = pyrefly_cfg.root.errors.as_ref().unwrap();
+        assert_eq!(
+            errors.severity(ErrorKind::UntypedFunctionDecorator),
+            Severity::Error
+        );
+    }
+
+    #[test]
     fn test_migrate_from_pyright_use_max_severity() {
         let mut pyright_cfg = default_pyright_config();
         pyright_cfg.errors.report_unknown_parameter_type = Some(Severity::Error);

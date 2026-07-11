@@ -1889,6 +1889,22 @@ my_decorator: Any = lambda cls: cls
 class A: ...
 ```
 
+## untyped-function-decorator
+
+Default severity: `ignore`
+
+A function or method decorator whose own type is `Any` obscures the decorated function's type.
+
+```python
+from typing import Any
+
+my_decorator: Any = lambda f: f
+
+@my_decorator  # `my_decorator` is `Any`, so the type of `g` is lost [untyped-function-decorator]
+def g() -> int:
+    return 1
+```
+
 ## untyped-import
 
 Default severity: `warn`

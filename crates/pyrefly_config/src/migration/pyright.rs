@@ -306,6 +306,8 @@ pub struct RuleOverrides {
     // Decorator rules
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_untyped_class_decorator: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_untyped_function_decorator: Option<Severity>,
 
     // Name/redeclaration rules
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
@@ -516,6 +518,10 @@ impl RuleOverrides {
         add(
             self.report_untyped_class_decorator,
             ErrorKind::UntypedClassDecorator,
+        );
+        add(
+            self.report_untyped_function_decorator,
+            ErrorKind::UntypedFunctionDecorator,
         );
 
         // Name/redeclaration rules

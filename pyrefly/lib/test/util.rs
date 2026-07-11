@@ -126,6 +126,7 @@ pub struct TestEnv {
     no_any_return_explicit_error: bool,
     no_any_return_implicit_error: bool,
     implicit_any_lambda_error: bool,
+    implicit_any_variable_error: bool,
     default_require_level: Require,
     extra_file_extensions: Vec<String>,
     /// The `Require` level passed to `run()` in `to_state()`. Controls whether
@@ -165,6 +166,7 @@ impl TestEnv {
             no_any_return_explicit_error: false,
             no_any_return_implicit_error: false,
             implicit_any_lambda_error: false,
+            implicit_any_variable_error: false,
             default_require_level: Require::Exports,
             extra_file_extensions: Vec::new(),
             run_require: Require::Everything,
@@ -357,6 +359,11 @@ impl TestEnv {
         self
     }
 
+    pub fn enable_implicit_any_variable_error(mut self) -> Self {
+        self.implicit_any_variable_error = true;
+        self
+    }
+
     pub fn with_default_require_level(mut self, level: Require) -> Self {
         self.default_require_level = level;
         self
@@ -503,6 +510,9 @@ impl TestEnv {
         }
         if self.implicit_any_lambda_error {
             errors.set_error_severity(ErrorKind::ImplicitAnyLambda, Severity::Error);
+        }
+        if self.implicit_any_variable_error {
+            errors.set_error_severity(ErrorKind::ImplicitAnyVariable, Severity::Error);
         }
         config.extra_file_extensions = self.extra_file_extensions.clone();
         let mut sourcedb = MapDatabase::new(config.get_sys_info());

@@ -419,7 +419,10 @@ impl RuleOverrides {
             ErrorKind::ImplicitAnyParameter,
         );
         add(self.report_unknown_argument_type, ErrorKind::ImplicitAny);
-        add(self.report_unknown_variable_type, ErrorKind::ImplicitAny);
+        add(
+            self.report_unknown_variable_type,
+            ErrorKind::ImplicitAnyVariable,
+        );
         add(self.report_unknown_member_type, ErrorKind::ImplicitAny);
         add(
             self.report_unknown_lambda_type,

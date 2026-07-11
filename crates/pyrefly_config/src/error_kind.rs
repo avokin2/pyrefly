@@ -190,6 +190,10 @@ pub enum ErrorKind {
     /// to `Any`.
     /// This is a sub-kind of [ImplicitAny]: suppressing `implicit-any` also suppresses this error.
     ImplicitAnyTypeArgument,
+    /// An implicit `Any` introduced when a variable is assigned a value of
+    /// unknown type without an explicit annotation.
+    /// This is a sub-kind of [ImplicitAny]: suppressing `implicit-any` also suppresses this error.
+    ImplicitAnyVariable,
     /// Usage of a module that was not actually imported, but does exist.
     ImplicitImport,
     /// An attribute was implicitly defined by assignment to `self` in a method that we
@@ -451,7 +455,8 @@ impl ErrorKind {
             ErrorKind::ImplicitAnyAttribute
             | ErrorKind::ImplicitAnyEmptyContainer
             | ErrorKind::ImplicitAnyParameter
-            | ErrorKind::ImplicitAnyTypeArgument => Some(ErrorKind::ImplicitAny),
+            | ErrorKind::ImplicitAnyTypeArgument
+            | ErrorKind::ImplicitAnyVariable => Some(ErrorKind::ImplicitAny),
             ErrorKind::NoAnyReturnExplicit | ErrorKind::NoAnyReturnImplicit => {
                 Some(ErrorKind::NoAnyReturn)
             }
@@ -518,6 +523,7 @@ impl ErrorKind {
             ErrorKind::UnannotatedParameter => Severity::Ignore,
             ErrorKind::UnannotatedReturn => Severity::Ignore,
             ErrorKind::ImplicitAnyLambda => Severity::Ignore,
+            ErrorKind::ImplicitAnyVariable => Severity::Ignore,
             ErrorKind::UnnecessaryComparison => Severity::Warn,
             ErrorKind::UnnecessaryTypeConversion => Severity::Warn,
             ErrorKind::Unreachable => Severity::Warn,

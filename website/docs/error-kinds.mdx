@@ -543,6 +543,7 @@ Most concrete diagnostics are emitted under one of the more specific sub-kinds:
 - [`implicit-any-lambda`](#implicit-any-lambda)
 - [`implicit-any-parameter`](#implicit-any-parameter)
 - [`implicit-any-type-argument`](#implicit-any-type-argument)
+- [`implicit-any-variable`](#implicit-any-variable)
 
 ## implicit-any-attribute
 
@@ -629,6 +630,22 @@ def f(xs: list) -> tuple:  # implicit-any-type-argument on both `list` and `tupl
 # Fix:
 def f(xs: list[int]) -> tuple[int, ...]:
     return tuple(xs)
+```
+
+## implicit-any-variable
+
+Default severity: `ignore`
+
+A variable assigned a value of unknown type without an explicit annotation is inferred as an implicit `Any`, which hides type errors wherever it is used. Adding an annotation gives the variable a concrete type.
+
+This is a sub-kind of [implicit-any](#implicit-any): suppressing `implicit-any` also suppresses this error.
+
+```python
+def untyped(x):  # unannotated: returns an implicit `Any`
+    return x
+
+y = untyped(1)  # the type of `y` is unknown [implicit-any-variable]
+y2: int = untyped(1)  # OK: `y2` is explicitly annotated
 ```
 
 ## implicit-import

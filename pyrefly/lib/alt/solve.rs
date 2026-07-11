@@ -3549,6 +3549,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         expr: &Expr,
         legacy_tparams: &Option<Box<[Idx<KeyLegacyTypeParam>]>>,
         is_in_function_scope: bool,
+        is_class_body_assignment: bool,
         attrs_field_specifier: Option<AttrsFieldSpecifierKind>,
         errors: &ErrorCollector,
     ) -> Type {
@@ -3560,6 +3561,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             attrs_field_specifier,
             errors,
         );
+        // Flag unannotated variables whose inferred type is an implicit `Any` (unknown).
+        // Annotated variables have a declared type; attribute assignments (`receiver_idx`)
+        // and class-body assignments (class attributes) are covered by
+        // `implicit-any-attribute` / `unknown-member-type`, so they are excluded here to
+        // avoid a double report. Sub-kind of `implicit-any`.
+        if annot_key.is_none()
+            && receiver_idx.is_none()
+            && !is_class_body_assignment
+            && matches!(&ty, Type::Any(AnyStyle::Implicit))
+        {
+            self.error(
+                errors,
+                expr.range(),
+                ErrorKind::ImplicitAnyVariable,
+                format!("The type of `{name}` is unknown; it is inferred as an implicit `Any`"),
+            );
+        }
         if let Some(annot) = &annot
             && let Some((AnnotationStyle::Forwarded, _)) = annot_key
         {
@@ -5431,6 +5449,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 &x.expr,
                 &x.legacy_tparams,
                 x.is_in_function_scope,
+                x.is_class_body_assignment,
                 x.attrs_field_specifier,
                 errors,
             ),

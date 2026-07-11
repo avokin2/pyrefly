@@ -300,6 +300,7 @@ pub struct RuleOverrides {
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_incompatible_unannotated_override: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    #[expect(unused)]
     pub report_unannotated_class_attribute: Option<Severity>,
 
     // Name/redeclaration rules
@@ -423,7 +424,10 @@ impl RuleOverrides {
             self.report_unknown_variable_type,
             ErrorKind::ImplicitAnyVariable,
         );
-        add(self.report_unknown_member_type, ErrorKind::ImplicitAny);
+        add(
+            self.report_unknown_member_type,
+            ErrorKind::ImplicitAnyAttribute,
+        );
         add(
             self.report_unknown_lambda_type,
             ErrorKind::ImplicitAnyLambda,
@@ -502,14 +506,6 @@ impl RuleOverrides {
         add(
             self.report_incompatible_unannotated_override,
             ErrorKind::BadOverrideMutableAttribute,
-        );
-        add(
-            self.report_unannotated_class_attribute,
-            ErrorKind::ImplicitAnyAttribute,
-        );
-        add(
-            self.report_unannotated_class_attribute,
-            ErrorKind::UnannotatedProtocolMember,
         );
 
         // Name/redeclaration rules

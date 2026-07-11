@@ -329,7 +329,7 @@ def untyped(x):
     return x
 
 # A class-body assignment defines a class attribute, which is reported by
-# unknown-member-type, not implicit-any-variable.
+# implicit-any-attribute, not implicit-any-variable.
 class C:
     x = untyped(1)
 "#,

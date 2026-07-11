@@ -167,9 +167,9 @@ pub enum ErrorKind {
     /// `implicit-any` itself is reserved for the umbrella suppression/config
     /// code (suppressing `implicit-any` suppresses every sub-kind).
     ImplicitAny,
-    /// An implicit `Any` introduced when a class attribute is defined by
-    /// assignment to `self.x = None` or `self.x = ()` without an explicit
-    /// annotation.
+    /// An implicit `Any` introduced when a class attribute without an explicit
+    /// annotation is defined by assignment to `self.x = None`, `self.x = ()`,
+    /// or a value with an unknown type.
     /// This is a sub-kind of [ImplicitAny]: suppressing `implicit-any` also suppresses this error.
     ImplicitAnyAttribute,
     /// An implicit `Any` introduced when an empty container (`[]`, `{}`) cannot

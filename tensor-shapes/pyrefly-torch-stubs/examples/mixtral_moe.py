@@ -39,7 +39,7 @@ from shape_extensions import Elements, SizeTuple
 from torch.nn import functional as F
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -245,7 +245,7 @@ def apply_rotary_emb[S: SizeTuple](x: Tensor[S], freqs_cis: Tensor) -> Tensor[S]
     return x_out2.type_as(x)  # type: ignore[bad-return]  # shape preserved — rotary doesn't change dims
 
 
-class Attention[D, NHead, NLocalHead, HD](nn.Module):
+class Attention[D, NHead, NLocalHead: SymVar, HD: SymVar](nn.Module):
     def __init__(
         self,
         dim: Dim[D],
@@ -335,7 +335,15 @@ class Attention[D, NHead, NLocalHead, HD](nn.Module):
         return y
 
 
-class TransformerBlock[D, NHead, NLocalHead, HD, NExp, A, Inter](nn.Module):
+class TransformerBlock[
+    D,
+    NHead,
+    NLocalHead: SymVar,
+    HD: SymVar,
+    NExp,
+    A,
+    Inter,
+](nn.Module):
     def __init__(
         self,
         dim: Dim[D],
@@ -355,7 +363,7 @@ class TransformerBlock[D, NHead, NLocalHead, HD, NExp, A, Inter](nn.Module):
         self.ffn_norm = RMSNorm(dim, eps=norm_eps)
         self.attention_norm = RMSNorm(dim, eps=norm_eps)
 
-    def forward[B, SeqLen](
+    def forward[B: SymVar, SeqLen: SymVar](
         self,
         x: Tensor[[B, SeqLen, D]],
         input_pos: Tensor | None,

@@ -517,7 +517,7 @@ class Conv1d[
         device: Any = None,
         dtype: Any = None,
     ) -> None: ...
-    def forward[B, L](
+    def forward[B, L: SymVar](
         self, input: Tensor[[B, InC, L]]
     ) -> Tensor[[B, OutC, (L + 2 * P - D * (K - 1) - 1) // S + 1]]: ...
 
@@ -559,7 +559,7 @@ class Conv2d[
         device: Any = None,
         dtype: Any = None,
     ) -> None: ...
-    def forward[B, H, W](
+    def forward[B, H: SymVar, W: SymVar](
         self, input: Tensor[[B, InC, H, W]]
     ) -> Tensor[
         [
@@ -600,7 +600,7 @@ class Conv3d[
         device: Any = None,
         dtype: Any = None,
     ) -> None: ...
-    def forward[B, D_, H, W](
+    def forward[B, D_: SymVar, H: SymVar, W: SymVar](
         self, input: Tensor[[B, InC, D_, H, W]]
     ) -> Tensor[
         [
@@ -644,7 +644,7 @@ class ConvTranspose1d[
         device: Any = None,
         dtype: Any = None,
     ) -> None: ...
-    def forward[B, L](
+    def forward[B, L: SymVar](
         self, input: Tensor[[B, InC, L]]
     ) -> Tensor[[B, OutC, (L - 1) * S - 2 * P + D * (K - 1) + OP + 1]]: ...
 
@@ -680,7 +680,7 @@ class ConvTranspose2d[
         device: Any = None,
         dtype: Any = None,
     ) -> None: ...
-    def forward[B, H, W](
+    def forward[B, H: SymVar, W: SymVar](
         self, input: Tensor[[B, InC, H, W]]
     ) -> Tensor[
         [
@@ -723,7 +723,7 @@ class ConvTranspose3d[
         device: Any = None,
         dtype: Any = None,
     ) -> None: ...
-    def forward[B, D_, H, W](
+    def forward[B, D_: SymVar, H: SymVar, W: SymVar](
         self, input: Tensor[[B, InC, D_, H, W]]
     ) -> Tensor[
         [

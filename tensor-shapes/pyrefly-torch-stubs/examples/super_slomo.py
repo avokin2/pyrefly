@@ -60,7 +60,7 @@ class Down[InC: SymVar, OutC: SymVar](nn.Module):
         self.conv1 = nn.Conv2d(c_in, c_out, filter_size, stride=1, padding=padding)
         self.conv2 = nn.Conv2d(c_out, c_out, filter_size, stride=1, padding=padding)
 
-    def forward[B, H, W](
+    def forward[B, H: SymVar, W: SymVar](
         self, x: Tensor[[B, InC, H, W]]
     ) -> Tensor[[B, OutC, (H - 2) // 2 + 1, (W - 2) // 2 + 1]]:
         x_pooled = self.pool(x)
@@ -89,7 +89,7 @@ class Up[InC: SymVar, OutC: SymVar](nn.Module):
         self.conv1 = nn.Conv2d(c_in, c_out, 3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(2 * c_out, c_out, 3, stride=1, padding=1)
 
-    def forward[B, H, W](
+    def forward[B, H: SymVar, W: SymVar](
         self, x: Tensor[[B, InC, H, W]], skp: Tensor[[B, OutC, H * 2, W * 2]]
     ) -> Tensor[[B, OutC, H * 2, W * 2]]:
         # WORKAROUND: F.interpolate scale_factor=2 (int) not 2.0 (float)
@@ -155,7 +155,7 @@ class UNet[InC: SymVar, OutC: SymVar](nn.Module):
         self.ups = nn.ModuleList(ups)
         self.conv3 = nn.Conv2d(32, c_out, 3, stride=1, padding=1)
 
-    def _encode[B, C, H, W](
+    def _encode[B, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: int
     ) -> Tensor[[B, 2 * C, (H - 2) // 2 + 1, (W - 2) // 2 + 1]]:
         """Encode one level: doubles channels, halves spatial via Down[C, 2*C]."""
@@ -163,7 +163,7 @@ class UNet[InC: SymVar, OutC: SymVar](nn.Module):
         down: Down[C, 2 * C] = self.downs[idx]
         return down(x)
 
-    def _decode[B, C, H, W](
+    def _decode[B, C: SymVar, H: SymVar, W: SymVar](
         self,
         skip: Tensor[[B, C, H, W]],
         deep: Tensor[[B, 2 * C, (H - 2) // 2 + 1, (W - 2) // 2 + 1]],
@@ -193,7 +193,7 @@ class UNet[InC: SymVar, OutC: SymVar](nn.Module):
         deep = down(x)
         return up(deep, x)  # type: ignore[bad-argument-type]
 
-    def recurse[I, B, C, H, W](
+    def recurse[I: SymVar, B, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: Dim[I]
     ) -> Tensor[[B, C, H, W]]:
         """Shape-preserving recursive encoder-decoder.

@@ -122,6 +122,21 @@ pub enum TypeOrExpr<'a> {
     Expr(&'a Expr),
 }
 
+/// Where a dimension expression appears, which controls whether a plain
+/// `TypeVar` is accepted. Shape arithmetic (e.g. `N + 1`) needs the
+/// symbolic-integer semantics of a `SymVar`, so an operand of an arithmetic
+/// expression must be a `SymVar`; a dimension used on its own accepts any type
+/// variable kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DimensionExprContext {
+    /// A dimension written directly, e.g. the `N` in `Tensor[N, 3]`. Any type
+    /// variable kind is allowed.
+    Bare,
+    /// An operand of shape arithmetic, e.g. the `N` in `Tensor[N + 1]`. Only a
+    /// `SymVar` is allowed; a plain `TypeVar` is rejected.
+    Arithmetic,
+}
+
 impl Ranged for TypeOrExpr<'_> {
     fn range(&self) -> TextRange {
         match self {
@@ -3309,8 +3324,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         cls.has_toplevel_qname("shape_extensions", "D")
     }
 
-    /// Parse a single dimension expression (recursive helper)
+    /// Parse a single dimension expression (recursive helper).
+    ///
+    /// A dimension expression is one element of a tensor shape. For example, in
+    /// `Tensor[Batch, Channels + 1, 3]` the dimension expressions are the type
+    /// variable `Batch`, the arithmetic expression `Channels + 1`, and the
+    /// integer literal `3`. Returns the `Type` the dimension resolves to, or
+    /// `None` (after emitting an error) if it is not a valid dimension.
     fn parse_dimension_expr(&self, expr: &Expr, errors: &ErrorCollector) -> Option<Type> {
+        self.parse_dimension_expr_with_context(expr, errors, DimensionExprContext::Bare)
+    }
+
+    fn parse_dimension_expr_with_context(
+        &self,
+        expr: &Expr,
+        errors: &ErrorCollector,
+        context: DimensionExprContext,
+    ) -> Option<Type> {
         // shape_extensions.D[...] and D(...) are runtime-only wrappers that
         // let Python evaluate arithmetic on PEP 695 type variables.
         match expr {
@@ -3319,14 +3349,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 if let Type::ClassDef(ref cls) = base
                     && self.is_shape_arith_wrapper_class(cls)
                 {
-                    return self.parse_dimension_expr(&x.slice, errors);
+                    return self.parse_dimension_expr_with_context(&x.slice, errors, context);
                 }
                 if let Type::ClassDef(ref cls) = base
                     && self.is_symint_class(cls)
                 {
                     let xs = Ast::unpack_slice(&x.slice);
                     return match xs {
-                        [arg] => self.parse_dimension_expr(arg, errors),
+                        [arg] => self.parse_dimension_expr_with_context(arg, errors, context),
                         _ => {
                             self.error(
                                 errors,
@@ -3347,7 +3377,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     && self.is_shape_arith_wrapper_class(cls)
                 {
                     if arguments.args.len() == 1 && arguments.keywords.is_empty() {
-                        return self.parse_dimension_expr(&arguments.args[0], errors);
+                        return self.parse_dimension_expr_with_context(
+                            &arguments.args[0],
+                            errors,
+                            context,
+                        );
                     }
                     self.error(
                         errors,
@@ -3416,7 +3450,42 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 let expr_type = self.expr_infer(expr, errors);
 
                 match &expr_type {
-                    Type::QuantifiedValue(q) => Some(Type::Quantified(q.clone())),
+                    Type::QuantifiedValue(q) => {
+                        if context == DimensionExprContext::Arithmetic
+                            && q.kind() != QuantifiedKind::SymVar
+                        {
+                            self.error(
+                                errors,
+                                expr.range(),
+                                ErrorKind::InvalidAnnotation,
+                                format!(
+                                    "`{}` must be a `SymVar` to be used in shape arithmetic",
+                                    q.name()
+                                ),
+                            );
+                            None
+                        } else {
+                            Some(Type::Quantified(q.clone()))
+                        }
+                    }
+                    Type::TypeVar(tv) => {
+                        if context == DimensionExprContext::Arithmetic
+                            && tv.kind() != QuantifiedKind::SymVar
+                        {
+                            self.error(
+                                errors,
+                                expr.range(),
+                                ErrorKind::InvalidAnnotation,
+                                format!(
+                                    "`{}` must be a `SymVar` to be used in shape arithmetic",
+                                    tv.qname().id()
+                                ),
+                            );
+                            None
+                        } else {
+                            Some(expr_type)
+                        }
+                    }
                     Type::ClassDef(cls) if cls.has_toplevel_qname("typing", "Any") => {
                         // typing.Any in a type annotation position (e.g., Tensor[16, Any])
                         // Use Explicit since the user wrote Any explicitly
@@ -3438,7 +3507,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             }
             // Unary negation: -N, -1, -(N + 1), etc.
             Expr::UnaryOp(x) if x.op == UnaryOp::USub => {
-                let inner = self.parse_dimension_expr(&x.operand, errors)?;
+                let inner = self.parse_dimension_expr_with_context(
+                    &x.operand,
+                    errors,
+                    DimensionExprContext::Arithmetic,
+                )?;
                 Some(self.heap.mk_size(SizeExpr::sub(
                     self.heap.mk_size(SizeExpr::Literal(0)),
                     inner,
@@ -3448,17 +3521,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             Expr::BinOp(ExprBinOp {
                 left, op, right, ..
             }) => {
-                let left_dim = self.parse_dimension_expr(left, errors)?;
-                let right_dim = self.parse_dimension_expr(right, errors)?;
-
-                match op {
-                    Operator::Add => Some(self.heap.mk_size(SizeExpr::add(left_dim, right_dim))),
-                    Operator::Sub => Some(self.heap.mk_size(SizeExpr::sub(left_dim, right_dim))),
-                    Operator::Mult => Some(self.heap.mk_size(SizeExpr::mul(left_dim, right_dim))),
-                    Operator::FloorDiv => {
-                        Some(self.heap.mk_size(SizeExpr::floor_div(left_dim, right_dim)))
-                    }
-                    Operator::Pow => Some(self.heap.mk_size(SizeExpr::pow(left_dim, right_dim))),
+                let make_size = match op {
+                    Operator::Add => SizeExpr::add,
+                    Operator::Sub => SizeExpr::sub,
+                    Operator::Mult => SizeExpr::mul,
+                    Operator::FloorDiv => SizeExpr::floor_div,
+                    Operator::Pow => SizeExpr::pow,
                     _ => {
                         self.error(
                             errors,
@@ -3469,9 +3537,20 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                                 op.as_str()
                             ),
                         );
-                        None
+                        return None;
                     }
-                }
+                };
+                let left_dim = self.parse_dimension_expr_with_context(
+                    left,
+                    errors,
+                    DimensionExprContext::Arithmetic,
+                )?;
+                let right_dim = self.parse_dimension_expr_with_context(
+                    right,
+                    errors,
+                    DimensionExprContext::Arithmetic,
+                )?;
+                Some(self.heap.mk_size(make_size(left_dim, right_dim)))
             }
             // Anything else is an error
             _ => {

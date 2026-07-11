@@ -6,13 +6,14 @@
 from typing import assert_type, TYPE_CHECKING
 
 import torch
+from shape_extensions import SymVar
 
 if TYPE_CHECKING:
     from shape_extensions import Dim
     from torch import Tensor
 
 
-def test_view[B, T, D, NHead](
+def test_view[B: SymVar, T: SymVar, D: SymVar, NHead: SymVar](
     x: Tensor[[B, T, D]],
     bsz: Dim[B],
     seqlen: Dim[T],
@@ -24,7 +25,7 @@ def test_view[B, T, D, NHead](
     assert_type(result, Tensor[[B, T, NHead, (D // NHead)]])
 
 
-def test_transpose[B, T, NHead, HeadDim](
+def test_transpose[B: SymVar, T: SymVar, NHead: SymVar, HeadDim: SymVar](
     q: Tensor[[B, T, NHead, HeadDim]],
 ) -> None:
     # Test transpose operation
@@ -32,7 +33,7 @@ def test_transpose[B, T, NHead, HeadDim](
     assert_type(result, Tensor[[B, NHead, T, HeadDim]])
 
 
-def test_split[B, T, D, NLocalHeads, NHead](
+def test_split[B: SymVar, T: SymVar, D: SymVar, NLocalHeads: SymVar, NHead: SymVar](
     x: Tensor[[B, T, (NHead + 2 * NLocalHeads) * (D // NHead)]],
     dim: Dim[D],
     kv_size: Dim[NLocalHeads * (D // NHead)],
@@ -43,7 +44,7 @@ def test_split[B, T, D, NLocalHeads, NHead](
     assert_type(k, Tensor[[B, T, (NLocalHeads * (D // NHead))]])
 
 
-def test_flatten[B, T, NHeads, HeadDim](
+def test_flatten[B: SymVar, T: SymVar, NHeads: SymVar, HeadDim: SymVar](
     x: Tensor[[B, T, NHeads, HeadDim // 2, 2]],
 ) -> None:
     # Test flatten operation
@@ -53,7 +54,7 @@ def test_flatten[B, T, NHeads, HeadDim](
     assert_type(result, Tensor[[B, T, NHeads, ((HeadDim // 2) * 2)]])
 
 
-def test_stack[SeqLen, HeadDim](
+def test_stack[SeqLen: SymVar, HeadDim: SymVar](
     real: Tensor[[SeqLen, HeadDim // 2]],
     imag: Tensor[[SeqLen, HeadDim // 2]],
 ) -> None:

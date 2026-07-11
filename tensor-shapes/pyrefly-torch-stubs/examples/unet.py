@@ -75,7 +75,7 @@ class Down[InC: SymVar, OutC: SymVar](nn.Module):
         self.pool = nn.MaxPool2d(2)
         self.conv = DoubleConv(c_in, c_out)
 
-    def forward[B, H, W](
+    def forward[B, H: SymVar, W: SymVar](
         self, x: Tensor[[B, InC, H, W]]
     ) -> Tensor[[B, OutC, (H - 2) // 2 + 1, (W - 2) // 2 + 1]]:
         x_pooled = self.pool(x)
@@ -102,7 +102,7 @@ class Up[C_in: SymVar, C_out: SymVar](nn.Module):
         self.up = nn.ConvTranspose2d(c_in, c_in // 2, kernel_size=2, stride=2)
         self.conv = DoubleConv(c_in, c_out)
 
-    def forward[B, H1, W1, H2, W2](
+    def forward[B, H1: SymVar, W1: SymVar, H2, W2](
         self, x1: Tensor[[B, C_in, H1, W1]], x2: Tensor[[B, C_in // 2, H2, W2]]
     ) -> Tensor[[B, C_out, H2, W2]]:
         x1_up = self.up(x1)
@@ -129,7 +129,7 @@ class UpBilinear[C_cat: SymVar, C_out: SymVar](nn.Module):
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
         self.conv = DoubleConv(c_cat, c_out, c_mid=c_cat // 2)
 
-    def forward[B, C1, C2, H1, W1, H2, W2](
+    def forward[B, C1, C2, H1: SymVar, W1: SymVar, H2, W2](
         self, x1: Tensor[[B, C1, H1, W1]], x2: Tensor[[B, C2, H2, W2]]
     ) -> Tensor[[B, C_out, H2, W2]]:
         x1_up = self.up(x1)
@@ -201,7 +201,7 @@ class UNet[NChannels: SymVar, NClasses: SymVar](nn.Module):
         self.ups = nn.ModuleList(ups)
         self.outc = OutConv(64, n_classes)
 
-    def _encode[B, C, H, W](
+    def _encode[B, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: int
     ) -> Tensor[[B, 2 * C, (H - 2) // 2 + 1, (W - 2) // 2 + 1]]:
         """Encode one level: doubles channels, halves spatial via Down[C, 2*C]."""
@@ -209,7 +209,7 @@ class UNet[NChannels: SymVar, NClasses: SymVar](nn.Module):
         down: Down[C, 2 * C] = self.downs[idx]
         return down(x)
 
-    def _decode[B, C, H, W](
+    def _decode[B, C: SymVar, H: SymVar, W: SymVar](
         self,
         skip: Tensor[[B, C, H, W]],
         deep: Tensor[[B, 2 * C, (H - 2) // 2 + 1, (W - 2) // 2 + 1]],
@@ -220,7 +220,7 @@ class UNet[NChannels: SymVar, NClasses: SymVar](nn.Module):
         up: Up[2 * C, C] = self.ups[idx]
         return up(deep, skip)
 
-    def recurse[I, B, C, H, W](
+    def recurse[I: SymVar, B, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: Dim[I]
     ) -> Tensor[[B, C, H, W]]:
         """Shape-preserving recursive encoder-decoder.

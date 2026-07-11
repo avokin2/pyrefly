@@ -38,7 +38,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -142,7 +142,7 @@ class ScaledDotProductAttention(nn.Module):
 # ============================================================================
 
 
-class MultiHeadAttention[NHead, DK](nn.Module):
+class MultiHeadAttention[NHead: SymVar, DK: SymVar](nn.Module):
     """Multi-Head Attention, generic over number of heads and key dimension.
 
     DModel = NHead * DK (derived, not an independent type param).
@@ -174,7 +174,7 @@ class MultiHeadAttention[NHead, DK](nn.Module):
         self.n_head = n_head
         self.d_k = d_k
 
-    def forward[B, Tq, Tk](
+    def forward[B: SymVar, Tq, Tk](
         self,
         q: Tensor[[B, Tq, NHead * DK]],
         k: Tensor[[B, Tk, NHead * DK]],
@@ -269,7 +269,7 @@ class PositionwiseFeedForward[DModel, DInner](nn.Module):
 # ============================================================================
 
 
-class EncoderLayer[NHead, DK, DInner](nn.Module):
+class EncoderLayer[NHead: SymVar, DK: SymVar, DInner](nn.Module):
     """Single encoder layer: self-attention + feed-forward.
 
     Input:  Tensor[[B, T, NHead*DK]]
@@ -302,7 +302,7 @@ class EncoderLayer[NHead, DK, DInner](nn.Module):
 # ============================================================================
 
 
-class DecoderLayer[NHead, DK, DInner](nn.Module):
+class DecoderLayer[NHead: SymVar, DK: SymVar, DInner](nn.Module):
     """Single decoder layer: self-attention + cross-attention + feed-forward.
 
     Input:
@@ -357,7 +357,7 @@ class DecoderLayer[NHead, DK, DInner](nn.Module):
 #   so we skip adding it and just pass through. The original adds it to src_seq.
 
 
-class Encoder[NHead, DK, DInner](nn.Module):
+class Encoder[NHead: SymVar, DK: SymVar, DInner](nn.Module):
     """Encoder: N stacked EncoderLayers.
 
     Input:  Tensor[[B, T, NHead*DK]]
@@ -404,7 +404,7 @@ class Encoder[NHead, DK, DInner](nn.Module):
 # - position_enc skipped (same reason as Encoder)
 
 
-class Decoder[NHead, DK, DInner](nn.Module):
+class Decoder[NHead: SymVar, DK: SymVar, DInner](nn.Module):
     """Decoder: N stacked DecoderLayers.
 
     Input:

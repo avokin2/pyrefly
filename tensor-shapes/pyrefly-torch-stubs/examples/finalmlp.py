@@ -159,8 +159,8 @@ class InteractionAggregation[XD, YD, OutD, NH](nn.Module):
 
 
 class FinalMLPLayer[
-    F,
-    D,
+    F: SymVar,
+    D: SymVar,
     K: SymVar,
     M1Out: SymVar,
     M2Out: SymVar,
@@ -233,8 +233,8 @@ class FinalMLPLayer[
 
 
 class FinalMLPBackbone[
-    F,
-    D,
+    F: SymVar,
+    D: SymVar,
     M1Out: SymVar,
     M2Out: SymVar,
     NH: SymVar,

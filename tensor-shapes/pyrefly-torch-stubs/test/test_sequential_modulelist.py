@@ -42,7 +42,7 @@ class LinearLayer[N: SymVar, M: SymVar](nn.Module):
 class ReLULayer(nn.Module):
     """Simple ReLU wrapper (truly shape-preserving - works with any dimension)"""
 
-    def forward[B, N](self, x: Tensor[[B, N]]) -> Tensor[[B, N]]:
+    def forward[B, N: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, N]]:
         return torch.relu(x)
 
 

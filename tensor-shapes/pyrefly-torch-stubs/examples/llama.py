@@ -49,7 +49,7 @@ import torch.nn.functional as F
 from shape_extensions import Elements, SizeTuple
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -83,7 +83,7 @@ def compute_hidden_dim(dim: int, multiple_of: int = 256) -> int:
 # ============================================================================
 
 
-def precompute_freqs_cis[HeadDim, End](
+def precompute_freqs_cis[HeadDim: SymVar, End](
     dim: Dim[HeadDim], end: Dim[End], theta: float = 10000.0
 ) -> Tensor[[End, HeadDim // 2]]:
     """Precompute complex-valued frequency tensor for RoPE.
@@ -118,7 +118,7 @@ def reshape_for_broadcast[T, HD](
     return freqs_cis.view(1, 1, t, hd)
 
 
-def apply_rotary_emb[B, NHead, T, HeadDim](
+def apply_rotary_emb[B, NHead, T, HeadDim: SymVar](
     xq: Tensor[[B, NHead, T, HeadDim]],
     xk: Tensor[[B, NHead, T, HeadDim]],
     freqs_cis: Tensor[[T, HeadDim // 2]],
@@ -223,7 +223,7 @@ class FeedForward[D, HiddenDim](nn.Module):
 # ============================================================================
 
 
-class Attention[D, NHead, MaxBatch, MaxSeq](nn.Module):
+class Attention[D: SymVar, NHead: SymVar, MaxBatch, MaxSeq](nn.Module):
     """Multi-head self-attention with RoPE and KV cache.
 
     Shape flow:
@@ -322,7 +322,9 @@ class Attention[D, NHead, MaxBatch, MaxSeq](nn.Module):
 # ============================================================================
 
 
-class TransformerBlock[D, NHead, HiddenDim, MaxBatch, MaxSeq](nn.Module):
+class TransformerBlock[D: SymVar, NHead: SymVar, HiddenDim, MaxBatch, MaxSeq](
+    nn.Module
+):
     """Pre-norm transformer block with RMSNorm.
 
     x → RMSNorm → Attention → + residual
@@ -360,7 +362,7 @@ class TransformerBlock[D, NHead, HiddenDim, MaxBatch, MaxSeq](nn.Module):
 # ============================================================================
 
 
-class Transformer[VocabSize, D, NHead, HiddenDim](nn.Module):
+class Transformer[VocabSize, D: SymVar, NHead: SymVar, HiddenDim](nn.Module):
     """LLaMA decoder-only transformer.
 
     tokens (B, T) → Embedding → (B, T, D)
@@ -386,7 +388,7 @@ class Transformer[VocabSize, D, NHead, HiddenDim](nn.Module):
         self.norm = RMSNorm(config.dim, eps=config.norm_eps)
         self.output = nn.Linear(config.dim, config.vocab_size, bias=False)
 
-    def forward[B, T, SP](
+    def forward[B, T: SymVar, SP](
         self, tokens: Tensor[[B, T]], start_pos: Dim[SP] | None = None
     ) -> Tensor[[B, VocabSize]]:
         h = self.tok_embeddings(tokens)

@@ -40,7 +40,7 @@ import torch
 import torch.nn as nn
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -77,7 +77,7 @@ class ResidualBlock[C](nn.Module):
 # ============================================================================
 
 
-class Generator[CDim](nn.Module):
+class Generator[CDim: SymVar](nn.Module):
     """StarGAN generator: image + condition → translated image.
 
     Architecture (128x128, conv_dim=64):
@@ -151,7 +151,7 @@ class Generator[CDim](nn.Module):
 # ============================================================================
 
 
-class Discriminator[CDim, S](nn.Module):
+class Discriminator[CDim, S: SymVar](nn.Module):
     """StarGAN PatchGAN discriminator with dual heads.
 
     Architecture (conv_dim=64, repeat_num=6):

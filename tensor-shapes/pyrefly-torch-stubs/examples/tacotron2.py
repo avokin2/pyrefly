@@ -46,7 +46,7 @@ import torch.nn.functional as F
 from shape_extensions import Elements, SizeTuple
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -122,7 +122,7 @@ class Postnet[NMel](nn.Module):
 # ============================================================================
 
 
-class Encoder[EmbDim](nn.Module):
+class Encoder[EmbDim: SymVar](nn.Module):
     """Tacotron2 encoder: Conv1d stack + BiLSTM.
 
     Architecture:
@@ -254,7 +254,7 @@ class Attention[EmbDim](nn.Module):
 # ============================================================================
 
 
-class DecoderStep[EmbDim](nn.Module):
+class DecoderStep[EmbDim: SymVar](nn.Module):
     """Single decoder step using LSTMCell (non-autoregressive view).
 
     One step of the autoregressive decoder, exposing the shape flow:

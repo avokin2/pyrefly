@@ -36,7 +36,7 @@ from shape_extensions import SizeTuple
 from torch import distributions as pyd
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -255,7 +255,7 @@ class BaselineDiscreteCritic[S, A, H](nn.Module):
         return vals
 
 
-class StochasticActor[S, A, H](nn.Module):
+class StochasticActor[S, A: SymVar, H](nn.Module):
     """Stochastic MLP actor: state → distribution over actions.
 
     Architecture: Linear(S, H) → ReLU → Linear(H, H) → ReLU →

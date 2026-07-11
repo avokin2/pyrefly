@@ -20,9 +20,10 @@ from typing import assert_type, overload, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
+from shape_extensions import SymVar
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim, SymVar
+    from shape_extensions import Dim
     from torch import Tensor
 
 
@@ -41,7 +42,7 @@ class Encode[C: SymVar, K: SymVar](nn.Module):
         super().__init__()
         self.linear = nn.Linear(c, c + k)
 
-    def forward[B](self, x: Tensor[[B, C]]) -> Tensor[[B, C + K]]:
+    def forward[B: SymVar](self, x: Tensor[[B, C]]) -> Tensor[[B, C + K]]:
         return self.linear(x)
 
 
@@ -56,7 +57,7 @@ class Decode[C: SymVar, K: SymVar](nn.Module):
         super().__init__()
         self.linear = nn.Linear(2 * c + k, c)
 
-    def forward[B](
+    def forward[B: SymVar](
         self, deep: Tensor[[B, C + K]], skip: Tensor[[B, C]]
     ) -> Tensor[[B, C]]:
         combined = torch.cat([deep, skip], dim=1)
@@ -70,7 +71,7 @@ class Bottleneck[C: SymVar](nn.Module):
         super().__init__()
         self.linear = nn.Linear(c, c)
 
-    def forward[B](self, x: Tensor[[B, C]]) -> Tensor[[B, C]]:
+    def forward[B: SymVar](self, x: Tensor[[B, C]]) -> Tensor[[B, C]]:
         return self.linear(x)
 
 
@@ -124,12 +125,14 @@ def test_manual_unroll():
 # standalone generic functions.
 
 
-def encode_step[B, C](x: Tensor[[B, C]], enc: Encode[C, 4]) -> Tensor[[B, C + 4]]:
+def encode_step[B: SymVar, C: SymVar](
+    x: Tensor[[B, C]], enc: Encode[C, 4]
+) -> Tensor[[B, C + 4]]:
     """One encode step: adds 4 channels."""
     return enc(x)
 
 
-def decode_step[B, C](
+def decode_step[B: SymVar, C: SymVar](
     deep: Tensor[[B, C + 4]], skip: Tensor[[B, C]], dec: Decode[C, 4]
 ) -> Tensor[[B, C]]:
     """One decode step: removes 4 channels using skip."""
@@ -137,7 +140,7 @@ def decode_step[B, C](
 
 
 # A shape-preserving function that does one level of encode-decode
-def one_level[B, C](
+def one_level[B: SymVar, C: SymVar](
     x: Tensor[[B, C]],
     enc: Encode[C, 4],
     dec: Decode[C, 4],
@@ -170,7 +173,7 @@ def test_one_level():
 # a one_level call. This tests whether the shape-preservation composes.
 
 
-def two_levels[B, C](
+def two_levels[B: SymVar, C: SymVar](
     x: Tensor[[B, C]],
     enc0: Encode[C, 4],
     dec0: Decode[C, 4],
@@ -218,13 +221,15 @@ class GenericEncode(nn.Module):
     an idealization. The point is to test the shape flow.
     """
 
-    def forward[B, C](self, x: Tensor[[B, C]]) -> Tensor[[B, C + 4]]: ...  # type: ignore[return-type]
+    def forward[B: SymVar, C: SymVar](
+        self, x: Tensor[[B, C]]
+    ) -> Tensor[[B, C + 4]]: ...  # type: ignore[return-type]
 
 
 class GenericDecode(nn.Module):
     """Decoder that removes 4 channels using skip connection."""
 
-    def forward[B, C](
+    def forward[B: SymVar, C: SymVar](
         self, skip: Tensor[[B, C]], deep: Tensor[[B, C + 4]]
     ) -> Tensor[[B, C]]: ...  # type: ignore[return-type]
 
@@ -232,10 +237,10 @@ class GenericDecode(nn.Module):
 class GenericBottleneck(nn.Module):
     """Shape-preserving bottleneck."""
 
-    def forward[B, C](self, x: Tensor[[B, C]]) -> Tensor[[B, C]]: ...  # type: ignore[return-type]
+    def forward[B: SymVar, C: SymVar](self, x: Tensor[[B, C]]) -> Tensor[[B, C]]: ...  # type: ignore[return-type]
 
 
-def generic_one_level[B, C](
+def generic_one_level[B: SymVar, C: SymVar](
     x: Tensor[[B, C]],
     enc: GenericEncode,
     dec: GenericDecode,
@@ -282,7 +287,9 @@ class RecursiveUNet(nn.Module):
         self.dec = GenericDecode()
         self.bottleneck = GenericBottleneck()
 
-    def recurse[I, B, C](self, x: Tensor[[B, C]], depth: Dim[I]) -> Tensor[[B, C]]:
+    def recurse[I: SymVar, B: SymVar, C: SymVar](
+        self, x: Tensor[[B, C]], depth: Dim[I]
+    ) -> Tensor[[B, C]]:
         """Shape-preserving recursive encoder-decoder.
 
         The key insight: this signature (Tensor[[B,C]] -> Tensor[[B,C]]) is
@@ -300,7 +307,7 @@ class RecursiveUNet(nn.Module):
         decoded = self.dec(skip, middle)  # Tensor[[B, C]]
         return decoded
 
-    def forward[B](self, x: Tensor[[B, 8]]) -> Tensor[[B, 8]]:
+    def forward[B: SymVar](self, x: Tensor[[B, 8]]) -> Tensor[[B, 8]]:
         return self.recurse(x, 3)
 
 
@@ -328,7 +335,7 @@ def test_recursive_unet():
 class Down2d(nn.Module):
     """Encoder block: doubles channels, halves spatial."""
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]]
     ) -> Tensor[[B, 2 * C, H // 2, W // 2]]: ...  # type: ignore[return-type]
 
@@ -339,7 +346,7 @@ class Up2d(nn.Module):
     skip parameter comes first so C can be inferred from a direct position.
     """
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, skip: Tensor[[B, C, H, W]], deep: Tensor[[B, 2 * C, H // 2, W // 2]]
     ) -> Tensor[[B, C, H, W]]: ...  # type: ignore[return-type]
 
@@ -347,7 +354,9 @@ class Up2d(nn.Module):
 class Bottleneck2d(nn.Module):
     """Shape-preserving bottleneck for 2D feature maps."""
 
-    def forward[B, C, H, W](self, x: Tensor[[B, C, H, W]]) -> Tensor[[B, C, H, W]]: ...  # type: ignore[return-type]
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, C, H, W]]
+    ) -> Tensor[[B, C, H, W]]: ...  # type: ignore[return-type]
 
 
 class RecursiveUNet2d(nn.Module):
@@ -359,7 +368,7 @@ class RecursiveUNet2d(nn.Module):
         self.up = Up2d()
         self.bottleneck = Bottleneck2d()
 
-    def recurse[I, B, C, H, W](
+    def recurse[I: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: Dim[I]
     ) -> Tensor[[B, C, H, W]]:
         """Shape-preserving recursive encoder-decoder with spatial dims.
@@ -376,7 +385,9 @@ class RecursiveUNet2d(nn.Module):
         decoded = self.up(skip, middle)  # Tensor[[B, C, H, W]]
         return decoded
 
-    def forward[B, H, W](self, x: Tensor[[B, 3, H, W]]) -> Tensor[[B, 3, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, 3, H, W]]
+    ) -> Tensor[[B, 3, H, W]]:
         """UNet: input and output have same spatial dims and channels."""
         return self.recurse(x, 4)
 
@@ -417,7 +428,7 @@ class SegmentationUNet(nn.Module):
         self.bottleneck = Bottleneck2d()
         self.output_proj = nn.Conv2d(64, 21, kernel_size=1)
 
-    def recurse[I, B, C, H, W](
+    def recurse[I: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: Dim[I]
     ) -> Tensor[[B, C, H, W]]:
         if depth == 0:
@@ -428,7 +439,9 @@ class SegmentationUNet(nn.Module):
         decoded = self.up(skip, middle)
         return decoded
 
-    def forward[B, H, W](self, x: Tensor[[B, 3, H, W]]) -> Tensor[[B, 21, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, 3, H, W]]
+    ) -> Tensor[[B, 21, H, W]]:
         projected = self.input_proj(x)  # Tensor[[B, 64, H, W]]
         features = self.recurse(projected, 4)  # Tensor[[B, 64, H, W]]
         return self.output_proj(features)  # Tensor[[B, 21, H, W]]
@@ -453,7 +466,7 @@ def test_segmentation_unet():
 class DownAdd2d(nn.Module):
     """Encoder: adds K channels, halves spatial."""
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]]
     ) -> Tensor[[B, C + 64, H // 2, W // 2]]: ...  # type: ignore[return-type]
 
@@ -461,7 +474,7 @@ class DownAdd2d(nn.Module):
 class UpSub2d(nn.Module):
     """Decoder: removes K channels, doubles spatial, uses skip."""
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, skip: Tensor[[B, C, H, W]], deep: Tensor[[B, C + 64, H // 2, W // 2]]
     ) -> Tensor[[B, C, H, W]]: ...  # type: ignore[return-type]
 
@@ -475,7 +488,7 @@ class AdditiveUNet(nn.Module):
         self.up = UpSub2d()
         self.bottleneck = Bottleneck2d()
 
-    def recurse[I, B, C, H, W](
+    def recurse[I: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: Dim[I]
     ) -> Tensor[[B, C, H, W]]:
         if depth == 0:
@@ -486,7 +499,9 @@ class AdditiveUNet(nn.Module):
         decoded = self.up(skip, middle)  # Tensor[[B, C, H, W]]
         return decoded
 
-    def forward[B, H, W](self, x: Tensor[[B, 3, H, W]]) -> Tensor[[B, 3, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, 3, H, W]]
+    ) -> Tensor[[B, 3, H, W]]:
         return self.recurse(x, 3)
 
 
@@ -516,13 +531,13 @@ class GenericDenseLayer(nn.Module):
     Generic in input channels — works at any level.
     """
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]]
     ) -> Tensor[[B, C + 32, H, W]]: ...  # type: ignore[return-type]
 
 
 @overload
-def dense_chain[B, C, H, W](
+def dense_chain[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
     x: Tensor[[B, C, H, W]],
     layer: GenericDenseLayer,
     depth: Dim[1],
@@ -530,14 +545,14 @@ def dense_chain[B, C, H, W](
 
 
 @overload
-def dense_chain[I, B, C, H, W](
+def dense_chain[I: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
     x: Tensor[[B, C, H, W]],
     layer: GenericDenseLayer,
     depth: Dim[I],
 ) -> Tensor[[B, C + I * 32, H, W]]: ...
 
 
-def dense_chain[I, B, C, H, W](
+def dense_chain[I: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
     x: Tensor[[B, C, H, W]],
     layer: GenericDenseLayer,
     depth: Dim[I],
@@ -588,13 +603,13 @@ def test_dense_chain_one():
 class SymbolicDenseLayer[GR: SymVar](nn.Module):
     """DenseNet layer with symbolic growth rate."""
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]]
     ) -> Tensor[[B, C + GR, H, W]]: ...  # type: ignore[return-type]
 
 
 @overload
-def symbolic_dense_chain[GR, B, C, H, W](
+def symbolic_dense_chain[GR: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
     x: Tensor[[B, C, H, W]],
     layer: SymbolicDenseLayer[GR],
     depth: Dim[1],
@@ -602,14 +617,28 @@ def symbolic_dense_chain[GR, B, C, H, W](
 
 
 @overload
-def symbolic_dense_chain[I, GR, B, C, H, W](
+def symbolic_dense_chain[
+    I: SymVar,
+    GR: SymVar,
+    B: SymVar,
+    C: SymVar,
+    H: SymVar,
+    W: SymVar,
+](
     x: Tensor[[B, C, H, W]],
     layer: SymbolicDenseLayer[GR],
     depth: Dim[I],
 ) -> Tensor[[B, C + I * GR, H, W]]: ...
 
 
-def symbolic_dense_chain[I, GR, B, C, H, W](
+def symbolic_dense_chain[
+    I: SymVar,
+    GR: SymVar,
+    B: SymVar,
+    C: SymVar,
+    H: SymVar,
+    W: SymVar,
+](
     x: Tensor[[B, C, H, W]],
     layer: SymbolicDenseLayer[GR],
     depth: Dim[I],
@@ -657,7 +686,7 @@ def test_symbolic_dense_chain_one():
 class GenericDownStage(nn.Module):
     """Downsampling stage: doubles channels, halves spatial."""
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]]
     ) -> Tensor[[B, 2 * C, H // 2, W // 2]]: ...  # type: ignore[return-type]
 
@@ -669,7 +698,7 @@ class GenericDownStage(nn.Module):
 
 
 @overload
-def downsample_chain[B, C, H, W](
+def downsample_chain[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
     stage: GenericDownStage,
     x: Tensor[[B, C, H, W]],
     depth: Dim[1],
@@ -677,14 +706,14 @@ def downsample_chain[B, C, H, W](
 
 
 @overload
-def downsample_chain[I, B, C, H, W](
+def downsample_chain[I: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
     stage: GenericDownStage,
     x: Tensor[[B, C, H, W]],
     depth: Dim[I],
 ) -> Tensor[[B, C * 2**I, H // 2**I, W // 2**I]]: ...
 
 
-def downsample_chain[I, B, C, H, W](
+def downsample_chain[I: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
     stage: GenericDownStage,
     x: Tensor[[B, C, H, W]],
     depth: Dim[I],
@@ -748,7 +777,7 @@ def test_downsample_chain_recursive():
 class GenericDenseBlock(nn.Module):
     """DenseBlock: adds 6*32=192 channels."""
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]]
     ) -> Tensor[[B, C + 192, H, W]]: ...  # type: ignore[return-type]
 
@@ -759,7 +788,7 @@ class GenericTransition(nn.Module):
     Note: C // 2 requires C to be even, which we assume.
     """
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]]
     ) -> Tensor[[B, C // 2, H // 2, W // 2]]: ...  # type: ignore[return-type]
 
@@ -775,7 +804,7 @@ class GenericDenseStage(nn.Module):
         self.block = GenericDenseBlock()
         self.transition = GenericTransition()
 
-    def forward[B, C, H, W](
+    def forward[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]]
     ) -> Tensor[[B, (C + 192) // 2, H // 2, W // 2]]:
         y = self.block(x)  # Tensor[[B, C + 192, H, W]]
@@ -842,7 +871,9 @@ def test_dense_stage_concrete():
 class DemucsEncoder(nn.Module):
     """Demucs encoder: doubles channels, halves length."""
 
-    def forward[B, C, T](self, x: Tensor[[B, C, T]]) -> Tensor[[B, 2 * C, T // 2]]: ...  # type: ignore[return-type]
+    def forward[B: SymVar, C: SymVar, T: SymVar](
+        self, x: Tensor[[B, C, T]]
+    ) -> Tensor[[B, 2 * C, T // 2]]: ...  # type: ignore[return-type]
 
 
 class DemucsDecoder(nn.Module):
@@ -852,7 +883,7 @@ class DemucsDecoder(nn.Module):
     In practice, Demucs trims the upsampled output to match skip length.
     """
 
-    def forward[B, C, T](
+    def forward[B: SymVar, C: SymVar, T: SymVar](
         self, skip: Tensor[[B, C, T]], deep: Tensor[[B, 2 * C, T // 2]]
     ) -> Tensor[[B, C, T]]: ...  # type: ignore[return-type]
 
@@ -860,7 +891,9 @@ class DemucsDecoder(nn.Module):
 class DemucsBottleneck(nn.Module):
     """Shape-preserving bottleneck for 1D audio."""
 
-    def forward[B, C, T](self, x: Tensor[[B, C, T]]) -> Tensor[[B, C, T]]: ...  # type: ignore[return-type]
+    def forward[B: SymVar, C: SymVar, T: SymVar](
+        self, x: Tensor[[B, C, T]]
+    ) -> Tensor[[B, C, T]]: ...  # type: ignore[return-type]
 
 
 class RecursiveDemucs(nn.Module):
@@ -872,7 +905,7 @@ class RecursiveDemucs(nn.Module):
         self.decoder = DemucsDecoder()
         self.bottleneck = DemucsBottleneck()
 
-    def recurse[I, B, C, T](
+    def recurse[I: SymVar, B: SymVar, C: SymVar, T: SymVar](
         self, x: Tensor[[B, C, T]], depth: Dim[I]
     ) -> Tensor[[B, C, T]]:
         """Shape-preserving recursive encoder-decoder.
@@ -894,7 +927,7 @@ class RecursiveDemucs(nn.Module):
         result = decoded + skip  # Tensor[[B, C, T]]
         return result
 
-    def forward[B, T](self, x: Tensor[[B, 2, T]]) -> Tensor[[B, 2, T]]:
+    def forward[B: SymVar, T: SymVar](self, x: Tensor[[B, 2, T]]) -> Tensor[[B, 2, T]]:
         return self.recurse(x, 4)
 
 

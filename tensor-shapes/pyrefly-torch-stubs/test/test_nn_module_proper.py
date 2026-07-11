@@ -117,7 +117,7 @@ def test_mlp_with_matmul():
 class SelfAttention[D: SymVar](nn.Module):
     """Self-attention with class-level dimension"""
 
-    def forward[B, T](self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
+    def forward[B, T: SymVar](self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
         """
         B, T are method-level (batch, sequence length)
         D is class-level (model dimension)
@@ -157,7 +157,9 @@ class ConvBlock[C_in: SymVar, C_out: SymVar](nn.Module):
         # Now C_in and C_out are bound via Literal params
         self.weight = torch.randn(out_channels, in_channels, 3, 3)
 
-    def forward[B, H, W](self, x: Tensor[[B, C_in, H, W]]) -> Tensor[[B, C_out, H, W]]:
+    def forward[B, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, C_in, H, W]]
+    ) -> Tensor[[B, C_out, H, W]]:
         """
         B, H, W are method-level (batch, spatial)
         C_in, C_out are class-level (channels)
@@ -193,7 +195,9 @@ class ResidualBlock[C: SymVar](nn.Module):
         # Now C is bound via Literal param
         self.weight = torch.randn(channels, channels, 3, 3)
 
-    def forward[B, H, W](self, x: Tensor[[B, C, H, W]]) -> Tensor[[B, C, H, W]]:
+    def forward[B, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, C, H, W]]
+    ) -> Tensor[[B, C, H, W]]:
         """
         B, H, W are method-level
         C is class-level (channels preserved in residual)

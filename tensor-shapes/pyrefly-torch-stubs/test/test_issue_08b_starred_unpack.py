@@ -5,12 +5,15 @@
 
 from typing import assert_type, TYPE_CHECKING
 
+from shape_extensions import SymVar
+
+
 if TYPE_CHECKING:
     from shape_extensions import Dim
     from torch import Tensor
 
 
-def test_starred_unpack[B, T, NHeads, HeadDim](
+def test_starred_unpack[B: SymVar, T: SymVar, NHeads: SymVar, HeadDim: SymVar](
     x: Tensor[[B, T, NHeads, HeadDim]],
 ) -> None:
     # First check that tuple slicing works

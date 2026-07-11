@@ -48,7 +48,7 @@ import torch
 import torch.nn as nn
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -174,7 +174,7 @@ class EncoderBranch[InC](nn.Module):
             nn.ReLU(),
         )
 
-    def forward[B, H, W](
+    def forward[B, H: SymVar, W: SymVar](
         self, x: Tensor[[B, InC, H, W]]
     ) -> Tensor[[B, 256, (H - 1) // 4 + 1, (W - 1) // 4 + 1]]:
         return self.model(x)
@@ -214,7 +214,7 @@ class ImageEncoder(nn.Module):
             nn.ReLU(),
         )
 
-    def forward[B, H, W](
+    def forward[B, H: SymVar, W: SymVar](
         self, x: Tensor[[B, 3, H, W]]
     ) -> tuple[
         Tensor[[B, 128, (H - 1) // 2 + 1, (W - 1) // 2 + 1]],
@@ -434,7 +434,7 @@ class Discriminator(nn.Module):
             nn.Conv2d(512, 1, kernel_size=4, stride=1, padding=2),
         )
 
-    def forward[B, H, W](
+    def forward[B, H: SymVar, W: SymVar](
         self, x: Tensor[[B, 3, H, W]]
     ) -> Tensor[
         [B, 1, 3 + (1 + (1 + H // 2) // 2) // 2, 3 + (1 + (1 + W // 2) // 2) // 2]

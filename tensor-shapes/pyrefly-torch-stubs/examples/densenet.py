@@ -32,7 +32,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class DenseLayer[InC, BnC, GR](nn.Module):
+class DenseLayer[InC: SymVar, BnC, GR: SymVar](nn.Module):
     """Single dense layer with bottleneck.
 
     Architecture: BN → ReLU → 1x1 Conv(InC → BnC) → BN → ReLU → 3x3 Conv(BnC → GR)
@@ -97,7 +97,7 @@ class TransitionLayer[InC, OutC](nn.Module):
         self.conv = nn.Conv2d(c_in, c_out, kernel_size=1, bias=False)
         self.pool = nn.AvgPool2d(2)
 
-    def forward[B, H, W](
+    def forward[B, H: SymVar, W: SymVar](
         self, x: Tensor[[B, InC, H, W]]
     ) -> Tensor[[B, OutC, (H - 2) // 2 + 1, (W - 2) // 2 + 1]]:
         # WORKAROUND: F.relu instead of configurable act_fn()
@@ -115,7 +115,7 @@ class TransitionLayer[InC, OutC](nn.Module):
 # ============================================================================
 
 
-class DenseBlock[C, GR, BnC](nn.Module):
+class DenseBlock[C: SymVar, GR: SymVar, BnC](nn.Module):
     """Dense block with 6 layers, using recursive forward.
 
     Each DenseLayer adds GR channels via concatenation.
@@ -140,7 +140,7 @@ class DenseBlock[C, GR, BnC](nn.Module):
         ]
         self.layers = nn.ModuleList(layers)
 
-    def _apply_layer[B, Ch, H, W](
+    def _apply_layer[B, Ch: SymVar, H, W](
         self, x: Tensor[[B, Ch, H, W]], depth: int
     ) -> Tensor[[B, Ch + GR, H, W]]:
         idx = len(self.layers) - depth
@@ -154,18 +154,18 @@ class DenseBlock[C, GR, BnC](nn.Module):
 
 
 @overload
-def _dense_chain[GR, B, Ch, H, W](
+def _dense_chain[GR: SymVar, B, Ch: SymVar, H, W](
     block: DenseBlock[Any, GR, Any], x: Tensor[[B, Ch, H, W]], depth: Dim[1]
 ) -> Tensor[[B, Ch + GR, H, W]]: ...
 
 
 @overload
-def _dense_chain[I, GR, B, Ch, H, W](
+def _dense_chain[I: SymVar, GR: SymVar, B, Ch: SymVar, H, W](
     block: DenseBlock[Any, GR, Any], x: Tensor[[B, Ch, H, W]], depth: Dim[I]
 ) -> Tensor[[B, Ch + I * GR, H, W]]: ...
 
 
-def _dense_chain[I, GR, B, Ch, H, W](
+def _dense_chain[I: SymVar, GR: SymVar, B, Ch: SymVar, H, W](
     block: DenseBlock[Any, GR, Any], x: Tensor[[B, Ch, H, W]], depth: Dim[I]
 ) -> Tensor[[B, Ch + GR, H, W]] | Tensor[[B, Ch + I * GR, H, W]]:
     y = block._apply_layer(x, depth)

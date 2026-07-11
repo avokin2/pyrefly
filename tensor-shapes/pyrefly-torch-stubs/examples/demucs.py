@@ -44,7 +44,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 # Stride slicing computes ceil_div(dim, step) for the strided dimension.
 
 
-def downsample[B, C, T, S](
+def downsample[B, C, T: SymVar, S: SymVar](
     x: Tensor[[B, C, T]], stride: Dim[S]
 ) -> Tensor[[B, C, (T + S - 1) // S]]:
     """Downsample x by decimation.
@@ -129,7 +129,7 @@ def upsample[B, C, T](x: Tensor[[B, C, T]], stride: int) -> Tensor:
 # → permute to [B, C, T]
 
 
-class BLSTM[Ch](nn.Module):
+class BLSTM[Ch: SymVar](nn.Module):
     """Bidirectional LSTM bottleneck.
 
     Input:  Tensor[[B, Ch, T]]
@@ -184,7 +184,9 @@ class EncoderBlockGLU(nn.Module):
             nn.GLU(dim=1),
         )
 
-    def forward[B, L](self, x: Tensor[[B, 2, L]]) -> Tensor[[B, 64, (L - 8) // 4 + 1]]:
+    def forward[B, L: SymVar](
+        self, x: Tensor[[B, 2, L]]
+    ) -> Tensor[[B, 64, (L - 8) // 4 + 1]]:
         out = self.encode(x)
         assert_type(out, Tensor[[B, 64, (L - 8) // 4 + 1]])
         return out
@@ -215,7 +217,7 @@ class EncoderBlock[InC, OutC](nn.Module):
         self.conv1 = nn.Conv1d(in_ch, out_ch, 8, stride=4)
         self.conv2 = nn.Conv1d(out_ch, out_ch, 1)
 
-    def forward[B, L](
+    def forward[B, L: SymVar](
         self, x: Tensor[[B, InC, L]]
     ) -> Tensor[[B, OutC, (L - 8) // 4 + 1]]:
         h = F.relu(self.conv1(x))
@@ -250,7 +252,7 @@ class DecoderBlock[InC, OutC](nn.Module):
         self.context_conv = nn.Conv1d(in_ch, in_ch, 3)
         self.deconv = nn.ConvTranspose1d(in_ch, out_ch, 8, stride=4)
 
-    def forward[B, L](
+    def forward[B, L: SymVar](
         self, x: Tensor[[B, InC, L]]
     ) -> Tensor[[B, OutC, (L - 3) * 4 + 8]]:
         h = F.relu(self.context_conv(x))
@@ -287,7 +289,7 @@ class DemucsEncoder(nn.Module):
         self.enc1 = EncoderBlock(64, 128)
         self.enc2 = EncoderBlock(128, 256)
 
-    def forward[B, L](
+    def forward[B, L: SymVar](
         self, x: Tensor[[B, 2, L]]
     ) -> Tensor[[B, 256, (((L // 4 - 1) // 4 - 1) // 4 - 1)]]:
         h0 = self.enc0(x)
@@ -347,7 +349,7 @@ class Demucs(nn.Module):
         self.dec1 = DecoderBlock(128, 64)
         self.dec0 = DecoderBlock(64, 8)
 
-    def forward[B, L](self, mix: Tensor[[B, 2, L]]):
+    def forward[B, L: SymVar](self, mix: Tensor[[B, 2, L]]):
         # Encoder: save outputs for skip connections
         # Spatial: L → L//4-1 → (L//4-1)//4-1 → ((L//4-1)//4-1)//4-1
         x0 = self.enc0(mix)

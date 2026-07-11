@@ -86,7 +86,7 @@ class MelResNet[
             in_channels=n_hidden, out_channels=n_output, kernel_size=1
         )
 
-    def forward[B, L](
+    def forward[B, L: SymVar](
         self, specgram: Tensor[[B, NF, L]]
     ) -> Tensor[[B, NO, (1 + L) + (-1 * K)]]:
         x = self.conv_in(specgram)
@@ -103,13 +103,13 @@ class MelResNet[
         return x
 
 
-class Stretch2d[TS, FS](nn.Module):
+class Stretch2d[TS: SymVar, FS: SymVar](nn.Module):
     def __init__(self, time_scale: Dim[TS], freq_scale: Dim[FS]) -> None:
         super().__init__()
         self.freq_scale = freq_scale
         self.time_scale = time_scale
 
-    def forward[B, C, F, T](
+    def forward[B, C, F: SymVar, T: SymVar](
         self, specgram: Tensor[[B, C, F, T]]
     ) -> Tensor[[B, C, F * FS, T * TS]]:
         x = specgram.repeat_interleave(self.freq_scale, -2)
@@ -160,7 +160,7 @@ class UpsampleNetwork[
             up_layers.append(conv)
         self.upsample_layers = nn.Sequential(*up_layers)
 
-    def forward[B, T](
+    def forward[B, T: SymVar](
         self, specgram: Tensor[[B, NF, T]]
     ) -> tuple[Tensor[[B, NF, Any]], Tensor[[B, NO, Any]]]:
         resnet_output = self.resnet(specgram)

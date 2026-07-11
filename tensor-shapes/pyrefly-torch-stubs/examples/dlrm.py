@@ -55,7 +55,7 @@ import torch.nn as nn
 import torch.quantization
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -118,7 +118,7 @@ class TopMLP[TopIn](nn.Module):
 # ============================================================================
 
 
-class DLRM[DenseDim, D](nn.Module):
+class DLRM[DenseDim, D: SymVar](nn.Module):
     """DLRM recommendation model.
 
     Concrete configuration for shape tracking:

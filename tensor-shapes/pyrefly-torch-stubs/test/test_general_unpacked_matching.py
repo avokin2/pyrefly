@@ -14,18 +14,25 @@ where:
 
 from typing import assert_type, cast
 
-from shape_extensions import Elements, SizeTuple
+from shape_extensions import Elements, SizeTuple, SymVar
 from torch import Tensor
 
 
-def accepts_prefix_middle_suffix[P, Qs: SizeTuple, R, S](
+def accepts_prefix_middle_suffix[P: SymVar, Qs: SizeTuple, R: SymVar, S: SymVar](
     x: Tensor[[P, *Elements[Qs], R, S]],
 ) -> Tensor[[P, *Elements[Qs], R, S]]:
     """Function that expects prefix P, middle *Qs, and suffix R, S."""
     return x
 
 
-def test_general_unpacked_matching[A, B, Cs: SizeTuple, D, E, F]() -> None:
+def test_general_unpacked_matching[
+    A: SymVar,
+    B: SymVar,
+    Cs: SizeTuple,
+    D: SymVar,
+    E: SymVar,
+    F: SymVar,
+]() -> None:
     """Test that Tensor[[A, B, *Elements[Cs], D, E, F]] matches Tensor[[P, *Elements[Qs], R, S]]."""
     # Create a tensor with more complex unpacked shape
     x = cast(Tensor[[A, B, *Elements[Cs], D, E, F]], ...)
@@ -42,11 +49,11 @@ def test_general_unpacked_matching[A, B, Cs: SizeTuple, D, E, F]() -> None:
 
 
 def test_general_unpacked_matching_arith[
-    A,
-    B,
+    A: SymVar,
+    B: SymVar,
     Cs: SizeTuple,
-    D,
-    E,
+    D: SymVar,
+    E: SymVar,
 ]() -> None:
     """Test that Tensor[[A+1, B*2, *Elements[Cs], D, E, F]] matches Tensor[[P, *Elements[Qs], R, S]]."""
     # Create a tensor with more complex unpacked shape

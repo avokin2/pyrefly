@@ -5,12 +5,15 @@
 
 from typing import assert_type, TYPE_CHECKING
 
+from shape_extensions import SymVar
+
+
 if TYPE_CHECKING:
     from shape_extensions import Dim
     from torch import Tensor
 
 
-def test_tuple_slicing[B, T, NHeads, HeadDim](
+def test_tuple_slicing[B: SymVar, T: SymVar, NHeads: SymVar, HeadDim: SymVar](
     x: Tensor[[B, T, NHeads, HeadDim]],
 ) -> None:
     # Full size() works correctly
@@ -30,7 +33,7 @@ def test_tuple_slicing[B, T, NHeads, HeadDim](
     assert_type(s2, Dim[NHeads])
 
 
-def test_reshape_with_slice[B, T, NHeads, HeadDim](
+def test_reshape_with_slice[B: SymVar, T: SymVar, NHeads: SymVar, HeadDim: SymVar](
     x: Tensor[[B, T, NHeads, HeadDim]],
 ) -> None:
     # This pattern fails with tuple slicing

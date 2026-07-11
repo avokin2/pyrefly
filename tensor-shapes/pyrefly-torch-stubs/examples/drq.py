@@ -49,7 +49,7 @@ from torch.distributions import Normal, TransformedDistribution
 from torch.distributions.transforms import Transform
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -187,7 +187,7 @@ class Encoder[C, FeatDim](nn.Module):
 # ============================================================================
 
 
-class Actor[C, FeatDim, ActDim, H](nn.Module):
+class Actor[C, FeatDim, ActDim: SymVar, H](nn.Module):
     """MLP policy head on top of CNN encoder.
 
     Architecture:
@@ -245,7 +245,7 @@ class Actor[C, FeatDim, ActDim, H](nn.Module):
 # ============================================================================
 
 
-class Critic[C, FeatDim, ActDim, H](nn.Module):
+class Critic[C, FeatDim: SymVar, ActDim: SymVar, H](nn.Module):
     """Double Q-network critic on top of CNN encoder.
 
     Architecture:

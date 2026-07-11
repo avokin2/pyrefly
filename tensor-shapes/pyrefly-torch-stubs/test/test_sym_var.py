@@ -15,10 +15,9 @@ This test verifies that:
 
 from typing import assert_type, Generic, TYPE_CHECKING
 
-from shape_extensions import Elements, SizeTuple
+from shape_extensions import Elements, SizeTuple, SymVar
 
 if TYPE_CHECKING:
-    from shape_extensions import SymVar
     from torch import Tensor
 
 N = SymVar("N")
@@ -115,14 +114,14 @@ def test_sizetuple_inference():
     assert_type(result, Tensor[[10, 20]])
 
 
-def test_sizetuple_with_fixed_dim[Ns: SizeTuple, N](
+def test_sizetuple_with_fixed_dim[Ns: SizeTuple, N: SymVar](
     x: Tensor[[*Elements[Ns], N]],
 ) -> Tensor[[*Elements[Ns], N]]:
     """SizeTuple carrier mixed with TypeVar"""
     return x
 
 
-def test_sizetuple_with_arithmetic[Ns: SizeTuple, N](
+def test_sizetuple_with_arithmetic[Ns: SizeTuple, N: SymVar](
     x: Tensor[[*Elements[Ns], N]],
 ) -> Tensor[[*Elements[Ns], N + 1]]:
     """SizeTuple carrier with TypeVar arithmetic"""

@@ -248,7 +248,7 @@ def apply_rope_scaling[D](
     return torch.tensor(new_freqs, dtype=freqs.dtype, device=freqs.device)
 
 
-def precompute_freqs_cis[SeqLen, HeadDim](
+def precompute_freqs_cis[SeqLen, HeadDim: SymVar](
     seq_len: Dim[SeqLen],
     n_elem: Dim[HeadDim],
     base: int = 10000,
@@ -273,7 +273,7 @@ def precompute_freqs_cis[SeqLen, HeadDim](
     return cache.to(dtype=dtype)
 
 
-def apply_rotary_emb[B, T, NHeads, HeadDim](
+def apply_rotary_emb[B, T, NHeads, HeadDim: SymVar](
     x: Tensor[[B, T, NHeads, HeadDim]], freqs_cis: Tensor[[T, HeadDim // 2, 2]]
 ) -> Tensor[[B, T, NHeads, HeadDim]]:
     xshaped = x.float().reshape(*x.size()[:-1], -1, 2)

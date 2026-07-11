@@ -8,13 +8,14 @@
 from typing import Any, assert_type, TYPE_CHECKING
 
 import torch
+from shape_extensions import SymVar
 
 if TYPE_CHECKING:
     from shape_extensions import Dim
     from torch import Tensor
 
 
-def accepts_symbolic_returns_symbolic[N](x: Tensor[[N, 3]]) -> Tensor[[N, 3]]:
+def accepts_symbolic_returns_symbolic[N: SymVar](x: Tensor[[N, 3]]) -> Tensor[[N, 3]]:
     """Identity function with symbolic dimension - preserves shape"""
     return x
 
@@ -37,7 +38,9 @@ def test_symbolic_identity_wrong() -> Tensor[[4, 3]]:
     return result
 
 
-def numel_returns_bad_explicit_symint[N, M](x: Tensor[[N, M]]) -> Dim[N + M]:
+def numel_returns_bad_explicit_symint[N: SymVar, M: SymVar](
+    x: Tensor[[N, M]],
+) -> Dim[N + M]:
     s = x.numel()
     assert_type(s, Dim[N * M])
     # E: Returned type `Dim[(N * M)]` is not assignable
@@ -45,7 +48,9 @@ def numel_returns_bad_explicit_symint[N, M](x: Tensor[[N, M]]) -> Dim[N + M]:
     return s
 
 
-def view_returns_bad_explicit_tensor[N, M](x: Tensor[[N, M]]) -> Tensor[[N + M]]:
+def view_returns_bad_explicit_tensor[N: SymVar, M: SymVar](
+    x: Tensor[[N, M]],
+) -> Tensor[[N + M]]:
     v = x.view(-1)
     assert_type(v, Tensor[[N * M]])
     # E: Returned type `Tensor[[(N * M)]]` is not assignable
@@ -53,7 +58,9 @@ def view_returns_bad_explicit_tensor[N, M](x: Tensor[[N, M]]) -> Tensor[[N + M]]
     return v
 
 
-def numel_returns_bad_implicit_symint[N, M, K](x: Tensor[[N, M]]) -> Dim[K]:
+def numel_returns_bad_implicit_symint[N: SymVar, M: SymVar, K: SymVar](
+    x: Tensor[[N, M]],
+) -> Dim[K]:
     s = x.numel()
     assert_type(s, Dim[N * M])
     # E: Returned type `Dim[(N * M)]` is not assignable
@@ -61,7 +68,9 @@ def numel_returns_bad_implicit_symint[N, M, K](x: Tensor[[N, M]]) -> Dim[K]:
     return s
 
 
-def view_returns_bad_implicit_tensor[N, M, K](x: Tensor[[N, M]]) -> Tensor[[K]]:
+def view_returns_bad_implicit_tensor[N: SymVar, M: SymVar, K: SymVar](
+    x: Tensor[[N, M]],
+) -> Tensor[[K]]:
     v = x.view(-1)
     assert_type(v, Tensor[[N * M]])
     # E: Returned type `Tensor[[(N * M)]]` is not assignable

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from torch import Tensor
 
 
-class Fire[InC, SQ, E1, E3](nn.Module):
+class Fire[InC, SQ, E1: SymVar, E3: SymVar](nn.Module):
     """Fire module: squeeze (1x1 conv) then expand (parallel 1x1 + 3x3 convs).
 
     Input:  Tensor[[B, InC, H, W]]
@@ -114,7 +114,9 @@ class SqueezeNet[NC: SymVar = 1000](nn.Module):
                 if m.bias is not None:
                     init.constant_(m.bias, 0)
 
-    def forward[B, H, W](self, x: Tensor[[B, 3, H, W]]) -> Tensor[[B, NC]]:
+    def forward[B, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, 3, H, W]]
+    ) -> Tensor[[B, NC]]:
         x1 = self.features(x)
         assert_type(
             x1,

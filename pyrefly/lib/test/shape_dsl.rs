@@ -531,6 +531,9 @@ def f[N](
     pep484: Array[tuple[Literal[2], Literal[3]], int],
     size_tuple: Array[SizeTuple[2, 3], int],
     mixed_size_tuple: Array[SizeTuple[2, 3, Dim[N]], int],
+    bare_dim: Dim[N],
+    bare_list: Array[[N], int],
+    bare_size_tuple: Array[SizeTuple[N], int],
     carrier: SizeTuple[2, 3],
     mixed_carrier: SizeTuple[2, 3, Dim[N]],
     unbounded: SizeTuple,
@@ -539,6 +542,9 @@ def f[N](
     reveal_type(pep484)  # E: revealed type: Array[[2, 3], int]
     reveal_type(size_tuple)  # E: revealed type: Array[[2, 3], int]
     reveal_type(mixed_size_tuple)  # E: revealed type: Array[[2, 3, N], int]
+    reveal_type(bare_dim)  # E: revealed type: Dim[N]
+    reveal_type(bare_list)  # E: revealed type: Array[[N], int]
+    reveal_type(bare_size_tuple)  # E: revealed type: Array[[N], int]
     p: Array[tuple[Literal[2], Literal[3]], int] = compact
     c: Array[[2, 3], int] = pep484
     st: Array[SizeTuple[2, 3], int] = compact
@@ -1164,7 +1170,7 @@ testcase!(
     test_tensor_shapes_keeps_integer_type_arguments_ordinary,
     shaped_array_env(),
     r#"
-from shape_extensions import Dim, SizeTuple, shaped_array
+from shape_extensions import Dim, SizeTuple, SymVar, shaped_array
 from typing import TypeVar, reveal_type
 
 T = TypeVar("T")
@@ -1197,7 +1203,7 @@ def shaped_array_segments(
     reveal_type(good)  # E: revealed type: Array[[2, 3], int, Cpu]
     reveal_type(alias)  # E: revealed type: Array[[2, 3], int, Cpu]
 
-def dims[N](concrete: Dim[3], symbolic: Dim[N + 1]) -> None:
+def dims[N: SymVar](concrete: Dim[3], symbolic: Dim[N + 1]) -> None:
     pass
 "#,
 );
@@ -1243,9 +1249,11 @@ M = SymVar("M")
 
 class Box(Generic[N]): ...
 
-def f(n: Dim[N], x: Tensor[[N, M]], y: Box[N]) -> None:
+def f(n: Dim[N], shifted: Dim[N + 1], x: Tensor[[N, M]], shifted_x: Tensor[[N + 1, M]], y: Box[N]) -> None:
     reveal_type(n)  # E: revealed type: Dim[N]
+    assert_type(shifted, Dim[N + 1])
     reveal_type(x)  # E: revealed type: Tensor[[N, M]]
+    assert_type(shifted_x, Tensor[[N + 1, M]])
     reveal_type(y)  # E: revealed type: Box[N]
 "#,
 );
@@ -1278,6 +1286,53 @@ def shape[N: SymVar](n: Dim[N], x: Tensor[[N]]) -> None:
     reveal_type(n)  # E: revealed type: Dim[N]
     reveal_type(x)  # E: revealed type: Tensor[[N]]
     assert_type(identity(1), int)
+"#,
+);
+
+testcase!(
+    test_ordinary_typevar_shape_arithmetic_is_rejected,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import D, Dim, SizeTuple
+from torch import Tensor
+from typing import Generic, TypeVar
+
+LegacyN = TypeVar("LegacyN")
+
+class LegacyBox(Generic[LegacyN]):
+    legacy_tensor: Tensor[[LegacyN + 1]]  # E: `LegacyN` must be a `SymVar` to be used in shape arithmetic
+
+def invalid[N](
+    dim: Dim[N + 1],  # E: `N` must be a `SymVar` to be used in shape arithmetic
+    tensor: Tensor[[N + 1]],  # E: `N` must be a `SymVar` to be used in shape arithmetic
+    reversed_tensor: Tensor[[1 + N]],  # E: `N` must be a `SymVar` to be used in shape arithmetic
+    tuple_shape: Tensor[SizeTuple[N + 1]],  # E: `N` must be a `SymVar` to be used in shape arithmetic
+    negated: Tensor[[-N]],  # E: `N` must be a `SymVar` to be used in shape arithmetic
+    bracket_launder: Tensor[[D[N] + 1]],  # E: `N` must be a `SymVar` to be used in shape arithmetic
+    call_launder: Tensor[[D(N) // 2]],  # E: `N` must be a `SymVar` to be used in shape arithmetic
+    inner_launder: Tensor[[D[N + 1]]],  # E: `N` must be a `SymVar` to be used in shape arithmetic
+) -> None:
+    pass
+"#,
+);
+
+testcase!(
+    test_symvar_shape_arithmetic_is_accepted,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import Dim, SymVar
+from torch import Tensor
+from typing import assert_type
+
+LegacyN = SymVar("LegacyN")
+
+def pep695[N: SymVar](dim: Dim[N + 1], tensor: Tensor[[N + 1]], negated: Tensor[[-N]]) -> None:
+    pass
+
+def legacy(dim: Dim[LegacyN + 1], tensor: Tensor[[LegacyN + 1]], negated: Tensor[[-LegacyN]]) -> None:
+    assert_type(dim, Dim[LegacyN + 1])
+    assert_type(tensor, Tensor[[LegacyN + 1]])
+    assert_type(negated, Tensor[[-LegacyN]])
 "#,
 );
 
@@ -1412,11 +1467,11 @@ testcase!(
     test_shape_arithmetic_wrapper_bracket_form,
     shaped_array_env_with_shaped_torch(),
     r#"
-from shape_extensions import D
+from shape_extensions import D, SymVar
 from typing import reveal_type
 from torch import Tensor
 
-def f[N, M](x: Tensor[[D[N] + D[M], D[N] * 2]]) -> None:
+def f[N: SymVar, M: SymVar](x: Tensor[[D[N] + D[M], D[N] * 2]]) -> None:
     reveal_type(x)  # E: revealed type: Tensor[[(N + M), (2 * N)]]
 "#,
 );
@@ -1425,11 +1480,11 @@ testcase!(
     test_shape_arithmetic_wrapper_call_form,
     shaped_array_env_with_shaped_torch(),
     r#"
-from shape_extensions import D
+from shape_extensions import D, SymVar
 from typing import reveal_type
 from torch import Tensor
 
-def f[N, M](x: Tensor[[D(N) // 2, D(N) ** D(M), -D(M)]]) -> None:
+def f[N: SymVar, M: SymVar](x: Tensor[[D(N) // 2, D(N) ** D(M), -D(M)]]) -> None:
     reveal_type(x)  # E: revealed type: Tensor[[(N // 2), (N ** M), (-1 * M)]]
 "#,
 );

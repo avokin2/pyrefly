@@ -387,6 +387,8 @@ pub enum ErrorKind {
     UnsupportedDelete,
     /// Attempting to apply an operation to arguments that do not support it.
     UnsupportedOperation,
+    /// A class decorator whose own type is `Any`, obscuring the decorated class type.
+    UntypedClassDecorator,
     /// Import is missing an expected stubs package
     UntypedImport,
     /// Result of async function call is never used or awaited
@@ -529,6 +531,7 @@ impl ErrorKind {
             ErrorKind::Unreachable => Severity::Warn,
             ErrorKind::UnreachableMatchCase => Severity::Warn,
             ErrorKind::UnresolvableDunderAll => Severity::Warn,
+            ErrorKind::UntypedClassDecorator => Severity::Ignore,
             ErrorKind::UntypedImport => Severity::Warn,
             ErrorKind::UnusedIgnore => Severity::Ignore,
             ErrorKind::UnusedTypeIgnore => Severity::Ignore,

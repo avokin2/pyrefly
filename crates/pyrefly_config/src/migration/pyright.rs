@@ -303,6 +303,10 @@ pub struct RuleOverrides {
     #[expect(unused)]
     pub report_unannotated_class_attribute: Option<Severity>,
 
+    // Decorator rules
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_untyped_class_decorator: Option<Severity>,
+
     // Name/redeclaration rules
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_redeclaration: Option<Severity>,
@@ -506,6 +510,12 @@ impl RuleOverrides {
         add(
             self.report_incompatible_unannotated_override,
             ErrorKind::BadOverrideMutableAttribute,
+        );
+
+        // Decorator rules
+        add(
+            self.report_untyped_class_decorator,
+            ErrorKind::UntypedClassDecorator,
         );
 
         // Name/redeclaration rules

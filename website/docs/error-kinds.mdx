@@ -1874,6 +1874,21 @@ This error arises when attempting to perform an operation between values of two 
 x = 1 + "oops"  # `+` is not supported between `int` and `str` [unsupported-operation]
 ```
 
+## untyped-class-decorator
+
+Default severity: `ignore`
+
+A class decorator whose own type is `Any` may modify the class in unexpected ways.
+
+```python
+from typing import Any
+
+my_decorator: Any = lambda cls: cls
+
+@my_decorator  # `my_decorator` is `Any`, so the type of `A` is lost [untyped-class-decorator]
+class A: ...
+```
+
 ## untyped-import
 
 Default severity: `warn`

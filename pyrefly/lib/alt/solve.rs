@@ -5536,9 +5536,25 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             Binding::ClassDef(x, decorators) => match &self.get_idx(*x).0 {
                 None => self.heap.mk_any_implicit(),
                 Some(cls) => {
-                    // TODO: analyze the class decorators. At the moment, we don't actually support any type-level
-                    // analysis of class decorators (the decorators we do support like dataclass-related ones are
-                    // handled via custom bindings).
+                    for idx in decorators.iter() {
+                        if matches!(
+                            &self.get_idx(*idx).ty,
+                            Type::Any(AnyStyle::Implicit | AnyStyle::Explicit)
+                        ) {
+                            self.error(
+                                errors,
+                                self.bindings().idx_to_key(*idx).range(),
+                                ErrorKind::UntypedClassDecorator,
+                                format!(
+                                    "Untyped class decorator may modify `{}` in unexpected ways",
+                                    cls.name()
+                                ),
+                            );
+                        }
+                    }
+                    // TODO: analyze the class decorators beyond the `Any` check above. We don't
+                    // support general type-level analysis of class decorators (the ones we do
+                    // support, like dataclass-related ones, are handled via custom bindings).
                     //
                     // Note that all decorators have their own binding so they are still type checked for errors
                     // *inside* the decorator. The only application-level effect we honor is an

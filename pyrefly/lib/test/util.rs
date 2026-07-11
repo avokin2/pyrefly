@@ -118,6 +118,7 @@ pub struct TestEnv {
     not_required_key_access_error: bool,
     pytorch_efficiency_lint_error: bool,
     incompatible_comparison_error: bool,
+    untyped_class_decorator_error: bool,
     string_as_iterable_warning: bool,
     strict_callable_subtyping: bool,
     strict_partial_subtyping: bool,
@@ -158,6 +159,7 @@ impl TestEnv {
             not_required_key_access_error: false,
             pytorch_efficiency_lint_error: false,
             incompatible_comparison_error: false,
+            untyped_class_decorator_error: false,
             string_as_iterable_warning: false,
             strict_callable_subtyping: false,
             strict_partial_subtyping: false,
@@ -316,6 +318,11 @@ impl TestEnv {
 
     pub fn enable_incompatible_comparison_error(mut self) -> Self {
         self.incompatible_comparison_error = true;
+        self
+    }
+
+    pub fn enable_untyped_class_decorator_error(mut self) -> Self {
+        self.untyped_class_decorator_error = true;
         self
     }
 
@@ -504,6 +511,9 @@ impl TestEnv {
         }
         if self.incompatible_comparison_error {
             errors.set_error_severity(ErrorKind::IncompatibleComparison, Severity::Error);
+        }
+        if self.untyped_class_decorator_error {
+            errors.set_error_severity(ErrorKind::UntypedClassDecorator, Severity::Error);
         }
         if self.string_as_iterable_warning {
             errors.set_error_severity(ErrorKind::StringAsIterable, Severity::Warn);

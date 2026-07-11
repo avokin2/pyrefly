@@ -540,6 +540,7 @@ Umbrella error code for cases where Pyrefly infers an implicit `Any`. Suppressin
 Most concrete diagnostics are emitted under one of the more specific sub-kinds:
 - [`implicit-any-attribute`](#implicit-any-attribute)
 - [`implicit-any-empty-container`](#implicit-any-empty-container)
+- [`implicit-any-lambda`](#implicit-any-lambda)
 - [`implicit-any-parameter`](#implicit-any-parameter)
 - [`implicit-any-type-argument`](#implicit-any-type-argument)
 
@@ -583,16 +584,29 @@ x: list[int] = []
 x = [1, 2, 3]
 ```
 
+## implicit-any-lambda
+
+Default severity: `ignore`
+
+A lambda whose parameter or return type cannot be inferred is treated as an implicit `Any`, hiding type errors in its body and at its call sites.
+
+When the lambda is used in a typed context (e.g. assigned to a `Callable` or passed to a function that expects one), the parameters are inferred from that context and no error is reported.
+
+```python
+f = lambda x: x  # error: implicit-any-lambda
+
+from typing import Callable
+g: Callable[[int], int] = lambda x: x  # OK: `x` is inferred as `int` from context
+```
+
 ## implicit-any-parameter
 
 Default severity: `ignore`
 
 A function parameter has no type annotation, so Pyrefly treats it as `Any`. Add an annotation. The `self` and `cls` parameters of methods are excluded from this check.
 
-This is a sub-kind of [implicit-any](#implicit-any): suppressing `implicit-any` also suppresses this error.
-
 ```python
-def f(x):  # implicit-any-parameter — `x` has type `Any`
+def f(x):
     return x + 1
 
 # Fix:

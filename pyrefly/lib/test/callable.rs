@@ -1530,3 +1530,64 @@ def f(x: Callable[..., ...]):  # E: `...` is not a valid return type
     reveal_type(x)  # E: revealed type: (...) -> Unknown
 "#,
 );
+
+testcase!(
+    test_implicit_any_lambda,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+f = lambda x: x  # E: Type of lambda parameter `x` is unknown  # E: Return type of lambda is unknown
+"#,
+);
+
+testcase!(
+    test_implicit_any_lambda_param_only,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+f = lambda x: 1  # E: Type of lambda parameter `x` is unknown
+"#,
+);
+
+testcase!(
+    test_implicit_any_lambda_multiple_params,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+f = lambda x, y: x + y  # E: Type of lambda parameter `x` is unknown  # E: Type of lambda parameter `y` is unknown  # E: Return type of lambda is unknown
+"#,
+);
+
+testcase!(
+    test_implicit_any_lambda_return_only,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+def untyped(x):
+    return x
+
+f = lambda: untyped(1)  # E: Return type of lambda is unknown
+"#,
+);
+
+testcase!(
+    test_lambda_type_contextual_no_error,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+from typing import Callable
+f: Callable[[int], int] = lambda x: x
+"#,
+);
+
+testcase!(
+    test_lambda_no_params_known_return_no_error,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+f = lambda: 1
+"#,
+);
+
+testcase!(
+    bug = "Pyrefly does not contextually type lambda parameters in generic callback arguments (e.g. `sorted(key=...)`), so they become implicit `Any` and are flagged, even though the type is derivable (Pyright infers `int` here)",
+    test_implicit_any_lambda_in_generic_call,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+xs = sorted([3, 1, 2], key=lambda x: x)  # E: Type of lambda parameter `x` is unknown  # E: Return type of lambda is unknown
+"#,
+);

@@ -453,7 +453,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 } else {
                     Vec::new()
                 };
-                self.callable_infer_with_hint(
+                let callable = self.callable_infer_with_hint(
                     hint,
                     errors,
                     |cur_hint, callable_errors| {
@@ -536,7 +536,46 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         self.heap.mk_callable(params, ret)
                     },
                     |callable| callable,
-                )
+                );
+                if let Type::Callable(c) = &callable {
+                    let is_implicit_any = |t: &Type| matches!(t, Type::Any(AnyStyle::Implicit));
+                    // Collect the AST parameters in the same order the callable's params
+                    // were built above (non-variadic, then vararg, then kwarg), so we can
+                    // point each error at the specific parameter by name and range.
+                    let mut ast_params: Vec<(&Name, TextRange)> = Vec::new();
+                    if let Some(parameters) = &lambda.parameters {
+                        for p in parameters.iter_non_variadic_params() {
+                            ast_params.push((&p.name().id, p.name().range()));
+                        }
+                        if let Some(vararg) = &parameters.vararg {
+                            ast_params.push((&vararg.name.id, vararg.name.range()));
+                        }
+                        if let Some(kwarg) = &parameters.kwarg {
+                            ast_params.push((&kwarg.name.id, kwarg.name.range()));
+                        }
+                    }
+                    if let Params::List(params) = &c.params {
+                        for (param, (name, range)) in params.items().iter().zip(&ast_params) {
+                            if is_implicit_any(param.as_type()) {
+                                self.error(
+                                    errors,
+                                    *range,
+                                    ErrorKind::ImplicitAnyLambda,
+                                    format!("Type of lambda parameter `{name}` is unknown"),
+                                );
+                            }
+                        }
+                    }
+                    if is_implicit_any(&c.ret) {
+                        self.error(
+                            errors,
+                            lambda.body.range(),
+                            ErrorKind::ImplicitAnyLambda,
+                            "Return type of lambda is unknown".to_owned(),
+                        );
+                    }
+                }
+                callable
             }
             Expr::Tuple(x) => self.tuple_infer(x, hint, errors),
             Expr::List(x) => self.infer_with_decomposed_hint(

@@ -30,16 +30,26 @@ testcase!(
     r#"
 from typing import reveal_type
 f = lambda x, y=1: x + y
-reveal_type(f)  # E: revealed type: (x: Unknown, y: Unknown = ...) -> Unknown
+reveal_type(f)  # E: revealed type: (x: Unknown, y: int = 1) -> Unknown
 f(1)  # OK, y has default
 f(1, 2)  # OK
 f()  # E: Missing argument `x`
 
 g = lambda x, y="hello", z=None: (x, y, z)
-reveal_type(g)  # E: revealed type: (x: Unknown, y: Unknown = ..., z: Unknown = ...) -> tuple[Unknown, Unknown, Unknown]
+reveal_type(g)  # E: revealed type: (x: Unknown, y: str = 'hello', z: Unknown | None = None) -> tuple[Unknown, str, Unknown | None]
 g(1)  # OK
 g(1, "world")  # OK
-g(1, "world", True)  # OK
+g(1, "world", True)  # OK, z is `Any | None`
+"#,
+);
+
+testcase!(
+    test_lambda_default_promotes_literalstring,
+    r#"
+from typing import Callable
+KEYS="ABC"
+VALUES="DEF"
+x: Callable[[str], str] = lambda key, map=dict(zip(KEYS, VALUES)): map[key]
 "#,
 );
 
@@ -1584,10 +1594,56 @@ f = lambda: 1
 );
 
 testcase!(
+    test_lambda_default_param_no_error,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+f = lambda x=1: x
+"#,
+);
+
+testcase!(
     bug = "Pyrefly does not contextually type lambda parameters in generic callback arguments (e.g. `sorted(key=...)`), so they become implicit `Any` and are flagged, even though the type is derivable (Pyright infers `int` here)",
     test_implicit_any_lambda_in_generic_call,
     TestEnv::new().enable_implicit_any_lambda_error(),
     r#"
 xs = sorted([3, 1, 2], key=lambda x: x)  # E: Type of lambda parameter `x` is unknown  # E: Return type of lambda is unknown
+"#,
+);
+
+testcase!(
+    test_lambda_default_infers_type,
+    r#"
+from typing import reveal_type
+f = lambda x=1: x
+reveal_type(f)  # E: revealed type: (x: int = 1) -> int
+"#,
+);
+
+testcase!(
+    test_lambda_default_none_infers_optional,
+    r#"
+from typing import reveal_type
+f = lambda x=None: x
+reveal_type(f)  # E: revealed type: (x: Unknown | None = None) -> Unknown | None
+"#,
+);
+
+testcase!(
+    test_lambda_default_no_unknown,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+f = lambda x=1: x
+g = lambda x="a": x
+h = lambda x=None: x
+"#,
+);
+
+testcase!(
+    test_lambda_default_contextual_type_takes_precedence,
+    TestEnv::new().enable_implicit_any_lambda_error(),
+    r#"
+from typing import Callable, assert_type
+f: Callable[[str | None], str | None] = lambda x="hi": x
+assert_type(f, Callable[[str | None], str | None])
 "#,
 );

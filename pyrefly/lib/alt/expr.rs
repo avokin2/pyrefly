@@ -91,6 +91,7 @@ use crate::error::collector::ErrorCollector;
 use crate::error::context::ErrorContext;
 use crate::error::context::TypeCheckContext;
 use crate::solver::solver::CallContext;
+use crate::types::callable::DefaultValue;
 use crate::types::callable::Param;
 use crate::types::callable::ParamList;
 use crate::types::callable::Params;
@@ -453,6 +454,13 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 } else {
                     Vec::new()
                 };
+                let param_default_tys: Vec<Option<Type>> = match &lambda.parameters {
+                    Some(parameters) => parameters
+                        .iter_non_variadic_params()
+                        .map(|p| p.default.as_deref().map(|d| self.expr_infer(d, errors)))
+                        .collect(),
+                    None => Vec::new(),
+                };
                 let callable = self.callable_infer_with_hint(
                     hint,
                     errors,
@@ -464,22 +472,48 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                         let return_hint =
                             cur_hint.and_then(|hint| self.decompose_lambda(hint, &param_vars));
 
-                        let mut params: Vec<Param> = if let Some(parameters) = &lambda.parameters {
-                            param_vars
-                                .into_iter()
-                                .zip(parameters.iter_non_variadic_params())
-                                .map(|((name, var), param)| {
-                                    let required = if param.default.is_some() {
-                                        Required::Optional(None)
-                                    } else {
-                                        Required::Required
-                                    };
-                                    Param::Pos(name.clone(), self.solver().force_var(var), required)
-                                })
-                                .collect()
-                        } else {
-                            Vec::new()
-                        };
+                        // For each parameter that has a default value but whose Var is not
+                        // constrained by a contextual hint, constrain the Var to the
+                        // (promoted) type of the default.
+                        for ((_, var), default_ty) in param_vars.iter().zip(&param_default_tys) {
+                            if let Some(default_ty) = default_ty
+                                && matches!(self.solver().expand_unwrap(*var), Type::Var(_))
+                            {
+                                let mut resolved = default_ty.clone();
+                                self.solver().expand_with_bounds(&mut resolved);
+                                let promoted = resolved
+                                    .with_literal_style(LitStyle::Implicit)
+                                    .promote_implicit_literals(self.stdlib);
+                                // A `None` default almost always denotes an optional value,
+                                // so infer `Any | None` to keep the parameter permissive
+                                // rather than strictly `None`.
+                                let inferred = if promoted.is_none() {
+                                    self.union(self.heap.mk_any_implicit(), promoted)
+                                } else {
+                                    promoted
+                                };
+                                let _ = self.is_subset_eq(&inferred, &var.to_type(self.heap));
+                            }
+                        }
+
+                        let mut params: Vec<Param> = param_vars
+                            .into_iter()
+                            .zip(&param_default_tys)
+                            .map(|((name, var), default_ty)| {
+                                let ty = self.solver().force_var(var);
+                                let required = match default_ty {
+                                    Some(default_ty) => {
+                                        Required::Optional(Some(DefaultValue::new(
+                                            default_ty
+                                                .clone()
+                                                .with_literal_style(LitStyle::Explicit),
+                                        )))
+                                    }
+                                    None => Required::Required,
+                                };
+                                Param::Pos(name.clone(), ty, required)
+                            })
+                            .collect();
                         if let Some(parameters) = &lambda.parameters {
                             params.extend(parameters.vararg.iter().map(|x| {
                                 let var = self.solver().fresh_unwrap(self.uniques);

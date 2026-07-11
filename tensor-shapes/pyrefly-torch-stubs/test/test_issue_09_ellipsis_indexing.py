@@ -5,11 +5,14 @@
 
 from typing import assert_type, TYPE_CHECKING
 
+from shape_extensions import SymVar
+
+
 if TYPE_CHECKING:
     from torch import Tensor
 
 
-def test_ellipsis_indexing[B, T, NHeads, HeadDim](
+def test_ellipsis_indexing[B: SymVar, T: SymVar, NHeads: SymVar, HeadDim: SymVar](
     x: Tensor[[B, T, NHeads, HeadDim, 2]],
 ) -> None:
     # Ellipsis indexing now works correctly
@@ -21,7 +24,12 @@ def test_ellipsis_indexing[B, T, NHeads, HeadDim](
     assert_type(result_explicit, Tensor[[B, T, NHeads, HeadDim]])
 
 
-def test_ellipsis_multiple_indices[B, T, NHeads, HeadDim](
+def test_ellipsis_multiple_indices[
+    B: SymVar,
+    T: SymVar,
+    NHeads: SymVar,
+    HeadDim: SymVar,
+](
     x: Tensor[[B, T, NHeads, HeadDim, 2]],
 ) -> None:
     # Ellipsis with multiple integer indices

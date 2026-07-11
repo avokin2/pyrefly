@@ -44,7 +44,9 @@ class ResNetBlock[C: SymVar](nn.Module):
         )
         self.act_fn = act_fn()
 
-    def forward[B, H, W](self, x: Tensor[[B, C, H, W]]) -> Tensor[[B, C, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, C, H, W]]
+    ) -> Tensor[[B, C, H, W]]:
         z = self.net(x)
         assert_type(z, Tensor[[B, C, H, W]])
         out = z + x
@@ -72,7 +74,7 @@ class ResNetDownsampleBlock[C_in: SymVar, C_out: SymVar](nn.Module):
         self.downsample = nn.Conv2d(c_in, c_out, kernel_size=1, stride=2)
         self.act_fn = act_fn()
 
-    def forward[B, H: SymVar, W: SymVar](
+    def forward[B: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C_in, H, W]]
     ) -> Tensor[[B, C_out, (H - 1) // 2 + 1, (W - 1) // 2 + 1]]:
         z = self.net(x)
@@ -96,7 +98,9 @@ class ResNetGroup[C: SymVar](nn.Module):
         super().__init__()
         self.blocks = nn.ModuleList([ResNetBlock(c, act_fn) for _ in range(num_blocks)])
 
-    def forward[B, H, W](self, x: Tensor[[B, C, H, W]]) -> Tensor[[B, C, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, C, H, W]]
+    ) -> Tensor[[B, C, H, W]]:
         for block in self.blocks:
             x = block(x)
         return x
@@ -171,7 +175,7 @@ class ResNetModel[NumClasses: SymVar](nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def _apply_stage[B, C: SymVar, H: SymVar, W: SymVar](
+    def _apply_stage[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: int
     ) -> Tensor[[B, 2 * C, (H - 1) // 2 + 1, (W - 1) // 2 + 1]]:
         idx = len(self.downs) - depth
@@ -181,18 +185,18 @@ class ResNetModel[NumClasses: SymVar](nn.Module):
         return group(y)
 
     @overload
-    def _chain[B, C: SymVar, H: SymVar, W: SymVar](
+    def _chain[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: Dim[1]
     ) -> Tensor[[B, 2 * C, (H - 1) // 2 + 1, (W - 1) // 2 + 1]]: ...
 
     @overload
-    def _chain[Depth: SymVar, B, C: SymVar, H: SymVar, W: SymVar](
+    def _chain[Depth: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: Dim[Depth]
     ) -> Tensor[
         [B, C * 2**Depth, (H - 1) // 2**Depth + 1, (W - 1) // 2**Depth + 1]
     ]: ...
 
-    def _chain[Depth: SymVar, B, C: SymVar, H: SymVar, W: SymVar](
+    def _chain[Depth: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: Dim[Depth]
     ) -> (
         Tensor[[B, 2 * C, (H - 1) // 2 + 1, (W - 1) // 2 + 1]]
@@ -203,7 +207,7 @@ class ResNetModel[NumClasses: SymVar](nn.Module):
             return y
         return self._chain(y, depth - 1)
 
-    def forward[B](self, x: Tensor[[B, 3, 32, 32]]) -> Tensor[[B, NumClasses]]:
+    def forward[B: SymVar](self, x: Tensor[[B, 3, 32, 32]]) -> Tensor[[B, NumClasses]]:
         x1 = self.input_net(x)
         assert_type(x1, Tensor[[B, 16, 32, 32]])
         x2 = self.initial_group(x1)

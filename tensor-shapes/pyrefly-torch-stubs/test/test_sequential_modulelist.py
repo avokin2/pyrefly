@@ -14,9 +14,10 @@ from typing import assert_type, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
+from shape_extensions import SymVar
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim, SymVar
+    from shape_extensions import Dim
     from torch import Tensor
 
 # ============================================================================
@@ -34,7 +35,7 @@ class LinearLayer[N: SymVar, M: SymVar](nn.Module):
         # Now M and N are bound to runtime values via Literal types
         self.weight = torch.randn(out_features, in_features)
 
-    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
+    def forward[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
         weight_t: Tensor[[N, M]] = self.weight.transpose(0, 1)
         return torch.matmul(x, weight_t)
 
@@ -42,7 +43,7 @@ class LinearLayer[N: SymVar, M: SymVar](nn.Module):
 class ReLULayer(nn.Module):
     """Simple ReLU wrapper (truly shape-preserving - works with any dimension)"""
 
-    def forward[B, N: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, N]]:
+    def forward[B: SymVar, N: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, N]]:
         return torch.relu(x)
 
 
@@ -89,7 +90,7 @@ class ManualSequential[N: SymVar, M: SymVar, K: SymVar](nn.Module):
         self.layer1 = LinearLayer(in_features, hidden_features)
         self.layer2 = LinearLayer(hidden_features, out_features)
 
-    def forward[B](self, x: Tensor[[B, N]]):
+    def forward[B: SymVar](self, x: Tensor[[B, N]]):
         # This is what Sequential *should* do type-wise
         # Note: layer outputs have concrete dimensions (Tensor[[B, 10]])
         h = self.layer1(x)
@@ -123,7 +124,7 @@ class TypedSequential[N: SymVar, M: SymVar, K: SymVar](nn.Module):
         self.layer1 = layer1
         self.layer2 = layer2
 
-    def forward[B](self, x: Tensor[[B, N]]):
+    def forward[B: SymVar](self, x: Tensor[[B, N]]):
         h = self.layer1(x)
         y = self.layer2(h)
         return y

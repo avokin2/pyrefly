@@ -18,7 +18,7 @@ syntax, providing runtime-safe type variable declarations that support arithmeti
 import inspect
 import math
 from dataclasses import dataclass
-from typing import Any, assert_type, Generic, TYPE_CHECKING, TypedDict
+from typing import Any, assert_type, Generic, TYPE_CHECKING, TypedDict, TypeVar
 
 import torch
 import torch.nn as nn
@@ -39,7 +39,7 @@ NHead = SymVar("NHead")
 NLayer = SymVar("NLayer")
 B = SymVar("B")
 T = SymVar("T")
-Bs = SymVar("Bs", bound=SizeTuple)
+Bs = TypeVar("Bs", bound=SizeTuple)
 
 
 class LayerNorm(nn.Module, Generic[M]):

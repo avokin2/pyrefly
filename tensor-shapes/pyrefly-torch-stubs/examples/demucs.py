@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 # Stride slicing computes ceil_div(dim, step) for the strided dimension.
 
 
-def downsample[B, C, T: SymVar, S: SymVar](
+def downsample[B: SymVar, C: SymVar, T: SymVar, S: SymVar](
     x: Tensor[[B, C, T]], stride: Dim[S]
 ) -> Tensor[[B, C, (T + S - 1) // S]]:
     """Downsample x by decimation.
@@ -81,7 +81,7 @@ def downsample[B, C, T: SymVar, S: SymVar](
 # - out.reshape(batch, channels, -1) uses -1 for automatic size inference
 
 
-def center_trim[B, C, T, R](
+def center_trim[B: SymVar, C: SymVar, T: SymVar, R: SymVar](
     tensor: Tensor[[B, C, T]], reference: Tensor[[B, C, R]]
 ) -> Tensor[[B, C, R]]:
     """Center trim `tensor` to match `reference` along the last dimension.
@@ -103,7 +103,9 @@ def center_trim[B, C, T, R](
     return tensor[..., delta // 2 : tensor.size(-1) - (delta - delta // 2)]
 
 
-def upsample[B, C, T](x: Tensor[[B, C, T]], stride: int) -> Tensor:
+def upsample[B: SymVar, C: SymVar, T: SymVar](
+    x: Tensor[[B, C, T]], stride: int
+) -> Tensor:
     """Linear upsampling, the output will be `stride` times longer.
 
     Steps:
@@ -144,7 +146,9 @@ class BLSTM[Ch: SymVar](nn.Module):
         self.lstm = nn.LSTM(dim, dim, bidirectional=True, batch_first=True)
         self.linear = nn.Linear(2 * dim, dim)
 
-    def forward[B, T](self, x: Tensor[[B, Ch, T]]) -> Tensor[[B, Ch, T]]:
+    def forward[B: SymVar, T: SymVar](
+        self, x: Tensor[[B, Ch, T]]
+    ) -> Tensor[[B, Ch, T]]:
         # [B, Ch, T] → [B, T, Ch]
         x_perm = x.permute(0, 2, 1)
         assert_type(x_perm, Tensor[[B, T, Ch]])
@@ -184,7 +188,7 @@ class EncoderBlockGLU(nn.Module):
             nn.GLU(dim=1),
         )
 
-    def forward[B, L: SymVar](
+    def forward[B: SymVar, L: SymVar](
         self, x: Tensor[[B, 2, L]]
     ) -> Tensor[[B, 64, (L - 8) // 4 + 1]]:
         out = self.encode(x)
@@ -206,7 +210,7 @@ class EncoderBlockGLU(nn.Module):
 #   Layer 2: 128 → 256    (channels*growth → channels*growth^2)
 
 
-class EncoderBlock[InC, OutC](nn.Module):
+class EncoderBlock[InC: SymVar, OutC: SymVar](nn.Module):
     """Encoder block: Conv1d(InC, OutC, 8, stride=4) → ReLU → Conv1d(OutC, OutC, 1) → ReLU.
 
     Spatial: L → (L - 8) // 4 + 1 (1x1 conv preserves spatial).
@@ -217,7 +221,7 @@ class EncoderBlock[InC, OutC](nn.Module):
         self.conv1 = nn.Conv1d(in_ch, out_ch, 8, stride=4)
         self.conv2 = nn.Conv1d(out_ch, out_ch, 1)
 
-    def forward[B, L: SymVar](
+    def forward[B: SymVar, L: SymVar](
         self, x: Tensor[[B, InC, L]]
     ) -> Tensor[[B, OutC, (L - 8) // 4 + 1]]:
         h = F.relu(self.conv1(x))
@@ -240,7 +244,7 @@ class EncoderBlock[InC, OutC](nn.Module):
 # The type system canonicalizes (L-3)*4 + 8 to 4*L - 4 via distributive law.
 
 
-class DecoderBlock[InC, OutC](nn.Module):
+class DecoderBlock[InC: SymVar, OutC: SymVar](nn.Module):
     """Decoder block: Conv1d(InC, InC, 3) → ReLU → ConvTranspose1d(InC, OutC, 8, stride=4).
 
     No final ReLU — caller applies it for non-outermost layers.
@@ -252,7 +256,7 @@ class DecoderBlock[InC, OutC](nn.Module):
         self.context_conv = nn.Conv1d(in_ch, in_ch, 3)
         self.deconv = nn.ConvTranspose1d(in_ch, out_ch, 8, stride=4)
 
-    def forward[B, L: SymVar](
+    def forward[B: SymVar, L: SymVar](
         self, x: Tensor[[B, InC, L]]
     ) -> Tensor[[B, OutC, (L - 3) * 4 + 8]]:
         h = F.relu(self.context_conv(x))
@@ -289,7 +293,7 @@ class DemucsEncoder(nn.Module):
         self.enc1 = EncoderBlock(64, 128)
         self.enc2 = EncoderBlock(128, 256)
 
-    def forward[B, L: SymVar](
+    def forward[B: SymVar, L: SymVar](
         self, x: Tensor[[B, 2, L]]
     ) -> Tensor[[B, 256, (((L // 4 - 1) // 4 - 1) // 4 - 1)]]:
         h0 = self.enc0(x)
@@ -306,7 +310,7 @@ class DemucsEncoder(nn.Module):
 # into [B, sources, audio_channels, T] using view.
 
 
-def reshape_output[B, T](
+def reshape_output[B: SymVar, T: SymVar](
     x: Tensor[[B, 8, T]],
 ) -> Tensor[[B, 4, 2, T]]:
     """Reshape decoder output to [B, sources=4, audio_channels=2, T]."""
@@ -349,7 +353,7 @@ class Demucs(nn.Module):
         self.dec1 = DecoderBlock(128, 64)
         self.dec0 = DecoderBlock(64, 8)
 
-    def forward[B, L: SymVar](self, mix: Tensor[[B, 2, L]]):
+    def forward[B: SymVar, L: SymVar](self, mix: Tensor[[B, 2, L]]):
         # Encoder: save outputs for skip connections
         # Spatial: L → L//4-1 → (L//4-1)//4-1 → ((L//4-1)//4-1)//4-1
         x0 = self.enc0(mix)

@@ -14,18 +14,21 @@ from __future__ import annotations
 from typing import assert_type, TYPE_CHECKING
 
 import torch
+from shape_extensions import SymVar
 
 if TYPE_CHECKING:
     from torch import Tensor
 
 
-def test_basic_tensor_index[B](z: Tensor[[B, 4, 4]], idx: Tensor[[6]]) -> None:
+def test_basic_tensor_index[B: SymVar](z: Tensor[[B, 4, 4]], idx: Tensor[[6]]) -> None:
     """Two tensor indices replace dims 1 and 2 with the index shape."""
     result = z[:, idx, idx]
     assert_type(result, Tensor[[B, 6]])
 
 
-def test_slice_and_tensor_index[B](z: Tensor[[B, 4, 4]], idx: Tensor[[6]]) -> None:
+def test_slice_and_tensor_index[B: SymVar](
+    z: Tensor[[B, 4, 4]], idx: Tensor[[6]]
+) -> None:
     """Slice preserves dim, tensor index replaces."""
     result = z[:, idx, :]
     assert_type(result, Tensor[[B, 6, 4]])
@@ -40,7 +43,9 @@ def test_concrete_tensor_index() -> None:
     assert_type(result, Tensor[[8, 6]])
 
 
-def test_symbolic_tensor_index[B, N](z: Tensor[[B, 10, 10]], idx: Tensor[[N]]) -> None:
+def test_symbolic_tensor_index[B: SymVar, N: SymVar](
+    z: Tensor[[B, 10, 10]], idx: Tensor[[N]]
+) -> None:
     """Symbolic index shape."""
     result = z[:, idx, idx]
     assert_type(result, Tensor[[B, N]])

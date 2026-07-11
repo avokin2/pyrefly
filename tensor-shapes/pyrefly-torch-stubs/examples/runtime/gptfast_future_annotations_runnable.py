@@ -231,7 +231,7 @@ transformer_configs: dict[str, ModelArgsDict[Any, Any, Any, Any, Any, Any, Any]]
 }
 
 
-def apply_rope_scaling[D](
+def apply_rope_scaling[D: SymVar](
     freqs: Tensor[[D]], rope_scaling: RopeScalingDict
 ) -> Tensor[[D]]:
     factor = rope_scaling["factor"]
@@ -257,7 +257,7 @@ def apply_rope_scaling[D](
     return torch.tensor(new_freqs, dtype=freqs.dtype, device=freqs.device)
 
 
-def precompute_freqs_cis[SeqLen, HeadDim: SymVar](
+def precompute_freqs_cis[SeqLen: SymVar, HeadDim: SymVar](
     seq_len: Dim[SeqLen],
     n_elem: Dim[HeadDim],
     base: int = 10000,
@@ -277,7 +277,7 @@ def precompute_freqs_cis[SeqLen, HeadDim: SymVar](
     return cache.to(dtype=dtype)
 
 
-def apply_rotary_emb[B, T, NHeads, HeadDim: SymVar](
+def apply_rotary_emb[B: SymVar, T: SymVar, NHeads: SymVar, HeadDim: SymVar](
     x: Tensor[[B, T, NHeads, HeadDim]], freqs_cis: Tensor[[T, HeadDim // 2, 2]]
 ) -> Tensor[[B, T, NHeads, HeadDim]]:
     xshaped = x.float().reshape(*x.size()[:-1], -1, 2)
@@ -316,7 +316,7 @@ class KVCache[MaxBatchSize: SymVar, MaxSeqLen: SymVar, NHeads: SymVar, HeadDim: 
         self.k_cache = nn.Buffer(torch.zeros(cache_shape, dtype=dtype))
         self.v_cache = nn.Buffer(torch.zeros(cache_shape, dtype=dtype))
 
-    def update[B, S](
+    def update[B: SymVar, S: SymVar](
         self,
         input_pos: Tensor[[S]] | None,
         k_val: Tensor[[B, NHeads, S, HeadDim]],
@@ -347,11 +347,11 @@ class FeedForward[D: SymVar, IntermediateSize: SymVar](nn.Module):
         self.w3 = nn.Linear(config.dim, config.intermediate_size, bias=False)
         self.w2 = nn.Linear(config.intermediate_size, config.dim, bias=False)
 
-    def forward[B, T](self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
+    def forward[B: SymVar, T: SymVar](self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
-class RMSNorm[D](nn.Module):
+class RMSNorm[D: SymVar](nn.Module):
     def __init__(self, dim: Dim[D], eps: float = 1e-5):
         super().__init__()
         self.eps = eps
@@ -391,7 +391,7 @@ class Attention[D: SymVar, NHead: SymVar, NLocalHeads: SymVar](nn.Module):
             wv = state_dict.pop(prefix + "wv.weight")
             state_dict[prefix + "wqkv.weight"] = torch.cat([wq, wk, wv])
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self,
         x: Tensor[[B, T, D]],
         freqs_cis: Tensor[[T, (D // NHead) // 2, 2]],
@@ -492,7 +492,7 @@ class Transformer[
             self.config.rope_scaling,
         )
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, mask: BlockMask, idx: Tensor[[B, T]], input_pos: Tensor[[T]] | None = None
     ) -> Tensor[[B, T, VocabSize]]:
         assert self.freqs_cis is not None, "Caches must be initialized first"
@@ -533,7 +533,7 @@ class TransformerBlock[
         self.ffn_norm = RMSNorm(config.dim, config.norm_eps)
         self.attention_norm = RMSNorm(config.dim, config.norm_eps)
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self,
         x: Tensor[[B, T, D]],
         input_pos: Tensor[[T]],

@@ -12,6 +12,7 @@ from typing import assert_type, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
+from shape_extensions import SymVar
 
 if TYPE_CHECKING:
     from shape_extensions import Dim
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class LinearWithParams[N, M](nn.Module):
+class LinearWithParams[N: SymVar, M: SymVar](nn.Module):
     """Linear layer with typed weight parameter"""
 
     # Can we declare typed parameters as class attributes?
@@ -35,7 +36,7 @@ class LinearWithParams[N, M](nn.Module):
         self.weight = torch.randn(out_features, in_features)
         self.bias = torch.randn(out_features)
 
-    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
+    def forward[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
         # Does using typed parameters preserve shapes?
         weight_t: Tensor[[N, M]] = self.weight.transpose(0, 1)
         y: Tensor[[B, M]] = torch.matmul(x, weight_t)
@@ -57,7 +58,7 @@ def test_basic_parameters():
 # ============================================================================
 
 
-class LinearNoAnnotations[N, M](nn.Module):
+class LinearNoAnnotations[N: SymVar, M: SymVar](nn.Module):
     """Linear layer without explicit parameter type annotations"""
 
     def __init__(self, in_features: Dim[N], out_features: Dim[M]):
@@ -66,7 +67,7 @@ class LinearNoAnnotations[N, M](nn.Module):
         self.weight = torch.randn(out_features, in_features)
         self.bias = torch.randn(out_features)
 
-    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
+    def forward[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
         # Can PyRefly infer parameter types from initialization?
         weight_t: Tensor[[N, M]] = self.weight.transpose(0, 1)
         y: Tensor[[B, M]] = torch.matmul(x, weight_t)
@@ -88,7 +89,7 @@ def test_parameters_no_annotations():
 # ============================================================================
 
 
-class MultiLayerParams[N, M, K](nn.Module):
+class MultiLayerParams[N: SymVar, M: SymVar, K: SymVar](nn.Module):
     """Module with multiple parameters of different shapes"""
 
     w1: Tensor[[M, N]]
@@ -109,7 +110,7 @@ class MultiLayerParams[N, M, K](nn.Module):
         self.b1 = torch.randn(hidden_features)
         self.b2 = torch.randn(out_features)
 
-    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, K]]:
+    def forward[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, K]]:
         w1_t: Tensor[[N, M]] = self.w1.transpose(0, 1)
         h: Tensor[[B, M]] = torch.matmul(x, w1_t) + self.b1
         h_relu: Tensor[[B, M]] = torch.relu(h)
@@ -142,7 +143,7 @@ def test_multiple_parameters():
 #     gamma: Tensor[[C]]
 #     beta: Tensor[[C]]
 #
-#     def forward[B, H, W](
+#     def forward[B: SymVar, H: SymVar, W: SymVar](
 #         self, x: Tensor[[B, C, H, W]]
 #     ) -> Tensor[[B, C, H, W]]:
 #         # .view() returns Unknown, breaking broadcasting
@@ -151,7 +152,7 @@ def test_multiple_parameters():
 
 
 # Simple test for buffers without .view()
-class SimpleBufferModule[N](nn.Module):
+class SimpleBufferModule[N: SymVar](nn.Module):
     """Module with simple buffer (no reshaping)"""
 
     running_sum: Tensor[[N]]
@@ -161,7 +162,7 @@ class SimpleBufferModule[N](nn.Module):
         # Now N is bound to runtime value via Literal type
         self.running_sum = torch.zeros(n)
 
-    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, N]]:
+    def forward[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, N]]:
         # Simple buffer usage without reshaping
         return x + self.running_sum
 
@@ -180,7 +181,7 @@ def test_buffers():
 # ============================================================================
 
 
-class LinearLayerWithParams[N, M](nn.Module):
+class LinearLayerWithParams[N: SymVar, M: SymVar](nn.Module):
     """Reusable linear layer with parameters"""
 
     weight: Tensor[[M, N]]
@@ -192,13 +193,13 @@ class LinearLayerWithParams[N, M](nn.Module):
         self.weight = torch.randn(out_features, in_features)
         self.bias = torch.randn(out_features)
 
-    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
+    def forward[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
         weight_t: Tensor[[N, M]] = self.weight.transpose(0, 1)
         y: Tensor[[B, M]] = torch.matmul(x, weight_t) + self.bias
         return y
 
 
-class MLPWithNestedParams[N, M, K](nn.Module):
+class MLPWithNestedParams[N: SymVar, M: SymVar, K: SymVar](nn.Module):
     """MLP with nested modules that have parameters"""
 
     layer1: LinearLayerWithParams[N, M]
@@ -215,7 +216,7 @@ class MLPWithNestedParams[N, M, K](nn.Module):
         self.layer1 = LinearLayerWithParams(in_features, hidden_features)
         self.layer2 = LinearLayerWithParams(hidden_features, out_features)
 
-    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, K]]:
+    def forward[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, K]]:
         # Do nested parameters work correctly?
         h: Tensor[[B, M]] = self.layer1(x)
         h_relu: Tensor[[B, M]] = torch.relu(h)
@@ -237,7 +238,7 @@ def test_nested_modules_with_parameters():
 # ============================================================================
 
 
-class WeightTying[N, M](nn.Module):
+class WeightTying[N: SymVar, M: SymVar](nn.Module):
     """Module with shared parameters (weight tying pattern)"""
 
     shared_weight: Tensor[[M, N]]
@@ -247,12 +248,12 @@ class WeightTying[N, M](nn.Module):
         # Now N and M are bound to runtime values via Literal types
         self.shared_weight = torch.randn(out_features, in_features)
 
-    def encode[B](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
+    def encode[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
         """Encoder using shared weight"""
         weight_t: Tensor[[N, M]] = self.shared_weight.transpose(0, 1)
         return torch.matmul(x, weight_t)
 
-    def decode[B](self, h: Tensor[[B, M]]) -> Tensor[[B, N]]:
+    def decode[B: SymVar](self, h: Tensor[[B, M]]) -> Tensor[[B, N]]:
         """Decoder using transposed shared weight"""
         weight_tt: Tensor[[M, N]] = self.shared_weight
         return torch.matmul(h, weight_tt)
@@ -275,7 +276,7 @@ def test_shared_parameters():
 # ============================================================================
 
 
-class ConvWithParams[C_in, C_out](nn.Module):
+class ConvWithParams[C_in: SymVar, C_out: SymVar](nn.Module):
     """Convolutional layer with 4D weight tensor"""
 
     weight: Tensor[[C_out, C_in, 3, 3]]
@@ -287,7 +288,9 @@ class ConvWithParams[C_in, C_out](nn.Module):
         self.weight = torch.randn(out_channels, in_channels, 3, 3)
         self.bias = torch.randn(out_channels)
 
-    def forward[B, H, W](self, x: Tensor[[B, C_in, H, W]]) -> Tensor[[B, C_out, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, C_in, H, W]]
+    ) -> Tensor[[B, C_out, H, W]]:
         import torch.nn.functional as F
 
         # Use typed conv weight
@@ -309,7 +312,7 @@ def test_conv_parameters():
 # ============================================================================
 
 
-class AttentionParams[D](nn.Module):
+class AttentionParams[D: SymVar](nn.Module):
     """Attention with explicit Q/K/V projection weights"""
 
     w_q: Tensor[[D, D]]
@@ -325,7 +328,7 @@ class AttentionParams[D](nn.Module):
         self.w_v = torch.randn(d_model, d_model)
         self.w_o = torch.randn(d_model, d_model)
 
-    def forward[B, T](self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
+    def forward[B: SymVar, T: SymVar](self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
         # Project to Q, K, V
         q: Tensor[[B, T, D]] = torch.einsum("btd,de->bte", x, self.w_q)
         k: Tensor[[B, T, D]] = torch.einsum("btd,de->bte", x, self.w_k)

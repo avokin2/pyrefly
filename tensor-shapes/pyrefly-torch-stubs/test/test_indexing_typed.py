@@ -6,6 +6,7 @@
 from typing import Any, assert_type, TYPE_CHECKING
 
 import torch
+from shape_extensions import SymVar
 
 if TYPE_CHECKING:
     from shape_extensions import Dim
@@ -35,7 +36,7 @@ def test_slice_with_symbolic():
     x: Tensor[[10, 20, 30]] = torch.randn(10, 20, 30)
 
     # Dim[N] bound - use type variable
-    def with_symbolic[N](n: Dim[N]):
+    def with_symbolic[N: SymVar](n: Dim[N]):
         y = x[:n]
         assert_type(y, Tensor[[N, 20, 30]])
 

@@ -64,7 +64,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class BottomMLP[DenseDim, D](nn.Module):
+class BottomMLP[DenseDim: SymVar, D: SymVar](nn.Module):
     """Bottom MLP: maps dense features to embedding space.
 
     Architecture: DenseDim → 512 → 256 → D
@@ -78,7 +78,7 @@ class BottomMLP[DenseDim, D](nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, embed_dim)
 
-    def forward[B](self, x: Tensor[[B, DenseDim]]) -> Tensor[[B, D]]:
+    def forward[B: SymVar](self, x: Tensor[[B, DenseDim]]) -> Tensor[[B, D]]:
         h = nn.functional.relu(self.fc1(x))
         assert_type(h, Tensor[[B, 512]])
         h = nn.functional.relu(self.fc2(h))
@@ -91,7 +91,7 @@ class BottomMLP[DenseDim, D](nn.Module):
 # ============================================================================
 
 
-class TopMLP[TopIn](nn.Module):
+class TopMLP[TopIn: SymVar](nn.Module):
     """Top MLP: maps interaction features to prediction.
 
     Architecture: TopIn → 512 → 256 → 1
@@ -105,7 +105,7 @@ class TopMLP[TopIn](nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, 1)
 
-    def forward[B](self, x: Tensor[[B, TopIn]]) -> Tensor[[B, 1]]:
+    def forward[B: SymVar](self, x: Tensor[[B, TopIn]]) -> Tensor[[B, 1]]:
         h = nn.functional.relu(self.fc1(x))
         assert_type(h, Tensor[[B, 512]])
         h = nn.functional.relu(self.fc2(h))
@@ -118,7 +118,7 @@ class TopMLP[TopIn](nn.Module):
 # ============================================================================
 
 
-class DLRM[DenseDim, D: SymVar](nn.Module):
+class DLRM[DenseDim: SymVar, D: SymVar](nn.Module):
     """DLRM recommendation model.
 
     Concrete configuration for shape tracking:
@@ -150,7 +150,7 @@ class DLRM[DenseDim, D: SymVar](nn.Module):
         # Top MLP: D + 6 interaction features
         self.top_mlp = TopMLP(embed_dim + 6)
 
-    def interact_features[B](
+    def interact_features[B: SymVar](
         self,
         dense: Tensor[[B, D]],
         sparse1: Tensor[[B, D]],
@@ -181,7 +181,7 @@ class DLRM[DenseDim, D: SymVar](nn.Module):
         assert_type(result, Tensor[[B, D + 6]])
         return result
 
-    def forward[B](
+    def forward[B: SymVar](
         self,
         dense_x: Tensor[[B, DenseDim]],
         idx1: Tensor,
@@ -212,7 +212,7 @@ class DLRM[DenseDim, D: SymVar](nn.Module):
 # ============================================================================
 
 
-class QREmbeddingBag[D](nn.Module):
+class QREmbeddingBag[D: SymVar](nn.Module):
     """Quotient-Remainder embedding compression.
 
     Original: dlrm_s_pytorch.py QREmbeddingBag.
@@ -260,7 +260,7 @@ class QREmbeddingBag[D](nn.Module):
 # ============================================================================
 
 
-class PREmbeddingBag[D](nn.Module):
+class PREmbeddingBag[D: SymVar](nn.Module):
     """Pruned-Row embedding compression via hashing.
 
     Original: dlrm_s_pytorch.py PREmbeddingBag.
@@ -350,7 +350,7 @@ def gather_emb_results(
 # ============================================================================
 
 
-class QuantizedEmbeddingBag[D](nn.Module):
+class QuantizedEmbeddingBag[D: SymVar](nn.Module):
     """Quantized embedding lookup for inference.
 
     Original: dlrm_s_pytorch.py — quantization support.

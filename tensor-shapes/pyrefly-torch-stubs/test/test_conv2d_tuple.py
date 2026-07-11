@@ -44,8 +44,8 @@ def test_conv2d_tuple_stride():
 
 
 def test_conv2d_string_padding():
-    """String padding leaves P unbound — falls back to default P=0 in spatial formula."""
+    """String padding leaves P unbound — spatial dimensions are Unknown."""
     conv = nn.Conv2d(3, 16, kernel_size=3, padding="same")
     x: Tensor[[1, 3, 32, 32]] = torch.randn(1, 3, 32, 32)
     out = conv(x)
-    assert_type(out, Tensor[[1, 16, 30, 30]])
+    assert_type(out, Tensor[[1, 16, Any, Any]])

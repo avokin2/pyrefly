@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class ResidualBlock[C](nn.Module):
+class ResidualBlock[C: SymVar](nn.Module):
     """Shape-preserving residual block with InstanceNorm2d.
 
     Conv2d(C, C, 3, 1, 1) → InstanceNorm → ReLU → Conv2d(C, C, 3, 1, 1) → InstanceNorm
@@ -68,7 +68,9 @@ class ResidualBlock[C](nn.Module):
             nn.InstanceNorm2d(dim, affine=True, track_running_stats=True),
         )
 
-    def forward[B, H, W](self, x: Tensor[[B, C, H, W]]) -> Tensor[[B, C, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, C, H, W]]
+    ) -> Tensor[[B, C, H, W]]:
         return x + self.conv_block(x)
 
 
@@ -130,7 +132,7 @@ class Generator[CDim: SymVar](nn.Module):
             nn.Tanh(),
         )
 
-    def forward[B, S](
+    def forward[B: SymVar, S: SymVar](
         self, x: Tensor[[B, 3, S, S]], c: Tensor[[B, CDim]]
     ) -> Tensor[[B, 3, S, S]]:
         # Condition injection: broadcast (B, CDim) → (B, CDim, S, S)
@@ -151,7 +153,7 @@ class Generator[CDim: SymVar](nn.Module):
 # ============================================================================
 
 
-class Discriminator[CDim, S: SymVar](nn.Module):
+class Discriminator[CDim: SymVar, S: SymVar](nn.Module):
     """StarGAN PatchGAN discriminator with dual heads.
 
     Architecture (conv_dim=64, repeat_num=6):
@@ -183,7 +185,7 @@ class Discriminator[CDim, S: SymVar](nn.Module):
         self.conv_src = nn.Conv2d(2048, 1, kernel_size=3, stride=1, padding=1)
         self.conv_cls = nn.Conv2d(2048, c_dim, kernel_size=image_size // 64)
 
-    def forward[B](
+    def forward[B: SymVar](
         self, x: Tensor[[B, 3, S, S]]
     ) -> tuple[Tensor[[B, 1, S // 64, S // 64]], Tensor[[B, CDim]]]:
         h = self.main(x)

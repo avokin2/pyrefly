@@ -56,7 +56,9 @@ class DoubleConv[InC: SymVar, OutC: SymVar](nn.Module):
             nn.ReLU(inplace=True),
         )
 
-    def forward[B, H, W](self, x: Tensor[[B, InC, H, W]]) -> Tensor[[B, OutC, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, InC, H, W]]
+    ) -> Tensor[[B, OutC, H, W]]:
         out = self.double_conv(x)
         assert_type(out, Tensor[[B, OutC, H, W]])
         return out
@@ -75,7 +77,7 @@ class Down[InC: SymVar, OutC: SymVar](nn.Module):
         self.pool = nn.MaxPool2d(2)
         self.conv = DoubleConv(c_in, c_out)
 
-    def forward[B, H: SymVar, W: SymVar](
+    def forward[B: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, InC, H, W]]
     ) -> Tensor[[B, OutC, (H - 2) // 2 + 1, (W - 2) // 2 + 1]]:
         x_pooled = self.pool(x)
@@ -102,7 +104,7 @@ class Up[C_in: SymVar, C_out: SymVar](nn.Module):
         self.up = nn.ConvTranspose2d(c_in, c_in // 2, kernel_size=2, stride=2)
         self.conv = DoubleConv(c_in, c_out)
 
-    def forward[B, H1: SymVar, W1: SymVar, H2, W2](
+    def forward[B: SymVar, H1: SymVar, W1: SymVar, H2: SymVar, W2: SymVar](
         self, x1: Tensor[[B, C_in, H1, W1]], x2: Tensor[[B, C_in // 2, H2, W2]]
     ) -> Tensor[[B, C_out, H2, W2]]:
         x1_up = self.up(x1)
@@ -129,7 +131,15 @@ class UpBilinear[C_cat: SymVar, C_out: SymVar](nn.Module):
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
         self.conv = DoubleConv(c_cat, c_out, c_mid=c_cat // 2)
 
-    def forward[B, C1, C2, H1: SymVar, W1: SymVar, H2, W2](
+    def forward[
+        B: SymVar,
+        C1: SymVar,
+        C2: SymVar,
+        H1: SymVar,
+        W1: SymVar,
+        H2: SymVar,
+        W2: SymVar,
+    ](
         self, x1: Tensor[[B, C1, H1, W1]], x2: Tensor[[B, C2, H2, W2]]
     ) -> Tensor[[B, C_out, H2, W2]]:
         x1_up = self.up(x1)
@@ -151,7 +161,9 @@ class OutConv[InC: SymVar, OutC: SymVar](nn.Module):
         super().__init__()
         self.conv = nn.Conv2d(c_in, c_out, kernel_size=1)
 
-    def forward[B, H, W](self, x: Tensor[[B, InC, H, W]]) -> Tensor[[B, OutC, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, InC, H, W]]
+    ) -> Tensor[[B, OutC, H, W]]:
         out = self.conv(x)
         assert_type(out, Tensor[[B, OutC, H, W]])
         return out
@@ -201,7 +213,7 @@ class UNet[NChannels: SymVar, NClasses: SymVar](nn.Module):
         self.ups = nn.ModuleList(ups)
         self.outc = OutConv(64, n_classes)
 
-    def _encode[B, C: SymVar, H: SymVar, W: SymVar](
+    def _encode[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: int
     ) -> Tensor[[B, 2 * C, (H - 2) // 2 + 1, (W - 2) // 2 + 1]]:
         """Encode one level: doubles channels, halves spatial via Down[C, 2*C]."""
@@ -209,7 +221,7 @@ class UNet[NChannels: SymVar, NClasses: SymVar](nn.Module):
         down: Down[C, 2 * C] = self.downs[idx]
         return down(x)
 
-    def _decode[B, C: SymVar, H: SymVar, W: SymVar](
+    def _decode[B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self,
         skip: Tensor[[B, C, H, W]],
         deep: Tensor[[B, 2 * C, (H - 2) // 2 + 1, (W - 2) // 2 + 1]],
@@ -220,7 +232,7 @@ class UNet[NChannels: SymVar, NClasses: SymVar](nn.Module):
         up: Up[2 * C, C] = self.ups[idx]
         return up(deep, skip)
 
-    def recurse[I: SymVar, B, C: SymVar, H: SymVar, W: SymVar](
+    def recurse[I: SymVar, B: SymVar, C: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]], depth: Dim[I]
     ) -> Tensor[[B, C, H, W]]:
         """Shape-preserving recursive encoder-decoder.
@@ -236,7 +248,7 @@ class UNet[NChannels: SymVar, NClasses: SymVar](nn.Module):
         decoded = self._decode(skip, middle, depth)
         return decoded
 
-    def forward[B](
+    def forward[B: SymVar](
         self, x: Tensor[[B, NChannels, 256, 256]]
     ) -> Tensor[[B, NClasses, 256, 256]]:
         features = self.inc(x)
@@ -278,7 +290,7 @@ class UNetBilinear[NChannels: SymVar, NClasses: SymVar](nn.Module):
         self.up4 = UpBilinear(128, 64)  # cat(64+64)=128 -> 64
         self.outc = OutConv(64, n_classes)
 
-    def forward[B](
+    def forward[B: SymVar](
         self, x: Tensor[[B, NChannels, 256, 256]]
     ) -> Tensor[[B, NClasses, 256, 256]]:
         # Encoder

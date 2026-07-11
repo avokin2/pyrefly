@@ -55,7 +55,7 @@ class FinalMLPConfig[
     num_output_features: Dim[K] = 16  # type: ignore[bad-assignment]
 
 
-class MLP[InD, OutD](nn.Module):
+class MLP[InD: SymVar, OutD: SymVar](nn.Module):
     """Multi-layer perceptron with shape-preserving layers built from Sequential(*list).
 
     Internal shapes are bare because Sequential(*list_var) erases module types.
@@ -88,7 +88,7 @@ class MLP[InD, OutD](nn.Module):
         self.layers = nn.ModuleList(layer_blocks)
         self.output_dim = output_dim
 
-    def forward[B](self, x: Tensor[[B, InD]]) -> Tensor[[B, OutD]]:
+    def forward[B: SymVar](self, x: Tensor[[B, InD]]) -> Tensor[[B, OutD]]:
         for layer in self.layers:
             x = layer(x)
         # typed interface: Sequential(*list) + ModuleList[nn.Module] loop erases shapes
@@ -97,7 +97,9 @@ class MLP[InD, OutD](nn.Module):
         return result
 
 
-class InteractionAggregation[XD, YD, OutD, NH](nn.Module):
+class InteractionAggregation[XD: SymVar, YD: SymVar, OutD: SymVar, NH: SymVar](
+    nn.Module
+):
     """Bilinear interaction aggregation for fusing two stream outputs.
 
     Computes: w_x(x) + w_y(y) + sum_h(head_x_h @ W_xy_h @ head_y_h)
@@ -127,7 +129,9 @@ class InteractionAggregation[XD, YD, OutD, NH](nn.Module):
         )
         self.bilinear_out = nn.Linear(num_heads, output_dim)
 
-    def forward[B](self, x: Tensor[[B, XD]], y: Tensor[[B, YD]]) -> Tensor[[B, OutD]]:
+    def forward[B: SymVar](
+        self, x: Tensor[[B, XD]], y: Tensor[[B, YD]]
+    ) -> Tensor[[B, OutD]]:
         out = self.w_x(x) + self.w_y(y)
         assert_type(out, Tensor[[B, OutD]])
 
@@ -214,7 +218,7 @@ class FinalMLPLayer[
         self.projector = nn.LazyLinear(num_output_features * output_emb_dim)
         self.layer_norm = nn.LayerNorm(output_emb_dim)
 
-    def forward[B](self, input_embs: Tensor[[B, F, D]]) -> Tensor[[B, K, D]]:
+    def forward[B: SymVar](self, input_embs: Tensor[[B, F, D]]) -> Tensor[[B, K, D]]:
         flat = input_embs.flatten(start_dim=1)
         assert_type(flat, Tensor[[B, D * F]])
         mlp1_out = self.mlp1(flat)
@@ -274,7 +278,7 @@ class FinalMLPBackbone[
     def output_dim(self) -> int:
         return self._output_dim
 
-    def forward[B](self, input_embs: Tensor[[B, F, D]]) -> Tensor[[B, K * D]]:
+    def forward[B: SymVar](self, input_embs: Tensor[[B, F, D]]) -> Tensor[[B, K * D]]:
         x = self.first_layer(input_embs)
         assert_type(x, Tensor[[B, K, D]])
         for layer in self.rest_layers:

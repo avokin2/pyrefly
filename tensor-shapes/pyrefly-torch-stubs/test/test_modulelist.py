@@ -7,10 +7,11 @@
 
 from typing import assert_type, TYPE_CHECKING
 
+from shape_extensions import SymVar
 from torch.nn import Module, ModuleList
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim, SymVar
+    from shape_extensions import Dim
     from torch import Tensor
 
 
@@ -21,7 +22,7 @@ class Block[N: SymVar](Module):
         super().__init__()
         self.x = x
 
-    def forward[B, T: SymVar](self, x: Tensor[[B, T, N]]) -> Tensor[[B, T, N]]:
+    def forward[B: SymVar, T: SymVar](self, x: Tensor[[B, T, N]]) -> Tensor[[B, T, N]]:
         return x
 
 
@@ -30,14 +31,14 @@ def test_modulelist(modules: ModuleList[Block[4]], x: Tensor[[2, 3, 4]]):
     assert_type(y, Tensor[[2, 3, 4]])
 
 
-def test_modulelist_symbolic[B, T: SymVar, N: SymVar](
+def test_modulelist_symbolic[B: SymVar, T: SymVar, N: SymVar](
     modules: ModuleList[Block[N]], x: Tensor[[B, T, N]]
 ):
     y = modules[0](x)
     assert_type(y, Tensor[[B, T, N]])
 
 
-def test_modulelist_symbolic_loop[B, T: SymVar, N: SymVar](
+def test_modulelist_symbolic_loop[B: SymVar, T: SymVar, N: SymVar](
     modules: ModuleList[Block[N]], x: Tensor[[B, T, N]]
 ):
     assert_type(x, Tensor[[B, T, N]])

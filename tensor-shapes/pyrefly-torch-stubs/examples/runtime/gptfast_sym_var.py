@@ -13,7 +13,15 @@ syntax, providing runtime-safe type variable declarations that support arithmeti
 
 import math
 from dataclasses import dataclass
-from typing import Any, assert_type, Generic, Optional, TYPE_CHECKING, TypedDict
+from typing import (
+    Any,
+    assert_type,
+    Generic,
+    Optional,
+    TYPE_CHECKING,
+    TypedDict,
+    TypeVar,
+)
 
 import torch
 import torch.nn as nn
@@ -45,7 +53,7 @@ B = SymVar("B")
 T = SymVar("T")
 S = SymVar("S")
 SeqLen = SymVar("SeqLen")
-Bs = SymVar("Bs", bound=SizeTuple)
+Bs = TypeVar("Bs", bound=SizeTuple)
 
 
 class RopeScalingDict(TypedDict, total=False):

@@ -7,11 +7,14 @@
 
 from typing import assert_type, TYPE_CHECKING
 
+from shape_extensions import SymVar
+
+
 if TYPE_CHECKING:
     from torch import Tensor
 
 
-def test_masked_fill_broadcasting[B, NHead, T](
+def test_masked_fill_broadcasting[B: SymVar, NHead: SymVar, T: SymVar](
     att: Tensor[[B, NHead, T, T]], mask: Tensor[[1, 1, T, T]]
 ):
     # mask == 0 should produce Tensor[[1, 1, T, T]] (bool)

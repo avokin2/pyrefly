@@ -44,12 +44,12 @@ from typing import Any, assert_type, cast, TYPE_CHECKING
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from shape_extensions import shaped_array, SizeTuple
+from shape_extensions import shaped_array, SizeTuple, SymVar
 from torch.distributions import Normal, TransformedDistribution
 from torch.distributions.transforms import Transform
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim, SymVar
+    from shape_extensions import Dim
     from torch import Tensor
 
 
@@ -115,7 +115,7 @@ class SquashedNormal[EventShape: SizeTuple](TransformedDistribution[EventShape])
 # ============================================================================
 
 
-class Encoder[C, FeatDim](nn.Module):
+class Encoder[C: SymVar, FeatDim: SymVar](nn.Module):
     """CNN encoder for 84x84 pixel observations.
 
     Architecture:
@@ -163,7 +163,7 @@ class Encoder[C, FeatDim](nn.Module):
             f"{prefix}_conv4_w": self.conv4.weight,
         }
 
-    def forward[B](self, obs: Tensor[[B, C, 84, 84]]) -> Tensor[[B, FeatDim]]:
+    def forward[B: SymVar](self, obs: Tensor[[B, C, 84, 84]]) -> Tensor[[B, FeatDim]]:
         obs = obs / 255.0
         h1 = torch.relu(self.conv1(obs))
         assert_type(h1, Tensor[[B, 32, 41, 41]])
@@ -187,7 +187,7 @@ class Encoder[C, FeatDim](nn.Module):
 # ============================================================================
 
 
-class Actor[C, FeatDim, ActDim: SymVar, H](nn.Module):
+class Actor[C: SymVar, FeatDim: SymVar, ActDim: SymVar, H: SymVar](nn.Module):
     """MLP policy head on top of CNN encoder.
 
     Architecture:
@@ -219,7 +219,7 @@ class Actor[C, FeatDim, ActDim: SymVar, H](nn.Module):
             nn.Linear(hidden_dim, 2 * action_dim),
         )
 
-    def forward[B](
+    def forward[B: SymVar](
         self, obs: Tensor[[B, C, 84, 84]], detach_encoder: bool = False
     ) -> SquashedNormal[SizeTuple[B, ActDim]]:
         feat = self.encoder(obs)
@@ -245,7 +245,7 @@ class Actor[C, FeatDim, ActDim: SymVar, H](nn.Module):
 # ============================================================================
 
 
-class Critic[C, FeatDim: SymVar, ActDim: SymVar, H](nn.Module):
+class Critic[C: SymVar, FeatDim: SymVar, ActDim: SymVar, H: SymVar](nn.Module):
     """Double Q-network critic on top of CNN encoder.
 
     Architecture:
@@ -283,7 +283,7 @@ class Critic[C, FeatDim: SymVar, ActDim: SymVar, H](nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
-    def forward[B](
+    def forward[B: SymVar](
         self,
         obs: Tensor[[B, C, 84, 84]],
         action: Tensor[[B, ActDim]],
@@ -316,7 +316,7 @@ def soft_update_params(net: nn.Module, target_net: nn.Module, tau: float) -> Non
         target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
 
 
-class DRQAgent[C, FeatDim, ActDim, H](nn.Module):
+class DRQAgent[C: SymVar, FeatDim: SymVar, ActDim: SymVar, H: SymVar](nn.Module):
     """DRQ agent wrapping actor and critic with shared encoder weights.
 
     Original: drq.py DrQAgent class.
@@ -369,19 +369,19 @@ class DRQAgent[C, FeatDim, ActDim, H](nn.Module):
     def alpha(self) -> Tensor:
         return self.log_alpha.exp()
 
-    def act[B](
+    def act[B: SymVar](
         self, obs: Tensor[[B, C, 84, 84]]
     ) -> SquashedNormal[SizeTuple[B, ActDim]]:
         """Select action: returns SquashedNormal distribution from actor."""
         return self.actor(obs)
 
-    def criticize[B](
+    def criticize[B: SymVar](
         self, obs: Tensor[[B, C, 84, 84]], action: Tensor[[B, ActDim]]
     ) -> tuple[Tensor[[B, 1]], Tensor[[B, 1]]]:
         """Evaluate action: returns (q1, q2) from critic."""
         return self.critic(obs, action)
 
-    def update_critic[B](
+    def update_critic[B: SymVar](
         self,
         obs: Tensor[[B, C, 84, 84]],
         action: Tensor[[B, ActDim]],
@@ -444,7 +444,7 @@ class DRQAgent[C, FeatDim, ActDim, H](nn.Module):
         self.critic_optimizer.step()
         return critic_loss
 
-    def update_actor_and_alpha[B](
+    def update_actor_and_alpha[B: SymVar](
         self, obs: Tensor[[B, C, 84, 84]]
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Update actor and entropy temperature alpha.
@@ -476,7 +476,7 @@ class DRQAgent[C, FeatDim, ActDim, H](nn.Module):
 
         return actor_loss, alpha_loss, self.alpha
 
-    def update[B](
+    def update[B: SymVar](
         self,
         obs: Tensor[[B, C, 84, 84]],
         action: Tensor[[B, ActDim]],

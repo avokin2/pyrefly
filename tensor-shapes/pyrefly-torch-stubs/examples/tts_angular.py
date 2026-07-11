@@ -54,7 +54,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim
+    from shape_extensions import Dim, SymVar
     from torch import Tensor
 
 
@@ -63,7 +63,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class LSTMWithProjection[InSize, Hidden, Proj](nn.Module):
+class LSTMWithProjection[InSize: SymVar, Hidden: SymVar, Proj: SymVar](nn.Module):
     """LSTM followed by linear projection.
 
     (B, T, InSize) → LSTM → (B, T, Hidden) → Linear → (B, T, Proj)
@@ -79,7 +79,9 @@ class LSTMWithProjection[InSize, Hidden, Proj](nn.Module):
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
         self.linear = nn.Linear(hidden_size, proj_size, bias=False)
 
-    def forward[B, T](self, x: Tensor[[B, T, InSize]]) -> Tensor[[B, T, Proj]]:
+    def forward[B: SymVar, T: SymVar](
+        self, x: Tensor[[B, T, InSize]]
+    ) -> Tensor[[B, T, Proj]]:
         self.lstm.flatten_parameters()
         o, _h_n, _c_n = self.lstm(x)
         assert_type(o, Tensor[[B, T, Hidden]])
@@ -91,7 +93,7 @@ class LSTMWithProjection[InSize, Hidden, Proj](nn.Module):
 # ============================================================================
 
 
-class LSTMWithoutProjection[InSize, Hidden, Proj](nn.Module):
+class LSTMWithoutProjection[InSize: SymVar, Hidden: SymVar, Proj: SymVar](nn.Module):
     """Multi-layer LSTM that extracts last layer's hidden state, then projects.
 
     Original: tts_angular/model.py LSTMWithoutProjection class.
@@ -117,7 +119,9 @@ class LSTMWithoutProjection[InSize, Hidden, Proj](nn.Module):
         self.linear = nn.Linear(lstm_dim, proj_dim)
         self.relu = nn.ReLU()
 
-    def forward[B, T](self, x: Tensor[[B, T, InSize]]) -> Tensor[[B, Proj]]:
+    def forward[B: SymVar, T: SymVar](
+        self, x: Tensor[[B, T, InSize]]
+    ) -> Tensor[[B, Proj]]:
         self.lstm.flatten_parameters()
         _output, h_n, _c_n = self.lstm(x)
         # h_n: (num_layers, B, Hidden) — h_n[-1] returns unrefined (negative
@@ -132,7 +136,7 @@ class LSTMWithoutProjection[InSize, Hidden, Proj](nn.Module):
 # ============================================================================
 
 
-class SpeakerEncoder[InDim, ProjDim](nn.Module):
+class SpeakerEncoder[InDim: SymVar, ProjDim: SymVar](nn.Module):
     """Speaker verification encoder.
 
     Two modes (original: tts_angular/model.py SpeakerEncoder):
@@ -174,7 +178,9 @@ class SpeakerEncoder[InDim, ProjDim](nn.Module):
                 input_dim, lstm_dim, proj_dim, num_lstm_layers
             )
 
-    def forward[B, T](self, x: Tensor[[B, T, InDim]]) -> Tensor[[B, ProjDim]]:
+    def forward[B: SymVar, T: SymVar](
+        self, x: Tensor[[B, T, InDim]]
+    ) -> Tensor[[B, ProjDim]]:
         if self.use_lstm_with_projection:
             # First layer: (B, T, InDim) → (B, T, ProjDim)
             first: LSTMWithProjection[InDim, Any, ProjDim] = self.network[0]
@@ -281,7 +287,7 @@ class AngleProtoLoss(nn.Module):
 # ============================================================================
 
 
-def compute_embedding[ProjDim](
+def compute_embedding[ProjDim: SymVar](
     encoder: SpeakerEncoder[Any, ProjDim],
     utterance: Tensor,
     num_eval: int = 10,
@@ -327,7 +333,7 @@ def compute_embedding[ProjDim](
     return embeddings.mean(dim=0)  # (ProjDim,)
 
 
-def batch_compute_embedding[ProjDim](
+def batch_compute_embedding[ProjDim: SymVar](
     encoder: SpeakerEncoder[Any, ProjDim],
     utterances: list[Tensor],
     num_eval: int = 10,

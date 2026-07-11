@@ -90,7 +90,9 @@ class InvertedResidual[Inp: SymVar, Oup: SymVar, ER: SymVar, S: SymVar](nn.Modul
         self.out_channels = oup
         self._is_cn: bool = stride > 1
 
-    def forward[B, H, W](self, x: Tensor[[B, Inp, H, W]]) -> Tensor[[B, Oup, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, Inp, H, W]]
+    ) -> Tensor[[B, Oup, H, W]]:
         out: Tensor[[B, Inp * ER, H, W]]
         if self.expand_ratio != 1:
             out = self.expand(x)
@@ -199,7 +201,9 @@ class MobileNetV2[NC: SymVar = 1000, LC: SymVar = 1280](nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)  # type: ignore[arg-type]
 
-    def _forward_impl[B, H, W](self, x: Tensor[[B, 3, H, W]]) -> Tensor[[B, NC]]:
+    def _forward_impl[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, 3, H, W]]
+    ) -> Tensor[[B, NC]]:
         feat = self.features(x)
         assert_type(feat, Tensor)  # Sequential(*list) — bare
         pooled = nn.functional.adaptive_avg_pool2d(feat, (1, 1))
@@ -211,7 +215,9 @@ class MobileNetV2[NC: SymVar = 1000, LC: SymVar = 1280](nn.Module):
         assert_type(out, Tensor[[B, NC]])
         return out
 
-    def forward[B, H, W](self, x: Tensor[[B, 3, H, W]]) -> Tensor[[B, NC]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, 3, H, W]]
+    ) -> Tensor[[B, NC]]:
         return self._forward_impl(x)
 
 

@@ -61,7 +61,7 @@ class SublayerConnection[Hidden: SymVar](nn.Module):
         self.norm = LayerNorm(size)
         self.dropout = nn.Dropout(dropout)
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self,
         x: Tensor[[B, T, Hidden]],
         sublayer: Callable[[Tensor[[B, T, Hidden]]], Tensor[[B, T, Hidden]]],
@@ -82,7 +82,9 @@ class PositionwiseFeedForward[DModel: SymVar, DFF: SymVar](nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.activation = nn.GELU()
 
-    def forward[B, T](self, x: Tensor[[B, T, DModel]]) -> Tensor[[B, T, DModel]]:
+    def forward[B: SymVar, T: SymVar](
+        self, x: Tensor[[B, T, DModel]]
+    ) -> Tensor[[B, T, DModel]]:
         h = self.w_1(x)
         assert_type(h, Tensor[[B, T, DFF]])
         h = self.activation(h)
@@ -101,7 +103,7 @@ class PositionwiseFeedForward[DModel: SymVar, DFF: SymVar](nn.Module):
 class Attention(nn.Module):
     """Compute 'Scaled Dot Product Attention'"""
 
-    def forward[B, H, T, DK](
+    def forward[B: SymVar, H: SymVar, T: SymVar, DK: SymVar](
         self,
         query: Tensor[[B, H, T, DK]],
         key: Tensor[[B, H, T, DK]],
@@ -141,7 +143,7 @@ class MultiHeadedAttention[DModel: SymVar, H: SymVar](nn.Module):
         self.attention = Attention()
         self.dropout = nn.Dropout(p=dropout)
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self,
         query: Tensor[[B, T, DModel]],
         key: Tensor[[B, T, DModel]],
@@ -252,7 +254,7 @@ class BERTEmbedding[VocabSize: SymVar, EmbedSize: SymVar](nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         self.embed_size = embed_size
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, sequence: Tensor[[B, T]], segment_label: Tensor[[B, T]]
     ) -> Tensor[[B, T, EmbedSize]]:
         x = self.token(sequence) + self.position(sequence) + self.segment(segment_label)
@@ -280,7 +282,9 @@ class SelfAttentionWrapper[DModel: SymVar, H: SymVar](nn.Module):
     def set_mask(self, mask: Tensor) -> None:
         self.mask = mask
 
-    def forward[B, T](self, x: Tensor[[B, T, DModel]]) -> Tensor[[B, T, DModel]]:
+    def forward[B: SymVar, T: SymVar](
+        self, x: Tensor[[B, T, DModel]]
+    ) -> Tensor[[B, T, DModel]]:
         return self.attention(x, x, x, mask=self.mask)
 
 
@@ -307,7 +311,7 @@ class TransformerBlock[Hidden: SymVar, H: SymVar](nn.Module):
         self.output_sublayer = SublayerConnection(size=hidden, dropout=dropout)
         self.dropout = nn.Dropout(p=dropout)
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, x: Tensor[[B, T, Hidden]], mask: Tensor
     ) -> Tensor[[B, T, Hidden]]:
         self.self_attn.set_mask(mask)
@@ -362,7 +366,7 @@ class BERT[VocabSize: SymVar, Hidden: SymVar = 768, H: SymVar = 12](nn.Module):
             ]
         )
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, x: Tensor[[B, T]], segment_info: Tensor[[B, T]]
     ) -> Tensor[[B, T, Hidden]]:
         # attention masking for padded token
@@ -396,7 +400,9 @@ class NextSentencePrediction[Hidden: SymVar](nn.Module):
         self.linear = nn.Linear(hidden, 2)
         self.softmax = nn.LogSoftmax(dim=-1)
 
-    def forward[B, T](self, x: Tensor[[B, T, Hidden]]) -> Tensor[[B, 2]]:
+    def forward[B: SymVar, T: SymVar](
+        self, x: Tensor[[B, T, Hidden]]
+    ) -> Tensor[[B, 2]]:
         return self.softmax(self.linear(x[:, 0]))
 
 
@@ -411,7 +417,9 @@ class MaskedLanguageModel[Hidden: SymVar, VocabSize: SymVar](nn.Module):
         self.linear = nn.Linear(hidden, vocab_size)
         self.softmax = nn.LogSoftmax(dim=-1)
 
-    def forward[B, T](self, x: Tensor[[B, T, Hidden]]) -> Tensor[[B, T, VocabSize]]:
+    def forward[B: SymVar, T: SymVar](
+        self, x: Tensor[[B, T, Hidden]]
+    ) -> Tensor[[B, T, VocabSize]]:
         return self.softmax(self.linear(x))
 
 
@@ -429,7 +437,7 @@ class BERTLM[VocabSize: SymVar, Hidden: SymVar, H: SymVar](nn.Module):
         self.next_sentence = NextSentencePrediction(bert.hidden)
         self.mask_lm = MaskedLanguageModel(bert.hidden, vocab_size)
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, x: Tensor[[B, T]], segment_label: Tensor[[B, T]]
     ) -> tuple[Tensor[[B, 2]], Tensor[[B, T, VocabSize]]]:
         x_out = self.bert(x, segment_label)

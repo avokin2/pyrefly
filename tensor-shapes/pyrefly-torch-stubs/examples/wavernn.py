@@ -48,7 +48,9 @@ class ResBlock[NF: SymVar = 128](nn.Module):
             nn.BatchNorm1d(n_freq),
         )
 
-    def forward[B, L](self, specgram: Tensor[[B, NF, L]]) -> Tensor[[B, NF, L]]:
+    def forward[B: SymVar, L: SymVar](
+        self, specgram: Tensor[[B, NF, L]]
+    ) -> Tensor[[B, NF, L]]:
         residual = self.resblock_model(specgram)
         assert_type(residual, Tensor[[B, NF, L]])
         out = residual + specgram
@@ -86,7 +88,7 @@ class MelResNet[
             in_channels=n_hidden, out_channels=n_output, kernel_size=1
         )
 
-    def forward[B, L: SymVar](
+    def forward[B: SymVar, L: SymVar](
         self, specgram: Tensor[[B, NF, L]]
     ) -> Tensor[[B, NO, (1 + L) + (-1 * K)]]:
         x = self.conv_in(specgram)
@@ -109,7 +111,7 @@ class Stretch2d[TS: SymVar, FS: SymVar](nn.Module):
         self.freq_scale = freq_scale
         self.time_scale = time_scale
 
-    def forward[B, C, F: SymVar, T: SymVar](
+    def forward[B: SymVar, C: SymVar, F: SymVar, T: SymVar](
         self, specgram: Tensor[[B, C, F, T]]
     ) -> Tensor[[B, C, F * FS, T * TS]]:
         x = specgram.repeat_interleave(self.freq_scale, -2)
@@ -160,7 +162,7 @@ class UpsampleNetwork[
             up_layers.append(conv)
         self.upsample_layers = nn.Sequential(*up_layers)
 
-    def forward[B, T: SymVar](
+    def forward[B: SymVar, T: SymVar](
         self, specgram: Tensor[[B, NF, T]]
     ) -> tuple[Tensor[[B, NF, Any]], Tensor[[B, NO, Any]]]:
         resnet_output = self.resnet(specgram)
@@ -242,7 +244,7 @@ class WaveRNN[
         self.fc2 = nn.Linear(n_fc + self.n_aux, n_fc)
         self.fc3 = nn.Linear(n_fc, n_classes)
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, waveform: Tensor[[B, 1, T]], specgram: Tensor[[B, 1, NF, Any]]
     ) -> Tensor[[B, 1, T, NC]]:
         if waveform.size(1) != 1:
@@ -331,7 +333,7 @@ class WaveRNN[
         assert_type(result, Tensor[[B, 1, T, NC]])
         return result
 
-    def infer[B](
+    def infer[B: SymVar](
         self, specgram: Tensor[[B, NF, Any]], lengths: Tensor[[B]] | None = None
     ) -> tuple[Tensor, Tensor[[B]] | None]:
         device = specgram.device

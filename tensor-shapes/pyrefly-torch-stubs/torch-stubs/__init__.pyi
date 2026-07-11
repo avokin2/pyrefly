@@ -15,7 +15,7 @@ import builtins
 from typing import Any, overload, Self, TYPE_CHECKING
 
 import shape_extensions
-from shape_extensions import Elements, SizeTuple, uses_shape_dsl
+from shape_extensions import Elements, SizeTuple, SymVar, uses_shape_dsl
 from torch._shapes import (
     aminmax_ir,
     arange_ir,
@@ -291,7 +291,7 @@ class Tensor[Shape: _Shape = _AnyShape]:
         """Repeat tensor. Shape inference via meta-shape: torch.Tensor.repeat"""
         ...
 
-    def t[M, N](self: Tensor[[M, N]]) -> Tensor[[N, M]]:
+    def t[M: SymVar, N: SymVar](self: Tensor[[M, N]]) -> Tensor[[N, M]]:
         """Transpose 2D tensor. Swaps dimensions."""
         ...
 
@@ -747,11 +747,13 @@ class Tensor[Shape: _Shape = _AnyShape]:
         """Matrix multiplication. Shape inference via meta-shape: torch.Tensor.matmul"""
         ...
 
-    def mm[N, K, M](self: Tensor[[N, K]], mat2: Tensor[[K, M]]) -> Tensor[[N, M]]:
+    def mm[N: SymVar, K: SymVar, M: SymVar](
+        self: Tensor[[N, K]], mat2: Tensor[[K, M]]
+    ) -> Tensor[[N, M]]:
         """Matrix multiplication (2D @ 2D). Output: [N, M]."""
         ...
 
-    def bmm[B, N, K, M](
+    def bmm[B: SymVar, N: SymVar, K: SymVar, M: SymVar](
         self: Tensor[[B, N, K]], mat2: Tensor[[B, K, M]]
     ) -> Tensor[[B, N, M]]:
         """Batch matrix multiplication (3D @ 3D). Output: [B, N, M]."""
@@ -1113,13 +1115,13 @@ class Tensor[Shape: _Shape = _AnyShape]:
         """Matrix inverse. Shape inference via generic fixture signature."""
         ...
 
-    def det[Batch: SizeTuple, M, N](
+    def det[Batch: SizeTuple, M: SymVar, N: SymVar](
         self: Tensor[[*Elements[Batch], M, N]],
     ) -> Tensor[Batch]:
         """Determinant. Returns batch dimensions only (drops last 2 dims)."""
         ...
 
-    def logdet[Batch: SizeTuple, M, N](
+    def logdet[Batch: SizeTuple, M: SymVar, N: SymVar](
         self: Tensor[[*Elements[Batch], M, N]],
     ) -> Tensor[Batch]:
         """Log determinant. Returns batch dimensions only (drops last 2 dims)."""
@@ -1134,7 +1136,7 @@ class Tensor[Shape: _Shape = _AnyShape]:
         """Matrix power. Shape inference via generic fixture signature."""
         ...
 
-    def trace[Batch: SizeTuple, M, N](
+    def trace[Batch: SizeTuple, M: SymVar, N: SymVar](
         self: Tensor[[*Elements[Batch], M, N]],
     ) -> Tensor[Batch]:
         """Matrix trace. Returns batch dimensions only (drops last 2 dims)."""
@@ -1797,11 +1799,13 @@ def triu_indices(row: int, col: int, offset: int = 0) -> Tensor:
 # Note: matmul is already defined above with static typing at line 341
 # We keep it there for backward compatibility, but meta-shape handles general cases
 
-def mm[N, K, M](input: Tensor[[N, K]], mat2: Tensor[[K, M]]) -> Tensor[[N, M]]:
+def mm[N: SymVar, K: SymVar, M: SymVar](
+    input: Tensor[[N, K]], mat2: Tensor[[K, M]]
+) -> Tensor[[N, M]]:
     """Matrix multiplication (2D @ 2D). Output: [N, M]."""
     ...
 
-def bmm[B, N, K, M](
+def bmm[B: SymVar, N: SymVar, K: SymVar, M: SymVar](
     input: Tensor[[B, N, K]], mat2: Tensor[[B, K, M]]
 ) -> Tensor[[B, N, M]]:
     """Batch matrix multiplication (3D @ 3D). Output: [B, N, M]."""
@@ -2165,13 +2169,13 @@ def inverse[Shape: SizeTuple](input: Tensor[Shape]) -> Tensor[Shape]:
     ...
 
 # Determinant
-def det[Batch: SizeTuple, M, N](
+def det[Batch: SizeTuple, M: SymVar, N: SymVar](
     input: Tensor[[*Elements[Batch], M, N]],
 ) -> Tensor[Batch]:
     """Determinant. Returns batch dimensions only (drops last 2 dims)."""
     ...
 
-def logdet[Batch: SizeTuple, M, N](
+def logdet[Batch: SizeTuple, M: SymVar, N: SymVar](
     input: Tensor[[*Elements[Batch], M, N]],
 ) -> Tensor[Batch]:
     """Log determinant. Returns batch dimensions only (drops last 2 dims)."""
@@ -2192,14 +2196,14 @@ def matrix_exp[Shape: SizeTuple](input: Tensor[Shape]) -> Tensor[Shape]:
     ...
 
 # Trace
-def trace[Batch: SizeTuple, M, N](
+def trace[Batch: SizeTuple, M: SymVar, N: SymVar](
     input: Tensor[[*Elements[Batch], M, N]],
 ) -> Tensor[Batch]:
     """Matrix trace. Returns batch dimensions only (drops last 2 dims)."""
     ...
 
 # Matrix rank
-def matrix_rank[Batch: SizeTuple, M, N](
+def matrix_rank[Batch: SizeTuple, M: SymVar, N: SymVar](
     input: Tensor[[*Elements[Batch], M, N]], tol: float = None, symmetric: bool = False
 ) -> Tensor[Batch]:
     """Matrix rank. Returns batch dimensions only (drops last 2 dims)."""
@@ -2387,7 +2391,7 @@ def view_as_real[S: SizeTuple](input: Tensor[S]) -> Tensor[[*Elements[S], 2]]:
     """View a complex tensor as real. Appends trailing dim of size 2."""
     ...
 
-def hann_window[N](
+def hann_window[N: SymVar](
     window_length: _Dim[N],
     periodic: bool = True,
     *,
@@ -2397,7 +2401,7 @@ def hann_window[N](
     """Create a Hann window tensor of size (window_length,)."""
     ...
 
-def stft[Batch: SizeTuple, F](
+def stft[Batch: SizeTuple, F: SymVar](
     input: Tensor[Batch],
     n_fft: _Dim[F],
     hop_length: int | None = None,
@@ -2418,7 +2422,7 @@ def stft[Batch: SizeTuple, F](
     """
     ...
 
-def addmm[N, K, M](
+def addmm[N: SymVar, K: SymVar, M: SymVar](
     input: Tensor[[N, M]],
     mat1: Tensor[[N, K]],
     mat2: Tensor[[K, M]],

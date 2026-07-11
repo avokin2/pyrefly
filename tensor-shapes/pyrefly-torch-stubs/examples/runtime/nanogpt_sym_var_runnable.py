@@ -18,7 +18,7 @@ of PEP 695 syntax. All assert_type calls removed for runtime safety.
 import inspect
 import math
 from dataclasses import dataclass
-from typing import Any, Generic, TypedDict
+from typing import Any, Generic, TypedDict, TypeVar
 
 import torch
 import torch.nn as nn
@@ -37,7 +37,7 @@ NHead = SymVar("NHead")
 NLayer = SymVar("NLayer")
 B = SymVar("B")
 T = SymVar("T")
-Bs = SymVar("Bs", bound=SizeTuple)
+Bs = TypeVar("Bs", bound=SizeTuple)
 
 
 class LayerNorm(nn.Module, Generic[M]):

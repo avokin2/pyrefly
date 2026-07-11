@@ -35,11 +35,11 @@ from typing import Any, assert_type, cast, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
-from shape_extensions import Elements, SizeTuple
+from shape_extensions import Elements, SizeTuple, SymVar
 from torch.nn import functional as F
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim, SymVar
+    from shape_extensions import Dim
     from torch import Tensor
 
 
@@ -49,7 +49,7 @@ def find_multiple(n: int, k: int) -> int:
     return n + k - (n % k)
 
 
-class RMSNorm[D](nn.Module):
+class RMSNorm[D: SymVar](nn.Module):
     def __init__(self, dim: Dim[D], eps: float = 1e-5):
         super().__init__()
         self.eps = eps
@@ -70,7 +70,7 @@ class RMSNorm[D](nn.Module):
         return result
 
 
-class KVCache[B, NHead, MaxSeq, HD](nn.Module):
+class KVCache[B: SymVar, NHead: SymVar, MaxSeq: SymVar, HD: SymVar](nn.Module):
     def __init__(
         self,
         max_batch_size: Dim[B],
@@ -87,7 +87,7 @@ class KVCache[B, NHead, MaxSeq, HD](nn.Module):
             torch.zeros(max_batch_size, n_heads, max_seq_length, head_dim, dtype=dtype)
         )
 
-    def update[S](
+    def update[S: SymVar](
         self,
         input_pos: Tensor[[S]],
         k_val: Tensor[[B, NHead, S, HD]],
@@ -102,7 +102,7 @@ class KVCache[B, NHead, MaxSeq, HD](nn.Module):
         return k_out, v_out
 
 
-class ConditionalFeedForward[NExp, Inter, D](nn.Module):
+class ConditionalFeedForward[NExp: SymVar, Inter: SymVar, D: SymVar](nn.Module):
     def __init__(
         self,
         num_experts: Dim[NExp],
@@ -114,7 +114,7 @@ class ConditionalFeedForward[NExp, Inter, D](nn.Module):
         self.w2 = nn.Parameter(torch.empty(num_experts, dim, intermediate_size))
         self.w3 = nn.Parameter(torch.empty(num_experts, intermediate_size, dim))
 
-    def forward[T, A](
+    def forward[T: SymVar, A: SymVar](
         self, x: Tensor[[T, D]], expert_indices: Tensor[[T, A]]
     ) -> Tensor[[T, A, D]]:
         w1_weights = self.w1[expert_indices]
@@ -132,7 +132,7 @@ class ConditionalFeedForward[NExp, Inter, D](nn.Module):
         return expert_outs
 
 
-class MOEFeedForward[D, NExp, A, Inter](nn.Module):
+class MOEFeedForward[D: SymVar, NExp: SymVar, A: SymVar, Inter: SymVar](nn.Module):
     def __init__(
         self,
         dim: Dim[D],
@@ -146,7 +146,7 @@ class MOEFeedForward[D, NExp, A, Inter](nn.Module):
         self.dim = dim
         self.num_activated_experts = num_activated_experts
 
-    def forward[T](self, x: Tensor[[T, D]]) -> Tensor[[T, D]]:
+    def forward[T: SymVar](self, x: Tensor[[T, D]]) -> Tensor[[T, D]]:
         scores = self.gate(x)
         assert_type(scores, Tensor[[T, NExp]])
         expert_weights = F.softmax(scores, dim=-1)
@@ -245,7 +245,7 @@ def apply_rotary_emb[S: SizeTuple](x: Tensor[S], freqs_cis: Tensor) -> Tensor[S]
     return x_out2.type_as(x)  # type: ignore[bad-return]  # shape preserved — rotary doesn't change dims
 
 
-class Attention[D, NHead, NLocalHead: SymVar, HD: SymVar](nn.Module):
+class Attention[D: SymVar, NHead: SymVar, NLocalHead: SymVar, HD: SymVar](nn.Module):
     def __init__(
         self,
         dim: Dim[D],
@@ -272,7 +272,7 @@ class Attention[D, NHead, NLocalHead: SymVar, HD: SymVar](nn.Module):
             wv = state_dict.pop(prefix + "wv.weight")
             state_dict[prefix + "wqkv.weight"] = torch.cat([wq, wk, wv])
 
-    def forward[B, SeqLen](
+    def forward[B: SymVar, SeqLen: SymVar](
         self,
         x: Tensor[[B, SeqLen, D]],
         freqs_cis: Tensor,
@@ -336,13 +336,13 @@ class Attention[D, NHead, NLocalHead: SymVar, HD: SymVar](nn.Module):
 
 
 class TransformerBlock[
-    D,
-    NHead,
+    D: SymVar,
+    NHead: SymVar,
     NLocalHead: SymVar,
     HD: SymVar,
-    NExp,
-    A,
-    Inter,
+    NExp: SymVar,
+    A: SymVar,
+    Inter: SymVar,
 ](nn.Module):
     def __init__(
         self,

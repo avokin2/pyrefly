@@ -59,7 +59,7 @@ if TYPE_CHECKING:
 import math
 
 
-class PositionalEncoding[DModel](nn.Module):
+class PositionalEncoding[DModel: SymVar](nn.Module):
     """Positional encoding using precomputed sin/cos embeddings.
 
     PE(pos, 2i)   = sin(pos / (10000^(2i/d_model)))
@@ -85,7 +85,7 @@ class PositionalEncoding[DModel](nn.Module):
         # nn.Buffer replaces register_buffer — attribute is type-visible
         self.pe = nn.Buffer(pe_unsqueezed)
 
-    def forward[B, T](self, input: Tensor[[B, T, DModel]]) -> Tensor:
+    def forward[B: SymVar, T: SymVar](self, input: Tensor[[B, T, DModel]]) -> Tensor:
         """Return positional encoding sliced to input length.
 
         self.pe[:, :length] slices the buffer's second dim to T elements.
@@ -118,7 +118,7 @@ class ScaledDotProductAttention(nn.Module):
         self.dropout = nn.Dropout(attn_dropout)
         self.softmax = nn.Softmax(dim=2)
 
-    def forward[NB, Tq, Tk, DK, DV](
+    def forward[NB: SymVar, Tq: SymVar, Tk: SymVar, DK: SymVar, DV: SymVar](
         self,
         q: Tensor[[NB, Tq, DK]],
         k: Tensor[[NB, Tk, DK]],
@@ -174,7 +174,7 @@ class MultiHeadAttention[NHead: SymVar, DK: SymVar](nn.Module):
         self.n_head = n_head
         self.d_k = d_k
 
-    def forward[B: SymVar, Tq, Tk](
+    def forward[B: SymVar, Tq: SymVar, Tk: SymVar](
         self,
         q: Tensor[[B, Tq, NHead * DK]],
         k: Tensor[[B, Tk, NHead * DK]],
@@ -237,7 +237,7 @@ class MultiHeadAttention[NHead: SymVar, DK: SymVar](nn.Module):
 # ============================================================================
 
 
-class PositionwiseFeedForward[DModel, DInner](nn.Module):
+class PositionwiseFeedForward[DModel: SymVar, DInner: SymVar](nn.Module):
     """Position-wise feedforward sublayer.
 
     FFN(x) = max(0, xW1 + b1)W2 + b2
@@ -253,7 +253,9 @@ class PositionwiseFeedForward[DModel, DInner](nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.layer_norm = nn.LayerNorm(d_model)
 
-    def forward[B, T](self, x: Tensor[[B, T, DModel]]) -> Tensor[[B, T, DModel]]:
+    def forward[B: SymVar, T: SymVar](
+        self, x: Tensor[[B, T, DModel]]
+    ) -> Tensor[[B, T, DModel]]:
         residual = x
         h1 = self.w_1(x)
         assert_type(h1, Tensor[[B, T, DInner]])
@@ -269,7 +271,7 @@ class PositionwiseFeedForward[DModel, DInner](nn.Module):
 # ============================================================================
 
 
-class EncoderLayer[NHead: SymVar, DK: SymVar, DInner](nn.Module):
+class EncoderLayer[NHead: SymVar, DK: SymVar, DInner: SymVar](nn.Module):
     """Single encoder layer: self-attention + feed-forward.
 
     Input:  Tensor[[B, T, NHead*DK]]
@@ -287,7 +289,7 @@ class EncoderLayer[NHead: SymVar, DK: SymVar, DInner](nn.Module):
         self.slf_attn = MultiHeadAttention(n_head, d_k, dropout=dropout)
         self.pos_ffn = PositionwiseFeedForward(n_head * d_k, d_inner, dropout=dropout)
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, enc_input: Tensor[[B, T, NHead * DK]]
     ) -> tuple[Tensor[[B, T, NHead * DK]], Tensor]:
         enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input, enc_input)
@@ -302,7 +304,7 @@ class EncoderLayer[NHead: SymVar, DK: SymVar, DInner](nn.Module):
 # ============================================================================
 
 
-class DecoderLayer[NHead: SymVar, DK: SymVar, DInner](nn.Module):
+class DecoderLayer[NHead: SymVar, DK: SymVar, DInner: SymVar](nn.Module):
     """Single decoder layer: self-attention + cross-attention + feed-forward.
 
     Input:
@@ -323,7 +325,7 @@ class DecoderLayer[NHead: SymVar, DK: SymVar, DInner](nn.Module):
         self.enc_attn = MultiHeadAttention(n_head, d_k, dropout=dropout)
         self.pos_ffn = PositionwiseFeedForward(n_head * d_k, d_inner, dropout=dropout)
 
-    def forward[B, Td, TEnc](
+    def forward[B: SymVar, Td: SymVar, TEnc: SymVar](
         self,
         dec_input: Tensor[[B, Td, NHead * DK]],
         enc_output: Tensor[[B, TEnc, NHead * DK]],
@@ -357,7 +359,7 @@ class DecoderLayer[NHead: SymVar, DK: SymVar, DInner](nn.Module):
 #   so we skip adding it and just pass through. The original adds it to src_seq.
 
 
-class Encoder[NHead: SymVar, DK: SymVar, DInner](nn.Module):
+class Encoder[NHead: SymVar, DK: SymVar, DInner: SymVar](nn.Module):
     """Encoder: N stacked EncoderLayers.
 
     Input:  Tensor[[B, T, NHead*DK]]
@@ -382,7 +384,7 @@ class Encoder[NHead: SymVar, DK: SymVar, DInner](nn.Module):
             ]
         )
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, src_seq: Tensor[[B, T, NHead * DK]]
     ) -> Tensor[[B, T, NHead * DK]]:
         enc_output = src_seq
@@ -404,7 +406,7 @@ class Encoder[NHead: SymVar, DK: SymVar, DInner](nn.Module):
 # - position_enc skipped (same reason as Encoder)
 
 
-class Decoder[NHead: SymVar, DK: SymVar, DInner](nn.Module):
+class Decoder[NHead: SymVar, DK: SymVar, DInner: SymVar](nn.Module):
     """Decoder: N stacked DecoderLayers.
 
     Input:
@@ -431,7 +433,7 @@ class Decoder[NHead: SymVar, DK: SymVar, DInner](nn.Module):
             ]
         )
 
-    def forward[B, Td, TEnc](
+    def forward[B: SymVar, Td: SymVar, TEnc: SymVar](
         self,
         tgt_seq: Tensor[[B, Td, NHead * DK]],
         enc_output: Tensor[[B, TEnc, NHead * DK]],

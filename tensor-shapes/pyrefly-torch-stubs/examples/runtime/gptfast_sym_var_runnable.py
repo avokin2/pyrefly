@@ -13,7 +13,7 @@ of PEP 695 syntax. All assert_type calls removed for runtime safety.
 
 import math
 from dataclasses import dataclass
-from typing import Any, Generic, Optional, TypedDict
+from typing import Any, Generic, Optional, TypedDict, TypeVar
 
 import torch
 import torch.nn as nn
@@ -42,7 +42,7 @@ B = SymVar("B")
 T = SymVar("T")
 S = SymVar("S")
 SeqLen = SymVar("SeqLen")
-Bs = SymVar("Bs", bound=SizeTuple)
+Bs = TypeVar("Bs", bound=SizeTuple)
 
 
 class RopeScalingDict(TypedDict, total=False):

@@ -59,10 +59,10 @@ from typing import Any, assert_type, TYPE_CHECKING
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from shape_extensions import Elements, SizeTuple
+from shape_extensions import Elements, SizeTuple, SymVar
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim, SymVar
+    from shape_extensions import Dim
     from torch import Tensor
 
 
@@ -71,7 +71,7 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
-class LayerNorm2d[C](nn.Module):
+class LayerNorm2d[C: SymVar](nn.Module):
     """Channel-wise LayerNorm for (B, C, H, W) tensors.
 
     Normalizes along channel dim. Shape-preserving.
@@ -85,7 +85,9 @@ class LayerNorm2d[C](nn.Module):
         self.bias = nn.Parameter(torch.zeros(num_channels))
         self.eps = eps
 
-    def forward[B, H, W](self, x: Tensor[[B, C, H, W]]) -> Tensor[[B, C, H, W]]:
+    def forward[B: SymVar, H: SymVar, W: SymVar](
+        self, x: Tensor[[B, C, H, W]]
+    ) -> Tensor[[B, C, H, W]]:
         u = x.mean(1, keepdim=True)
         s = (x - u).pow(2).mean(1, keepdim=True)
         x_norm = (x - u) / torch.sqrt(s + self.eps)
@@ -94,7 +96,7 @@ class LayerNorm2d[C](nn.Module):
         return out
 
 
-class MLPBlock[D, MlpDim](nn.Module):
+class MLPBlock[D: SymVar, MlpDim: SymVar](nn.Module):
     """MLP block: Linear → GELU → Linear. Shape-preserving.
 
     (*, D) → (*, D)
@@ -105,7 +107,7 @@ class MLPBlock[D, MlpDim](nn.Module):
         self.lin1 = nn.Linear(embedding_dim, mlp_dim)
         self.lin2 = nn.Linear(mlp_dim, embedding_dim)
 
-    def forward[B, N](self, x: Tensor[[B, N, D]]) -> Tensor[[B, N, D]]:
+    def forward[B: SymVar, N: SymVar](self, x: Tensor[[B, N, D]]) -> Tensor[[B, N, D]]:
         h = nn.functional.gelu(self.lin1(x))
         assert_type(h, Tensor[[B, N, MlpDim]])
         return self.lin2(h)
@@ -116,7 +118,7 @@ class MLPBlock[D, MlpDim](nn.Module):
 # ============================================================================
 
 
-def window_partition[B: SymVar, H: SymVar, W: SymVar, WS: SymVar, D](
+def window_partition[B: SymVar, H: SymVar, W: SymVar, WS: SymVar, D: SymVar](
     x: Tensor[[B, H, W, D]], window_size: Dim[WS]
 ) -> Tensor[[B * (H // WS) * (W // WS), WS, WS, D]]:
     """Partition into non-overlapping windows.
@@ -139,7 +141,7 @@ def window_partition[B: SymVar, H: SymVar, W: SymVar, WS: SymVar, D](
     )
 
 
-def window_unpartition[B: SymVar, H: SymVar, W: SymVar, WS: SymVar, D](
+def window_unpartition[B: SymVar, H: SymVar, W: SymVar, WS: SymVar, D: SymVar](
     window_size: Dim[WS],
     h: Dim[H],
     w: Dim[W],
@@ -165,7 +167,7 @@ def window_unpartition[B: SymVar, H: SymVar, W: SymVar, WS: SymVar, D](
 # ============================================================================
 
 
-def get_rel_pos[QS, KS, HD, RP](
+def get_rel_pos[QS: SymVar, KS: SymVar, HD: SymVar, RP: SymVar](
     q_size: Dim[QS], k_size: Dim[KS], rel_pos: Tensor[[RP, HD]]
 ) -> Tensor[[QS, KS, HD]]:
     """Get relative positional embeddings for query/key size pair.
@@ -202,14 +204,14 @@ def get_rel_pos[QS, KS, HD, RP](
 
 
 def add_decomposed_rel_pos[
-    B,
+    B: SymVar,
     QH: SymVar,
     QW: SymVar,
     KH: SymVar,
     KW: SymVar,
-    HD,
-    RPH,
-    RPW,
+    HD: SymVar,
+    RPH: SymVar,
+    RPW: SymVar,
 ](
     q_h: Dim[QH],
     q_w: Dim[QW],
@@ -350,7 +352,9 @@ class ImageAttention[D: SymVar, NHead: SymVar, IS: SymVar](nn.Module):
 # ============================================================================
 
 
-class ViTBlock[D: SymVar, NHead: SymVar, MlpDim, IS: SymVar, WS: SymVar](nn.Module):
+class ViTBlock[D: SymVar, NHead: SymVar, MlpDim: SymVar, IS: SymVar, WS: SymVar](
+    nn.Module
+):
     """Vision Transformer block in BHWC format.
 
     Supports both global attention (window_size=None) and windowed attention
@@ -381,7 +385,7 @@ class ViTBlock[D: SymVar, NHead: SymVar, MlpDim, IS: SymVar, WS: SymVar](nn.Modu
         self.mlp = MLPBlock(dim, mlp_dim)
         self.window_size = window_size
 
-    def forward[B](self, x: Tensor[[B, IS, IS, D]]) -> Tensor[[B, IS, IS, D]]:
+    def forward[B: SymVar](self, x: Tensor[[B, IS, IS, D]]) -> Tensor[[B, IS, IS, D]]:
         shortcut = x
         x_normed = self.norm1(x)
         if self.window_size is not None:
@@ -425,7 +429,7 @@ class ViTBlock[D: SymVar, NHead: SymVar, MlpDim, IS: SymVar, WS: SymVar](nn.Modu
 # ============================================================================
 
 
-class PatchEmbed[EmbDim](nn.Module):
+class PatchEmbed[EmbDim: SymVar](nn.Module):
     """Patch embedding: Conv2d with kernel_size=stride=16, then permute to BHWC.
 
     For square input (B, 3, S, S) where S is a multiple of 16:
@@ -436,7 +440,7 @@ class PatchEmbed[EmbDim](nn.Module):
         super().__init__()
         self.proj = nn.Conv2d(3, embed_dim, kernel_size=16, stride=16)
 
-    def forward[B, S: SymVar](
+    def forward[B: SymVar, S: SymVar](
         self, x: Tensor[[B, 3, S, S]]
     ) -> Tensor[[B, (S - 16) // 16 + 1, (S - 16) // 16 + 1, EmbDim]]:
         h = self.proj(x)
@@ -452,7 +456,7 @@ class PatchEmbed[EmbDim](nn.Module):
 # ============================================================================
 
 
-class ImageEncoderViT[EmbDim: SymVar, OutC](nn.Module):
+class ImageEncoderViT[EmbDim: SymVar, OutC: SymVar](nn.Module):
     """Vision Transformer image encoder with neck (square images).
 
     Architecture (patch_size=16):
@@ -510,7 +514,7 @@ class ImageEncoderViT[EmbDim: SymVar, OutC](nn.Module):
         )
         self.neck_ln2 = LayerNorm2d(out_chans)
 
-    def forward[B, S: SymVar](
+    def forward[B: SymVar, S: SymVar](
         self, x: Tensor[[B, 3, S, S]]
     ) -> Tensor[[B, OutC, (S - 16) // 16 + 1, (S - 16) // 16 + 1]]:
         # Patch embedding: (B, 3, S, S) → (B, PS, PS, EmbDim) in BHWC
@@ -563,7 +567,7 @@ class CrossAttention[D: SymVar, IntDim: SymVar, NHead: SymVar](nn.Module):
         self.v_proj = nn.Linear(embedding_dim, internal_dim)
         self.out_proj = nn.Linear(internal_dim, embedding_dim)
 
-    def forward[B, NQ, NK](
+    def forward[B: SymVar, NQ: SymVar, NK: SymVar](
         self, q: Tensor[[B, NQ, D]], k: Tensor[[B, NK, D]], v: Tensor[[B, NK, D]]
     ) -> Tensor[[B, NQ, D]]:
         b, nq, _ = q.size()
@@ -608,7 +612,7 @@ class CrossAttention[D: SymVar, IntDim: SymVar, NHead: SymVar](nn.Module):
 # ============================================================================
 
 
-class TwoWayAttentionBlock[D: SymVar, NHead: SymVar, MlpDim](nn.Module):
+class TwoWayAttentionBlock[D: SymVar, NHead: SymVar, MlpDim: SymVar](nn.Module):
     """Bidirectional cross-attention block.
 
     Four operations:
@@ -642,7 +646,7 @@ class TwoWayAttentionBlock[D: SymVar, NHead: SymVar, MlpDim](nn.Module):
         )
         self.norm4 = nn.LayerNorm(embedding_dim)
 
-    def forward[B, NQ, NK](
+    def forward[B: SymVar, NQ: SymVar, NK: SymVar](
         self,
         queries: Tensor[[B, NQ, D]],
         keys: Tensor[[B, NK, D]],
@@ -686,7 +690,7 @@ class TwoWayAttentionBlock[D: SymVar, NHead: SymVar, MlpDim](nn.Module):
 # ============================================================================
 
 
-class TwoWayTransformer[D: SymVar, NHead: SymVar, MlpDim](nn.Module):
+class TwoWayTransformer[D: SymVar, NHead: SymVar, MlpDim: SymVar](nn.Module):
     """Two-way transformer decoder with bidirectional cross-attention.
 
     Used in SAM's mask decoder: image features and prompt tokens attend to
@@ -721,7 +725,7 @@ class TwoWayTransformer[D: SymVar, NHead: SymVar, MlpDim](nn.Module):
         self.final_attn = CrossAttention(embedding_dim, internal_dim, num_heads)
         self.norm_final = nn.LayerNorm(embedding_dim)
 
-    def forward[B, NQ, NK](
+    def forward[B: SymVar, NQ: SymVar, NK: SymVar](
         self,
         image_tokens: Tensor[[B, NK, D]],
         image_pe: Tensor[[B, NK, D]],
@@ -908,7 +912,7 @@ class PromptEncoder[D: SymVar, ES: SymVar, MIC: SymVar](nn.Module):
         corner_embedding[:, 1, :] += self.point_embeddings[3].weight
         return corner_embedding
 
-    def _embed_masks[B](
+    def _embed_masks[B: SymVar](
         self, masks: Tensor[[B, 1, 4 * ES, 4 * ES]]
     ) -> Tensor[[B, D, ES, ES]]:
         """Downsample mask prompts to image embedding resolution.
@@ -925,7 +929,7 @@ class PromptEncoder[D: SymVar, ES: SymVar, MIC: SymVar](nn.Module):
         h = F.gelu(h)
         return self.mask_downscaling_conv3(h)
 
-    def forward[B, N, M](
+    def forward[B: SymVar, N: SymVar, M: SymVar](
         self,
         points: tuple[Tensor[[B, N, 2]], Tensor[[B, N]]] | None,
         boxes: Tensor[[B, M, 4]] | None,
@@ -962,7 +966,7 @@ class PromptEncoder[D: SymVar, ES: SymVar, MIC: SymVar](nn.Module):
             )
         return sparse_embeddings, dense_embeddings
 
-    def _get_batch_size[B, N, M](
+    def _get_batch_size[B: SymVar, N: SymVar, M: SymVar](
         self,
         points: tuple[Tensor[[B, N, 2]], Tensor[[B, N]]] | None,
         boxes: Tensor[[B, M, 4]] | None,
@@ -984,7 +988,7 @@ class PromptEncoder[D: SymVar, ES: SymVar, MIC: SymVar](nn.Module):
 # ============================================================================
 
 
-class HypernetworkMLP[In, Hidden, Out](nn.Module):
+class HypernetworkMLP[In: SymVar, Hidden: SymVar, Out: SymVar](nn.Module):
     """3-layer MLP used as hypernetwork in mask decoder and for IoU prediction.
 
     Original: sam/common.py MLP class (with num_layers=3).
@@ -1007,7 +1011,7 @@ class HypernetworkMLP[In, Hidden, Out](nn.Module):
         self.fc3 = nn.Linear(hidden_dim, output_dim)
         self.sigmoid_output = sigmoid_output
 
-    def forward[B](self, x: Tensor[[B, In]]) -> Tensor[[B, Out]]:
+    def forward[B: SymVar](self, x: Tensor[[B, In]]) -> Tensor[[B, Out]]:
         """Forward pass: Linear→ReLU→Linear→ReLU→Linear.
 
         Typed like BottomMLP/TopMLP. When called with unrefined input,
@@ -1029,7 +1033,9 @@ class HypernetworkMLP[In, Hidden, Out](nn.Module):
 # ============================================================================
 
 
-class MaskDecoder[D: SymVar, NHead: SymVar, MlpDim, NumMasks: SymVar](nn.Module):
+class MaskDecoder[D: SymVar, NHead: SymVar, MlpDim: SymVar, NumMasks: SymVar](
+    nn.Module
+):
     """Predicts masks and IoU scores from image and prompt embeddings.
 
     Original: sam/mask_decoder.py MaskDecoder.
@@ -1085,7 +1091,7 @@ class MaskDecoder[D: SymVar, NHead: SymVar, MlpDim, NumMasks: SymVar](nn.Module)
             transformer_dim, 256, num_mask_tokens
         )
 
-    def forward[B, IH: SymVar, IW: SymVar](
+    def forward[B: SymVar, IH: SymVar, IW: SymVar](
         self,
         image_embeddings: Tensor[[B, D, IH, IW]],
         image_pe: Tensor,  # batch dim may be 1; keep unrefined
@@ -1118,7 +1124,7 @@ class MaskDecoder[D: SymVar, NHead: SymVar, MlpDim, NumMasks: SymVar](nn.Module)
         else:
             return masks[:, 0:1, :, :], iou_pred[:, 0:1]
 
-    def predict_masks[B, IH: SymVar, IW: SymVar](
+    def predict_masks[B: SymVar, IH: SymVar, IW: SymVar](
         self,
         image_embeddings: Tensor[[B, D, IH, IW]],
         image_pe: Tensor,
@@ -1194,9 +1200,14 @@ class MaskDecoder[D: SymVar, NHead: SymVar, MlpDim, NumMasks: SymVar](nn.Module)
 # ============================================================================
 
 
-class Sam[EmbDim, D: SymVar, NHead: SymVar, MlpDim, NumMasks: SymVar, ES: SymVar](
-    nn.Module
-):
+class Sam[
+    EmbDim: SymVar,
+    D: SymVar,
+    NHead: SymVar,
+    MlpDim: SymVar,
+    NumMasks: SymVar,
+    ES: SymVar,
+](nn.Module):
     """Segment Anything Model — top-level orchestration.
 
     Original: sam/build_sam.py + sam/modeling/sam.py Sam class.
@@ -1218,7 +1229,7 @@ class Sam[EmbDim, D: SymVar, NHead: SymVar, MlpDim, NumMasks: SymVar, ES: SymVar
         self.prompt_encoder = prompt_encoder
         self.mask_decoder = mask_decoder
 
-    def forward[B, N, M](
+    def forward[B: SymVar, N: SymVar, M: SymVar](
         self,
         images: Tensor[[B, 3, 16 * ES, 16 * ES]],
         points: tuple[Tensor[[B, N, 2]], Tensor[[B, N]]] | None = None,

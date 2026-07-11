@@ -12,9 +12,10 @@ from typing import assert_type, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
+from shape_extensions import SymVar
 
 if TYPE_CHECKING:
-    from shape_extensions import Dim, SymVar
+    from shape_extensions import Dim
     from torch import Tensor
 
 # ============================================================================
@@ -38,7 +39,7 @@ class LinearLayer[N: SymVar, M: SymVar](nn.Module):
         self.weight = torch.randn(out_features, in_features)
         self.bias = torch.randn(out_features)
 
-    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
+    def forward[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, M]]:
         """
         B is method-level generic (batch dimension)
         N, M come from class (input/output dimensions)
@@ -85,7 +86,7 @@ class TwoLayerMLP[N: SymVar, M: SymVar, K: SymVar](nn.Module):
         self.w1 = torch.randn(hidden_features, in_features)
         self.w2 = torch.randn(out_features, hidden_features)
 
-    def forward[B](self, x: Tensor[[B, N]]) -> Tensor[[B, K]]:
+    def forward[B: SymVar](self, x: Tensor[[B, N]]) -> Tensor[[B, K]]:
         """
         B is batch (method-level)
         N, M, K are dimensions (class-level)
@@ -117,7 +118,7 @@ def test_mlp_with_matmul():
 class SelfAttention[D: SymVar](nn.Module):
     """Self-attention with class-level dimension"""
 
-    def forward[B, T: SymVar](self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
+    def forward[B: SymVar, T: SymVar](self, x: Tensor[[B, T, D]]) -> Tensor[[B, T, D]]:
         """
         B, T are method-level (batch, sequence length)
         D is class-level (model dimension)
@@ -157,7 +158,7 @@ class ConvBlock[C_in: SymVar, C_out: SymVar](nn.Module):
         # Now C_in and C_out are bound via Literal params
         self.weight = torch.randn(out_channels, in_channels, 3, 3)
 
-    def forward[B, H: SymVar, W: SymVar](
+    def forward[B: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C_in, H, W]]
     ) -> Tensor[[B, C_out, H, W]]:
         """
@@ -195,7 +196,7 @@ class ResidualBlock[C: SymVar](nn.Module):
         # Now C is bound via Literal param
         self.weight = torch.randn(channels, channels, 3, 3)
 
-    def forward[B, H: SymVar, W: SymVar](
+    def forward[B: SymVar, H: SymVar, W: SymVar](
         self, x: Tensor[[B, C, H, W]]
     ) -> Tensor[[B, C, H, W]]:
         """

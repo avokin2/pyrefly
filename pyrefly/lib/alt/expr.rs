@@ -78,6 +78,7 @@ use crate::alt::callable::CallArg;
 use crate::alt::class::typed_dict::TypedDictErrorKind;
 use crate::alt::nn_module_specials::is_nn_module_dict;
 use crate::alt::solve::TypeFormContext;
+use crate::alt::solve::UntypeContext;
 use crate::alt::unwrap::HintRef;
 use crate::binding::binding::Binding;
 use crate::binding::binding::Key;
@@ -135,6 +136,15 @@ enum DimensionExprContext {
     /// An operand of shape arithmetic, e.g. the `N` in `Tensor[N + 1]`. Only a
     /// `SymVar` is allowed; a plain `TypeVar` is rejected.
     Arithmetic,
+}
+
+impl DimensionExprContext {
+    fn error_context(self) -> &'static str {
+        match self {
+            Self::Bare => "as a shape dimension",
+            Self::Arithmetic => "in shape arithmetic",
+        }
+    }
 }
 
 impl Ranged for TypeOrExpr<'_> {
@@ -2191,7 +2201,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     }
                     "default" => {
                         default = Some((
-                            self.expr_untype(&kw.value, TypeFormContext::TypeVarDefault, errors),
+                            self.expr_untype(
+                                &kw.value,
+                                TypeFormContext::quantified_kind_default(kind),
+                                errors,
+                            ),
                             kw.value.range(),
                         ))
                     }
@@ -2591,8 +2605,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             match base {
                 Type::Forall(forall) => {
                     if matches!(forall.body, Forallable::TypeAlias(_)) {
-                        let tys = xs
-                            .map(|x| self.expr_untype(x, TypeFormContext::TypeArgument, errors));
+                        let tys =
+                            self.parse_type_args_for_tparams(xs, forall.tparams.as_vec(), errors);
                         self.specialize_forall(*forall, tys, range, errors)
                     } else {
                         let name = forall.body.name();
@@ -3450,58 +3464,36 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 let expr_type = self.expr_infer(expr, errors);
 
                 match &expr_type {
-                    Type::QuantifiedValue(q) => {
-                        if context == DimensionExprContext::Arithmetic
-                            && q.kind() != QuantifiedKind::SymVar
-                        {
-                            self.error(
-                                errors,
-                                expr.range(),
-                                ErrorKind::InvalidAnnotation,
-                                format!(
-                                    "`{}` must be a `SymVar` to be used in shape arithmetic",
-                                    q.name()
-                                ),
-                            );
-                            None
-                        } else {
-                            Some(Type::Quantified(q.clone()))
-                        }
-                    }
-                    Type::TypeVar(tv) => {
-                        if context == DimensionExprContext::Arithmetic
-                            && tv.kind() != QuantifiedKind::SymVar
-                        {
-                            self.error(
-                                errors,
-                                expr.range(),
-                                ErrorKind::InvalidAnnotation,
-                                format!(
-                                    "`{}` must be a `SymVar` to be used in shape arithmetic",
-                                    tv.qname().id()
-                                ),
-                            );
-                            None
-                        } else {
-                            Some(expr_type)
-                        }
-                    }
                     Type::ClassDef(cls) if cls.has_toplevel_qname("typing", "Any") => {
                         // typing.Any in a type annotation position (e.g., Tensor[16, Any])
                         // Use Explicit since the user wrote Any explicitly
                         Some(Type::Any(AnyStyle::Explicit))
                     }
                     _ => {
-                        self.error(
-                            errors,
+                        match self.untype_opt_with_context(
+                            expr_type.clone(),
                             expr.range(),
-                            ErrorKind::InvalidAnnotation,
-                            format!(
-                                "Tensor shape dimensions must be integer literals or type variables, got `{}`",
-                                self.for_display(expr_type)
-                            ),
-                        );
-                        None
+                            errors,
+                            UntypeContext::SymbolicInt(context.error_context()),
+                        ) {
+                            Some(Type::Quantified(q)) if q.kind() == QuantifiedKind::SymVar => {
+                                Some(Type::Quantified(q))
+                            }
+                            Some(ty @ Type::TypeVar(_)) => Some(ty),
+                            Some(ty) if ty.is_error() => Some(ty),
+                            _ => {
+                                self.error(
+                                    errors,
+                                    expr.range(),
+                                    ErrorKind::InvalidAnnotation,
+                                    format!(
+                                        "Tensor shape dimensions must be integer literals or type variables, got `{}`",
+                                        self.for_display(expr_type)
+                                    ),
+                                );
+                                None
+                            }
+                        }
                     }
                 }
             }
@@ -3571,7 +3563,11 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
 
     /// Parse a list of dimension expressions, simplifying and validating each one.
     /// Returns None if any dimension fails to parse or is non-positive.
-    fn parse_dimension_list(&self, args: &[Expr], errors: &ErrorCollector) -> Option<Vec<Type>> {
+    pub(super) fn parse_dimension_list(
+        &self,
+        args: &[Expr],
+        errors: &ErrorCollector,
+    ) -> Option<Vec<Type>> {
         let mut dims = Vec::new();
         for arg in args {
             if let Some(dim) = self.parse_dimension_expr(arg, errors) {
@@ -3724,11 +3720,19 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         args: &[Expr],
         errors: &ErrorCollector,
     ) -> Vec<Type> {
+        let tparams = self.get_class_tparams(cls);
+        self.parse_type_args_for_tparams(args, tparams.as_vec(), errors)
+    }
+
+    fn parse_type_args_for_tparams(
+        &self,
+        args: &[Expr],
+        tparams_vec: &[Quantified],
+        errors: &ErrorCollector,
+    ) -> Vec<Type> {
         if !self.solver().tensor_shapes {
             return args.map(|arg| self.expr_untype(arg, TypeFormContext::TypeArgument, errors));
         }
-        let tparams = self.get_class_tparams(cls);
-        let tparams_vec = tparams.as_vec();
         let variadic_idx = tparams_vec
             .iter()
             .position(|param| param.is_type_var_tuple());

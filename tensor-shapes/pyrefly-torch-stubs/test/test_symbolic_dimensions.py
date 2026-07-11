@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # Tests for symbolic dimension support
-# Week 2-3: Systematic tests with TypeVar-based dimension variables
+# Week 2-3: Systematic tests with SymVar-based dimension variables
 # Using modern Python 3.12+ generic syntax: def f[N]
 
 from typing import assert_type
@@ -19,7 +19,7 @@ from torch import Tensor
 # ==== Week 2: Symbolic Dimension Tests ====
 
 
-def accepts_symbolic_returns_symbolic[N](x: Tensor[[N, 3]]) -> Tensor[[N, 3]]:
+def accepts_symbolic_returns_symbolic[N: SymVar](x: Tensor[[N, 3]]) -> Tensor[[N, 3]]:
     """Identity function with symbolic dimension - preserves shape"""
     return x
 

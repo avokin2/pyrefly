@@ -10,7 +10,7 @@ Functional neural network operations including convolution, pooling, activation,
 
 from typing import Literal, overload
 
-from shape_extensions import Elements, SizeTuple, uses_shape_dsl
+from shape_extensions import Elements, SizeTuple, SymVar, uses_shape_dsl
 from torch._shapes import (
     adaptive_pool_ir,
     conv_ir,
@@ -821,7 +821,7 @@ def softmin[Shape: SizeTuple](
 # Linear
 # ==============================================================================
 
-def linear[Bs: SizeTuple, IN, OUT](
+def linear[Bs: SizeTuple, IN: SymVar, OUT: SymVar](
     input: Tensor[[*Elements[Bs], IN]],
     weight: Tensor[[OUT, IN]],
     bias: Tensor[[OUT]] | None = None,
@@ -834,7 +834,7 @@ def linear[Bs: SizeTuple, IN, OUT](
 # ==============================================================================
 
 @overload
-def embedding[T, V, D](
+def embedding[T: SymVar, V: SymVar, D: SymVar](
     input: Tensor[[T]],
     weight: Tensor[[V, D]],
     padding_idx: int | None = None,
@@ -844,7 +844,7 @@ def embedding[T, V, D](
     sparse: bool = False,
 ) -> Tensor[[T, D]]: ...
 @overload
-def embedding[B, T, V, D](
+def embedding[B: SymVar, T: SymVar, V: SymVar, D: SymVar](
     input: Tensor[[B, T]],
     weight: Tensor[[V, D]],
     padding_idx: int | None = None,
@@ -891,12 +891,12 @@ def dropout3d[S: SizeTuple](
 
 # Attention operations
 def scaled_dot_product_attention[
-    B,
-    H,
-    Tq,
-    Tkv,
-    D,
-    Dv,
+    B: SymVar,
+    H: SymVar,
+    Tq: SymVar,
+    Tkv: SymVar,
+    D: SymVar,
+    Dv: SymVar,
 ](
     query: Tensor[[B, H, Tq, D]],
     key: Tensor[[B, H, Tkv, D]],
@@ -920,7 +920,7 @@ def cosine_similarity(
     """
     ...
 
-def grid_sample[B, C, Hout, Wout](
+def grid_sample[B: SymVar, C: SymVar, Hout: SymVar, Wout: SymVar](
     input: Tensor[[B, C, *Elements[SizeTuple]]],
     grid: Tensor[[B, Hout, Wout, 2]],
     mode: str = "bilinear",

@@ -484,7 +484,7 @@ testcase!(
     shaped_array_env(),
     r#"
 from typing import Literal, reveal_type
-from shape_extensions import shaped_array
+from shape_extensions import SymVar, shaped_array
 
 @shaped_array(shape="Shape")
 class Array[Shape, DType]: ...
@@ -517,7 +517,7 @@ testcase!(
     shaped_array_env(),
     r#"
 from typing import Any, Literal, reveal_type
-from shape_extensions import Dim, Elements, SizeTuple, shaped_array
+from shape_extensions import Dim, Elements, SizeTuple, SymVar, shaped_array
 
 type _Shape = SizeTuple
 type _AnyShape = tuple[Any, ...]
@@ -526,7 +526,7 @@ type _AnyShape = tuple[Any, ...]
 class Array[Shape: _Shape = _AnyShape, DType = Any]:
     shape: Shape
 
-def f[N](
+def f[N: SymVar](
     compact: Array[[2, 3], int],
     pep484: Array[tuple[Literal[2], Literal[3]], int],
     size_tuple: Array[SizeTuple[2, 3], int],
@@ -534,6 +534,7 @@ def f[N](
     bare_dim: Dim[N],
     bare_list: Array[[N], int],
     bare_size_tuple: Array[SizeTuple[N], int],
+    any_dim: Array[[Any], int],
     carrier: SizeTuple[2, 3],
     mixed_carrier: SizeTuple[2, 3, Dim[N]],
     unbounded: SizeTuple,
@@ -545,6 +546,7 @@ def f[N](
     reveal_type(bare_dim)  # E: revealed type: Dim[N]
     reveal_type(bare_list)  # E: revealed type: Array[[N], int]
     reveal_type(bare_size_tuple)  # E: revealed type: Array[[N], int]
+    reveal_type(any_dim)  # E: revealed type: Array[[Any], int]
     p: Array[tuple[Literal[2], Literal[3]], int] = compact
     c: Array[[2, 3], int] = pep484
     st: Array[SizeTuple[2, 3], int] = compact
@@ -553,7 +555,7 @@ def f[N](
     mt: tuple[Literal[2], Literal[3], Dim[N]] = mixed_carrier
     u: tuple[int, ...] = unbounded
 
-def append_dim[S: SizeTuple, OUT](
+def append_dim[S: SizeTuple, OUT: SymVar](
     explicit: Array[SizeTuple[*Elements[S], OUT], int],
     compact: Array[[*Elements[S], OUT], int],
 ) -> Array[[*Elements[S], OUT], int]:
@@ -561,19 +563,19 @@ def append_dim[S: SizeTuple, OUT](
     reveal_type(compact)  # E: revealed type: Array[[*S, OUT], int]
     return explicit
 
-def prepend_and_append[S: SizeTuple, OUT](
+def prepend_and_append[S: SizeTuple, OUT: SymVar](
     source: Array[S, int],
     result: Array[[1, *Elements[S], OUT], int],
 ) -> Array[[1, *Elements[S], OUT], int]:
     return result
 
-def concrete_unpack[M, N](
+def concrete_unpack[M: SymVar, N: SymVar](
     source: Array[[4, M], int],
     result: Array[[1, 4, M, N], int],
 ) -> None:
     reveal_type(prepend_and_append(source, result))  # E: revealed type: Array[[1, 4, M, N], int]
 
-def nested_unpack[S0: SizeTuple, M, N](
+def nested_unpack[S0: SizeTuple, M: SymVar, N: SymVar](
     source: Array[[4, *Elements[S0], M], int],
     result: Array[[1, 4, *Elements[S0], M, N], int],
 ) -> None:
@@ -583,6 +585,37 @@ def gradual_middle(
     result: Array[[1, *Elements[SizeTuple], 3], int],
 ) -> None:
     reveal_type(result)  # E: revealed type: Array[[1, *tuple[int, ...], 3], int]
+"#,
+);
+
+testcase!(
+    test_ordinary_typevar_shape_dimension_is_rejected,
+    shaped_array_env(),
+    r#"
+from typing import Any, Generic, TypeVar
+from shape_extensions import Dim, Elements, SizeTuple, SymVar, shaped_array
+
+@shaped_array(shape="Shape")
+class Array[Shape: SizeTuple = tuple[Any, ...], DType = Any]: ...
+
+class SymBox[N: SymVar]: ...
+
+def invalid[N, Shape: SizeTuple](
+    dim: Dim[N],  # E: `N` must be a `SymVar` to be used as a shape dimension
+    list_shape: Array[[N], int],  # E: `N` must be a `SymVar` to be used as a shape dimension
+    size_tuple: Array[SizeTuple[N], int],  # E: `N` must be a `SymVar` to be used as a shape dimension
+    unpack_prefix: Array[SizeTuple[N, *Elements[Shape]], int],  # E: `N` must be a `SymVar` to be used as a shape dimension
+    class_arg: SymBox[N],  # E: `N` must be a `SymVar` to be used as a shape dimension
+) -> None:
+    pass
+
+type Alias[N] = Dim[N]  # E: `N` must be a `SymVar` to be used as a shape dimension
+
+LegacyN = TypeVar("LegacyN")
+
+class LegacyBox(Generic[LegacyN]):
+    dim: Dim[LegacyN]  # E: `LegacyN` must be a `SymVar` to be used as a shape dimension
+    shape: Array[[LegacyN], int]  # E: `LegacyN` must be a `SymVar` to be used as a shape dimension
 "#,
 );
 
@@ -684,11 +717,9 @@ from shape_extensions import shaped_array
 @shaped_array(shape="Shape")
 class Array[Shape, DType]: ...
 
-# Invalid compact dims get a dimension parser error at the bad element. The
-# string is parsed as a forward reference before reaching the dimension parser,
-# so the diagnostics are about the unresolved name / non-integer dimension --
-# both pointing at the bad element, not a generic invalid type argument.
-def f(bad: Array[["rows", 3], int]) -> None: ...  # E: Could not find name `rows`  # E: Tensor shape dimensions must be integer literals or type variables, got `Unknown`
+# Invalid compact dims report the unresolved name without cascading to a
+# non-integer dimension error.
+def f(bad: Array[["rows", 3], int]) -> None: ...  # E: Could not find name `rows`
 "#,
 );
 
@@ -1077,7 +1108,7 @@ testcase!(
     shaped_array_env(),
     r#"
 from typing import Literal, reveal_type
-from shape_extensions import shaped_array
+from shape_extensions import SymVar, shaped_array
 
 @shaped_array(shape="Shape")
 class Array[Shape, DType]: ...
@@ -1085,7 +1116,7 @@ class Array[Shape, DType]: ...
 def carrier[S](x: Array[S, float]) -> None:
     reveal_type(x.shape)  # E: revealed type: S
 
-def concrete[M](x: Array[[2, 4, M], float]) -> None:
+def concrete[M: SymVar](x: Array[[2, 4, M], float]) -> None:
     reveal_type(x.shape)  # E: revealed type: tuple[Literal[2], Literal[4], Dim[M]]
 
 def unpacked_prefix[*Ts](x: Array[tuple[Literal[2], *Ts], float]) -> None:
@@ -1212,7 +1243,7 @@ testcase!(
     test_tensor_shapes_keeps_ordinary_literal_arithmetic_int,
     shaped_array_env(),
     r#"
-from shape_extensions import Dim
+from shape_extensions import Dim, SymVar
 from typing import reveal_type
 
 def ordinary_literals() -> None:
@@ -1224,7 +1255,7 @@ def ordinary_literals() -> None:
     total += 2
     reveal_type(total)  # E: revealed type: int
 
-def dim_literals[N](x: Dim[N]) -> None:
+def dim_literals[N: SymVar](x: Dim[N]) -> None:
     reveal_type(x + 1)  # E: revealed type: Dim
     reveal_type(1 + x)  # E: revealed type: Dim
 
@@ -1262,30 +1293,107 @@ testcase!(
     test_symvar_type_parameter_bound,
     shaped_array_env_with_shaped_torch(),
     r#"
-from shape_extensions import Dim, SymVar
+from shape_extensions import Dim, Elements, SizeTuple, SymVar
 from shape_extensions import SymVar as SV
 import shape_extensions
 import shape_extensions as se
 from torch import Tensor
-from typing import assert_type, reveal_type
+from typing import reveal_type
 
-def identity[N: SymVar](x: N) -> N:
-    reveal_type(x)  # E: revealed type: N
+class SymBox[N: SymVar]: ...
+
+def identity_alias[N: SV](x: Dim[N]) -> Dim[N]:
     return x
 
-def identity_alias[N: SV](x: N) -> N:
+def identity_module[N: shape_extensions.SymVar](x: Dim[N]) -> Dim[N]:
     return x
 
-def identity_module[N: shape_extensions.SymVar](x: N) -> N:
+def identity_module_alias[N: se.SymVar](x: Dim[N]) -> Dim[N]:
     return x
 
-def identity_module_alias[N: se.SymVar](x: N) -> N:
-    return x
-
-def shape[N: SymVar](n: Dim[N], x: Tensor[[N]]) -> None:
+def shape[N: SymVar, M: SymVar, Shape: SizeTuple](
+    n: Dim[N],
+    x: Tensor[[N]],
+    size: SizeTuple[N, M],
+    packed: Tensor[[*Elements[Shape], N]],
+    boxed: SymBox[N],
+) -> None:
     reveal_type(n)  # E: revealed type: Dim[N]
     reveal_type(x)  # E: revealed type: Tensor[[N]]
-    assert_type(identity(1), int)
+    reveal_type(packed)  # E: revealed type: Tensor[[*Shape, N]]
+    reveal_type(boxed)  # E: revealed type: SymBox[N]
+
+def default_ok[N: SymVar, M: SymVar = N](x: Dim[M]) -> None:
+    pass
+
+def default_expr_ok[N: SymVar, M: SymVar = N + 1](x: Dim[M]) -> None:
+    pass
+
+type Shape[N: SymVar] = Tensor[[N]]
+type Packed[Shape: SizeTuple, N: SymVar] = Tensor[[*Elements[Shape], N]]
+type OrdinaryAlias[T, N: SymVar] = tuple[T, Dim[N]]
+
+def alias_specialization[N: SymVar, ShapeT: SizeTuple](
+    x: Shape[N],
+    packed: Packed[ShapeT, N],
+    ordinary: OrdinaryAlias[int, N],
+) -> None:
+    reveal_type(x)  # E: revealed type: Tensor[[N]]
+    reveal_type(packed)  # E: revealed type: Tensor[[*ShapeT, N]]
+    reveal_type(ordinary)  # E: revealed type: tuple[int, Dim[N]]
+"#,
+);
+
+testcase!(
+    test_symvar_rejected_in_ordinary_type_positions,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from collections.abc import Callable
+from shape_extensions import Dim, SymVar
+from torch import Tensor
+from typing import Generic, Optional, TypeAlias, TypeAliasType, TypeVar
+
+LegacyN = SymVar("LegacyN")
+OrdinaryT = TypeVar("OrdinaryT")
+OrdinaryDefault = TypeVar("OrdinaryDefault", default=LegacyN)  # E: `LegacyN` is a `SymVar` and cannot be used as an ordinary type
+BadSymDefault = SymVar("BadSymDefault", default=OrdinaryT)  # E: `OrdinaryT` must be a `SymVar` to be used as a shape dimension
+BadIntDefault = SymVar("BadIntDefault", default=int)  # E: Tensor shape dimensions must be integer literals or type variables, got `type[int]`
+
+class LegacyBox(Generic[LegacyN]): ...
+class Box[T]: ...
+
+def legacy_shape(n: Dim[LegacyN], x: Tensor[[LegacyN]]) -> None:
+    pass
+
+def legacy_invalid(
+    x: LegacyN,  # E: `LegacyN` is a `SymVar` and cannot be used as an ordinary type
+    y: list[LegacyN],  # E: `LegacyN` is a `SymVar` and cannot be used as an ordinary type
+    z: Box[LegacyN],  # E: `LegacyN` is a `SymVar` and cannot be used as an ordinary type
+) -> None:
+    pass
+
+def invalid[N: SymVar](
+    x: N,  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+    y: list[N],  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+    z: Box[N],  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+    t: type[N],  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+    u: N | int,  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+    nested: int | (str | N),  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+    optional: Optional[N],  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+    c: Callable[[], N],  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+) -> None:
+    pass
+
+type Alias[N: SymVar] = N  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+type AliasUnion[N: SymVar] = N | int  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+LegacyAlias: TypeAlias = LegacyN | int  # E: `LegacyN` is a `SymVar` and cannot be used as an ordinary type
+CallAlias = TypeAliasType("CallAlias", LegacyN | int, type_params=(LegacyN,))  # E: `LegacyN` is a `SymVar` and cannot be used as an ordinary type
+
+def default_bad[T, N: SymVar = T](x: Dim[N]) -> None:  # E: `T` must be a `SymVar` to be used as a shape dimension
+    pass
+
+def default_bad_int[N: SymVar = int](x: Dim[N]) -> None:  # E: Tensor shape dimensions must be integer literals or type variables, got `type[int]`
+    pass
 "#,
 );
 
@@ -1313,6 +1421,30 @@ def invalid[N](
     inner_launder: Tensor[[D[N + 1]]],  # E: `N` must be a `SymVar` to be used in shape arithmetic
 ) -> None:
     pass
+"#,
+);
+
+testcase!(
+    test_kind_errors_recover_with_gradual_components,
+    shaped_array_env_with_shaped_torch(),
+    r#"
+from shape_extensions import Dim, SymVar
+from torch import Tensor
+from typing import Any, assert_type, reveal_type
+
+def ordinary_type_recovery[N: SymVar](
+    x: list[N],  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+    y: N | int,  # E: `N` is a `SymVar` and cannot be used as an ordinary type
+) -> None:
+    reveal_type(x)  # E: revealed type: list[Unknown]
+    reveal_type(y)  # E: revealed type: int | Unknown
+
+def symbolic_int_recovery[T](
+    dim: Dim[T],  # E: `T` must be a `SymVar` to be used as a shape dimension
+    tensor: Tensor[[T, 3]],  # E: `T` must be a `SymVar` to be used as a shape dimension
+) -> None:
+    assert_type(dim, Dim[Any])
+    assert_type(tensor, Tensor[[Any, 3]])
 "#,
 );
 
@@ -1382,20 +1514,21 @@ def explicit[N: SymVar](x: ExplicitBox[N + 1]) -> None:
 
 def legacy(x: LegacyBox[N + M]) -> None:
     reveal_type(x)  # E: revealed type: LegacyBox[(N + M)]
+
+def explicit_literals[S: SymVar](literal: ExplicitBox[3], symbolic: ExplicitBox[S]) -> None:
+    assert_type(literal, ExplicitBox[3])
+    assert_type(symbolic, ExplicitBox[S])
 "#,
 );
 
 testcase!(
-    test_dim_field_does_not_make_class_type_parameter_symbolic,
+    test_dim_field_requires_symvar_class_type_parameter,
     shaped_array_env_with_shaped_torch(),
     r#"
 from shape_extensions import Dim
 
 class FieldBox[N]:
-    dim: Dim[N]
-
-def f[N](x: FieldBox[N + 1]) -> None:  # E: `+` is not supported between `N` and `Literal[1]`  # E: Expected a type form, got instance of `int`
-    pass
+    dim: Dim[N]  # E: `N` must be a `SymVar` to be used as a shape dimension
 "#,
 );
 
@@ -1515,11 +1648,11 @@ testcase!(
     test_assert_shape_builtin,
     shaped_array_env_with_shaped_torch(),
     r#"
-from shape_extensions import D, assert_shape
+from shape_extensions import D, SymVar, assert_shape
 from typing import assert_type
 from torch import Tensor
 
-def f[N, M](x: Tensor[[N, M]]) -> None:
+def f[N: SymVar, M: SymVar](x: Tensor[[N, M]]) -> None:
     assert_type(assert_shape(x, (D[N], D(M))), Tensor[[N, M]])
     assert_shape(x, (D[M], D[N]))  # E: assert_shape((N, M), (M, N)) failed
     assert_shape(x, [D[N], D(M)])  # E: Second argument to `assert_shape` must be a tuple of tensor dimensions

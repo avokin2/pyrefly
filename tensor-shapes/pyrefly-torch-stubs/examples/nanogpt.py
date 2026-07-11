@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from torch import Tensor
 
 
-class LayerNorm[M](nn.Module):
+class LayerNorm[M: SymVar](nn.Module):
     """LayerNorm but with an optional bias. Generic over normalized dimension size."""
 
     def __init__(self, ndim: Dim[M], bias: bool):
@@ -98,7 +98,7 @@ class CausalSelfAttention[NEmbedding: SymVar, NHead: SymVar, BlockSize: SymVar](
             )
             assert_type(self.bias, Tensor[[1, 1, BlockSize, BlockSize]])
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, x: Tensor[[B, T, NEmbedding]]
     ) -> Tensor[[B, T, NEmbedding]]:
         b, t, c = (
@@ -190,7 +190,7 @@ class MLP[NEmbedding: SymVar](nn.Module):
         assert_type(self.c_proj, nn.Linear[(4 * NEmbedding), NEmbedding])
         self.dropout = nn.Dropout(config.dropout)
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, x: Tensor[[B, T, NEmbedding]]
     ) -> Tensor[[B, T, NEmbedding]]:
         h = self.c_fc(x)
@@ -218,7 +218,7 @@ class Block[NEmbedding: SymVar, NHead: SymVar, BlockSize: SymVar](nn.Module):
         self.mlp = MLP(config)
         assert_type(self.mlp, MLP[NEmbedding])
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, x: Tensor[[B, T, NEmbedding]]
     ) -> Tensor[[B, T, NEmbedding]]:
         x = x + self.attn(self.ln_1(x))
@@ -336,7 +336,7 @@ class GPT[
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward[B, T](
+    def forward[B: SymVar, T: SymVar](
         self, idx: Tensor[[B, T]], targets: Tensor[[B, T]] | None = None
     ) -> tuple[
         Tensor[[B, T, VocabSize]] | Tensor[[B, 1, VocabSize]], Tensor[[]] | None
@@ -511,7 +511,7 @@ class GPT[
         return mfu
 
     @torch.no_grad()
-    def generate[B](
+    def generate[B: SymVar](
         self,
         idx: Tensor[[B, Any]],
         max_new_tokens: int,

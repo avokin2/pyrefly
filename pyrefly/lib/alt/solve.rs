@@ -7,6 +7,7 @@
 
 use std::iter;
 use std::ops::Deref;
+use std::slice;
 use std::sync::Arc;
 
 use dupe::Dupe;
@@ -204,6 +205,7 @@ pub enum TypeFormContext {
     TypeVarConstraint,
     /// Default values for each kind of type variable
     TypeVarDefault,
+    SymVarDefault,
     ParamSpecDefault,
     TypeVarTupleDefault,
     /// A type being aliased
@@ -213,10 +215,27 @@ pub enum TypeFormContext {
     VarAnnotation(AnnAssignHasValue),
 }
 
+/// The position in which a value is being interpreted as a type, used by
+/// `untype` to tailor the error when a quantified variable's kind is not legal
+/// there (e.g. a `SymVar` used as an ordinary type, or a `TypeVar` used in shape
+/// arithmetic).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum UntypeContext {
+    /// An ordinary type position (variable annotation, type argument, etc.).
+    Type,
+    /// The base being parameterized in a generic subscription.
+    GenericBase,
+    /// A symbolic-integer dimension position. Carries a human-readable
+    /// description of the context (e.g. `"in shape arithmetic"`) used in the
+    /// error message when a non-`SymVar` is used here.
+    SymbolicInt(&'static str),
+}
+
 impl TypeFormContext {
     pub fn quantified_kind_default(x: QuantifiedKind) -> Self {
         match x {
-            QuantifiedKind::TypeVar | QuantifiedKind::SymVar => TypeFormContext::TypeVarDefault,
+            QuantifiedKind::TypeVar => TypeFormContext::TypeVarDefault,
+            QuantifiedKind::SymVar => TypeFormContext::SymVarDefault,
             QuantifiedKind::ParamSpec => TypeFormContext::ParamSpecDefault,
             QuantifiedKind::TypeVarTuple => TypeFormContext::TypeVarTupleDefault,
         }
@@ -255,6 +274,16 @@ impl TypeFormContext {
                 | TypeFormContext::TypeArgumentCallableReturn
                 | TypeFormContext::TypeArgumentForType
         )
+    }
+
+    /// The `UntypeContext` for this type-form position: how a value used here
+    /// should be validated. Only a generic base is distinguished; every other
+    /// position is treated as an ordinary type.
+    fn untype_context(self) -> UntypeContext {
+        match self {
+            TypeFormContext::GenericBase => UntypeContext::GenericBase,
+            _ => UntypeContext::Type,
+        }
     }
 }
 
@@ -1025,8 +1054,25 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     ) -> Vec<Quantified> {
         let mut tparams = Vec::new();
         for expr in exprs {
-            let ty = self.expr_infer(expr, errors);
-            let ty = self.untype(ty, expr.range(), errors);
+            let inferred_ty = self.expr_infer(expr, errors);
+            let ty = self
+                .untype_opt_with_context(
+                    inferred_ty.clone(),
+                    expr.range(),
+                    errors,
+                    UntypeContext::GenericBase,
+                )
+                .unwrap_or_else(|| {
+                    self.error(
+                        errors,
+                        expr.range(),
+                        ErrorKind::NotAType,
+                        format!(
+                            "Expected a type form, got instance of `{}`",
+                            self.for_display(inferred_ty),
+                        ),
+                    )
+                });
             if ty.is_error() {
                 continue;
             }
@@ -1944,8 +1990,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     || matches!(ty, Type::ClassType(cls) if cls.has_qname("shape_extensions", "Dim"))
             };
             let default = if self.solver().tensor_shapes
-                && (matches!(kind, QuantifiedKind::SymVar)
-                    || matches!(&restriction, Restriction::Bound(bound) if is_dim_bound(bound)))
+                && matches!(&restriction, Restriction::Bound(bound) if is_dim_bound(bound))
                 && let Expr::NumberLiteral(ruff_python_ast::ExprNumberLiteral { value, .. }) =
                     default_expr
                 && let ruff_python_ast::Number::Int(i) = value
@@ -5991,11 +6036,16 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         Type::SelfType(self.as_class_type_unchecked(cls))
     }
 
-    pub fn untype_opt(
+    pub fn untype_opt(&self, ty: Type, range: TextRange, errors: &ErrorCollector) -> Option<Type> {
+        self.untype_opt_with_context(ty, range, errors, UntypeContext::Type)
+    }
+
+    pub(crate) fn untype_opt_with_context(
         &self,
         mut ty: Type,
         range: TextRange,
         errors: &ErrorCollector,
+        context: UntypeContext,
     ) -> Option<Type> {
         if let Type::Forall(forall) = ty {
             ty = self.promote_forall(*forall, range, errors);
@@ -6004,20 +6054,26 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             Type::Union(f) if !f.members.is_empty() => {
                 let mut ts = Vec::new();
                 for x in f.members {
-                    let t = self.untype_opt(x, range, errors)?;
+                    let t = self.untype_opt_with_context(x, range, errors, context)?;
                     ts.push(t);
                 }
                 Some(self.unions(ts))
             }
             Type::Var(v) if let Some(_guard) = self.recurse(v) => {
-                self.untype_opt(self.solver().force_var(v), range, errors)
+                self.untype_opt_with_context(self.solver().force_var(v), range, errors, context)
             }
+            // These are all legal type forms, so we accept them (return `Some`).
+            // Only the quantified kinds get a kind check from the validator;
+            // `TypeForm`/`Args`/`Kwargs` pass through unchanged but must be listed
+            // here so they don't fall to the `_ => None` "not a type" default.
             ty @ (Type::TypeVar(_)
             | Type::ParamSpec(_)
             | Type::TypeVarTuple(_)
             | Type::TypeForm(_)
             | Type::Args(_)
-            | Type::Kwargs(_)) => Some(ty),
+            | Type::Kwargs(_)) => {
+                Some(self.validate_untyped_type_var_context(ty, range, errors, context))
+            }
             Type::Type(t) => {
                 if let Type::ClassType(cls) = t.as_ref()
                     && self.is_size_tuple_class(cls.class_object())
@@ -6056,7 +6112,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 if let Type::SpecialForm(SpecialForm::SelfType) = t.as_ref() {
                     return Some(self.untype_self(range, errors));
                 }
-                Some(*t)
+                Some(self.validate_untyped_type_var_context(*t, range, errors, context))
             }
             Type::Sentinel(sentinel) => Some(self.heap.mk_sentinel(sentinel)),
             Type::None => Some(self.heap.mk_none()), // Both a value and a type
@@ -6066,7 +6122,8 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 let TypeAliasData::Value(ta) = *ta else {
                     unreachable!("guarded by matches! above")
                 };
-                let mut aliased_type = self.untype_opt(ta.as_type(), range, errors)?;
+                let mut aliased_type =
+                    self.untype_opt_with_context(ta.as_type(), range, errors, context)?;
                 if let Type::Union(f) = &mut aliased_type {
                     f.display_name = Some((self.module().name(), (*ta.name).clone()));
                 }
@@ -6090,13 +6147,22 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 if let Type::Var(v) = &**inner
                     && let Some(_guard) = self.recurse(*v) =>
             {
-                self.untype_opt(
+                self.untype_opt_with_context(
                     self.heap.mk_unpack(self.solver().force_var(*v)),
                     range,
                     errors,
+                    context,
                 )
             }
-            Type::QuantifiedValue(q) => Some(q.to_type(self.heap)),
+            // A quantified *value* (e.g. a `SymVar` used in value position) is
+            // validated like its type form: convert via `to_type` so the same
+            // kind check applies.
+            Type::QuantifiedValue(q) => Some(self.validate_untyped_type_var_context(
+                q.to_type(self.heap),
+                range,
+                errors,
+                context,
+            )),
             Type::ArgsValue(q) => Some(self.heap.mk_args(*q)),
             Type::KwargsValue(q) => Some(self.heap.mk_kwargs(*q)),
             // Dim, SizeExpr, and Tensor are already type forms
@@ -6108,11 +6174,57 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             Type::ClassDef(cls) => {
                 let canonicalized =
                     self.canonicalize_all_class_types(Type::ClassDef(cls), range, errors);
-                self.untype_opt(canonicalized, range, errors)
+                self.untype_opt_with_context(canonicalized, range, errors, context)
             }
             // Annotated[T, meta] in annotation/type-alias context unwraps to T
-            Type::Annotated(t, _) => Some(*t),
+            Type::Annotated(t, _) => {
+                Some(self.validate_untyped_type_var_context(*t, range, errors, context))
+            }
             _ => None,
+        }
+    }
+
+    fn validate_untyped_type_var_context(
+        &self,
+        ty: Type,
+        range: TextRange,
+        errors: &ErrorCollector,
+        context: UntypeContext,
+    ) -> Type {
+        let quantified_kind_and_name = match &ty {
+            Type::Quantified(quantified) => Some((quantified.kind(), quantified.name().as_str())),
+            Type::TypeVar(type_var) => Some((type_var.kind(), type_var.qname().id().as_str())),
+            Type::ParamSpec(param_spec) => {
+                Some((QuantifiedKind::ParamSpec, param_spec.qname().id().as_str()))
+            }
+            Type::TypeVarTuple(type_var_tuple) => Some((
+                QuantifiedKind::TypeVarTuple,
+                type_var_tuple.qname().id().as_str(),
+            )),
+            _ => None,
+        };
+        match (quantified_kind_and_name, context) {
+            (Some((QuantifiedKind::SymVar, symvar_name)), UntypeContext::Type) => self.error(
+                errors,
+                range,
+                ErrorKind::InvalidAnnotation,
+                format!("`{symvar_name}` is a `SymVar` and cannot be used as an ordinary type"),
+            ),
+            (
+                Some((
+                    QuantifiedKind::TypeVar
+                    | QuantifiedKind::ParamSpec
+                    | QuantifiedKind::TypeVarTuple,
+                    typevar_name,
+                )),
+                UntypeContext::SymbolicInt(error_context),
+            ) => self.error(
+                errors,
+                range,
+                ErrorKind::InvalidAnnotation,
+                format!("`{typevar_name}` must be a `SymVar` to be used {error_context}"),
+            ),
+            _ => ty,
         }
     }
 
@@ -6464,6 +6576,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             {
                 ty
             }
+            // A `SymVar`'s default (e.g. `N = 3`) is a dimension expression, not
+            // an ordinary type, so route it through the dimension parser.
+            _ if type_form_context == TypeFormContext::SymVarDefault => self
+                .parse_dimension_list(slice::from_ref(x), errors)
+                .and_then(|dims| dims.into_iter().next())
+                .unwrap_or_else(Type::any_error),
             Expr::List(x)
                 if matches!(
                     type_form_context,
@@ -6502,7 +6620,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                                 ),
                             );
                 }
-                self.untype(inferred_ty, x.range(), errors)
+                self.untype_opt_with_context(
+                    inferred_ty.clone(),
+                    x.range(),
+                    errors,
+                    type_form_context.untype_context(),
+                )
+                .unwrap_or_else(|| {
+                    self.error(
+                        errors,
+                        x.range(),
+                        ErrorKind::NotAType,
+                        format!(
+                            "Expected a type form, got instance of `{}`",
+                            self.for_display(inferred_ty),
+                        ),
+                    )
+                })
             }
         };
         let result = self.validate_type_form(result, x.range(), type_form_context, errors);

@@ -50,6 +50,7 @@ use pyrefly_types::class::ClassType as PyreflyClassType;
 use pyrefly_types::literal::Lit;
 use pyrefly_types::quantified::Quantified;
 use pyrefly_types::quantified::QuantifiedOrigin;
+use pyrefly_types::sentinel::Sentinel;
 use pyrefly_types::type_alias::TypeAliasData;
 use pyrefly_types::type_alias::TypeAliasRef;
 use pyrefly_types::types::BoundMethodType;
@@ -71,6 +72,7 @@ use tsp_types::OverloadedType as TspOverloadedType;
 use tsp_types::Position as TspPosition;
 use tsp_types::Range as TspRange;
 use tsp_types::RegularDeclaration;
+use tsp_types::SentinelLiteral;
 use tsp_types::SpecializedFunctionTypes;
 use tsp_types::SynthesizedDeclaration;
 use tsp_types::Type as TspType;
@@ -473,8 +475,13 @@ impl TypeConverter<'_> {
             // --- Materialization is a solver artifact ---
             PyreflyType::Materialization => builtin("unknown"),
 
-            // --- Sentinel type ---
-            PyreflyType::Sentinel(_) => builtin("sentinel"),
+            // --- Sentinel → a `ClassType` carrying a `SentinelLiteral` ---
+            // The protocol has a dedicated sentinel literal (class name plus its
+            // defining location), so emit that rather than an off-spec
+            // `sentinel` `BuiltInType` that surfaces as Unknown. The location
+            // comes from the sentinel's own `QName`, so no stdlib class is
+            // needed.
+            PyreflyType::Sentinel(s) => convert_sentinel(s),
         }
     }
 
@@ -899,6 +906,35 @@ fn convert_literal(lit: &pyrefly_types::literal::Literal) -> TspType {
     }
 }
 
+/// Convert a `Sentinel` to a TSP `ClassType` carrying a `SentinelLiteral`. The
+/// sentinel's `QName` supplies both the enclosing class declaration and the
+/// literal's class name and defining location.
+fn convert_sentinel(sentinel: &Sentinel) -> TspType {
+    let qname = sentinel.qname();
+    let node = Node {
+        range: lsp_range_to_tsp(qname.module().to_lsp_range(qname.range())),
+        uri: path_to_uri(qname.module_path()),
+    };
+    TspType::Class(TspClassType {
+        declaration: Declaration::Regular(RegularDeclaration {
+            category: DeclarationCategory::Class,
+            kind: DeclarationKind::Regular,
+            name: Some(qname.id().to_string()),
+            node: node.clone(),
+        }),
+        flags: TypeFlags::INSTANCE.with_literal(),
+        id: next_id(),
+        kind: TypeKind::Class,
+        literal_value: Some(LiteralValue::Sentinel(SentinelLiteral {
+            class_name: qname.id().to_string(),
+            class_node: node,
+            module_name: qname.module_name().to_string(),
+        })),
+        type_alias_info: None,
+        type_args: None,
+    })
+}
+
 /// Build a declaration for a class in `builtins.pyi`.
 fn make_builtin_class_declaration(name: &str) -> RegularDeclaration {
     let module_path =
@@ -1223,6 +1259,46 @@ mod tests {
                 }
                 other => panic!("expected int Class, got {other:?}"),
             }
+        }
+    }
+
+    #[test]
+    fn test_convert_sentinel_is_sentinel_literal_class() {
+        use pyrefly_python::module::Module;
+        use pyrefly_python::nesting_context::NestingContext;
+        use ruff_python_ast::Identifier;
+
+        // A sentinel is emitted as a `ClassType` carrying a `SentinelLiteral`
+        // sourced from its own definition, not an off-spec `sentinel`
+        // `BuiltInType`.
+        let module = Module::new(
+            ModuleName::from_str("dataclasses"),
+            ModulePath::bundled_typeshed(PathBuf::from("dataclasses.pyi")),
+            Arc::new(String::new()),
+        );
+        let sentinel = Sentinel::new(
+            Identifier::new(Name::new("_MISSING_TYPE"), TextRange::default()),
+            NestingContext::toplevel(),
+            module,
+        );
+        match convert_type(&PyreflyType::Sentinel(sentinel)) {
+            TspType::Class(c) => {
+                let Some(LiteralValue::Sentinel(lit)) = c.literal_value else {
+                    panic!("expected SentinelLiteral, got {:?}", c.literal_value);
+                };
+                assert_eq!(lit.class_name, "_MISSING_TYPE");
+                assert_eq!(lit.module_name, "dataclasses");
+                assert!(
+                    lit.class_node.uri.contains("dataclasses.pyi"),
+                    "expected dataclasses URI, got {}",
+                    lit.class_node.uri
+                );
+                let Declaration::Regular(decl) = c.declaration else {
+                    panic!("expected RegularDeclaration");
+                };
+                assert_eq!(decl.name.as_deref(), Some("_MISSING_TYPE"));
+            }
+            other => panic!("expected sentinel Class, got {other:?}"),
         }
     }
 

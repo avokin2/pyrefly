@@ -982,11 +982,20 @@ pub fn get_hover_with_verbosity(
     }) = definition
     {
         let kind = metadata.symbol_kind();
-        let name = hover_name_from_definition_snippet(
-            module.code_at(definition_location),
-            display_name.as_deref(),
-            fallback_name_from_type,
-        );
+        // A synthesized attribute is declared under a different name than the one
+        // being hovered — a Django reverse accessor points at the relation field
+        // that induced it — so the resolved name wins over the definition's text.
+        let name = if matches!(metadata, DefinitionMetadata::Attribute)
+            && let Some(name) = display_name
+        {
+            Some(name)
+        } else {
+            hover_name_from_definition_snippet(
+                module.code_at(definition_location),
+                display_name.as_deref(),
+                fallback_name_from_type,
+            )
+        };
         (kind, name, docstring_range, Some(module))
     } else {
         (None, fallback_name_from_type, None, None)

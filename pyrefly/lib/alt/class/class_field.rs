@@ -57,6 +57,7 @@ use crate::alt::callable::CallArg;
 use crate::alt::expr::TypeOrExpr;
 use crate::alt::types::class_bases::ClassBases;
 use crate::alt::types::class_metadata::ClassMetadata;
+use crate::alt::types::class_metadata::ClassSynthesizedFields;
 use crate::alt::types::class_metadata::DataclassKind;
 use crate::alt::types::class_metadata::DataclassMetadata;
 use crate::alt::types::instance::Instance;
@@ -4467,17 +4468,19 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         })
     }
 
+    pub(crate) fn get_synthesized_fields(
+        &self,
+        cls: &Class,
+    ) -> Option<Arc<ClassSynthesizedFields>> {
+        self.get_from_class(cls, &KeyClassSynthesizedFields(cls.index()))
+    }
+
     pub(crate) fn get_synthesized_field_from_current_class_only(
         &self,
         cls: &Class,
         name: &Name,
     ) -> Option<Arc<ClassField>> {
-        Some(
-            self.get_from_class(cls, &KeyClassSynthesizedFields(cls.index()))?
-                .get(name)?
-                .inner
-                .dupe(),
-        )
+        Some(self.get_synthesized_fields(cls)?.get(name)?.inner.dupe())
     }
 
     /// This function does not return fields defined in parent classes

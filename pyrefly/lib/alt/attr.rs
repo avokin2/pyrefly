@@ -2921,46 +2921,74 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     ) where
         T: Iterator<Item = &'a Class>,
     {
-        let mut seen = SmallSet::new();
+        let mut seen: SmallSet<Name> = SmallSet::new();
         for c in mro {
-            let Some(class_fields) = self.get_class_fields(c) else {
-                continue;
-            };
-            match expected_attribute_name {
-                None => {
-                    for fld in class_fields.names() {
-                        if seen.insert(fld)
-                            && let Some(range) = class_fields.field_decl_range(fld)
+            if let Some(class_fields) = self.get_class_fields(c) {
+                match expected_attribute_name {
+                    None => {
+                        for fld in class_fields.names() {
+                            if seen.insert(fld.clone())
+                                && let Some(range) = class_fields.field_decl_range(fld)
+                            {
+                                res.push(AttrInfo {
+                                    name: fld.clone(),
+                                    ty: None,
+                                    is_deprecated: false,
+                                    definition: AttrDefinition::FullyResolved {
+                                        cls: c.dupe(),
+                                        range,
+                                        docstring_range: class_fields.field_docstring_range(fld),
+                                    },
+                                    is_reexport: false,
+                                });
+                            }
+                        }
+                    }
+                    Some(expected_attribute_name) => {
+                        if let Some(range) = class_fields.field_decl_range(expected_attribute_name)
                         {
                             res.push(AttrInfo {
-                                name: fld.clone(),
+                                name: expected_attribute_name.clone(),
                                 ty: None,
                                 is_deprecated: false,
                                 definition: AttrDefinition::FullyResolved {
                                     cls: c.dupe(),
                                     range,
-                                    docstring_range: class_fields.field_docstring_range(fld),
+                                    docstring_range: class_fields
+                                        .field_docstring_range(expected_attribute_name),
                                 },
                                 is_reexport: false,
                             });
                         }
                     }
                 }
-                Some(expected_attribute_name) => {
-                    if let Some(range) = class_fields.field_decl_range(expected_attribute_name) {
-                        res.push(AttrInfo {
-                            name: expected_attribute_name.clone(),
-                            ty: None,
-                            is_deprecated: false,
-                            definition: AttrDefinition::FullyResolved {
-                                cls: c.dupe(),
-                                range,
-                                docstring_range: class_fields
-                                    .field_docstring_range(expected_attribute_name),
-                            },
-                            is_reexport: false,
-                        });
+            }
+            // Synthesized fields have no declaration of their own, so only the ones that
+            // record where they came from (see `ClassSynthesizedField::decl_range`) can be
+            // navigated to. The rest stay invisible here rather than being offered as
+            // completions that go nowhere.
+            if let Some(synthesized) = self.get_synthesized_fields(c) {
+                for (name, field) in synthesized.fields() {
+                    let Some(range) = field.decl_range else {
+                        continue;
+                    };
+                    match expected_attribute_name {
+                        Some(expected) if expected != name => continue,
+                        // As above, `seen` only dedups the enumerate-everything case.
+                        None if !seen.insert(name.clone()) => continue,
+                        _ => {}
                     }
+                    res.push(AttrInfo {
+                        name: name.clone(),
+                        ty: None,
+                        is_deprecated: false,
+                        definition: AttrDefinition::FullyResolved {
+                            cls: c.dupe(),
+                            range,
+                            docstring_range: None,
+                        },
+                        is_reexport: false,
+                    });
                 }
             }
         }

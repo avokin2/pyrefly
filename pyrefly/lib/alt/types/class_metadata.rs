@@ -452,6 +452,11 @@ impl ClassMetadata {
 #[derive(Clone, Debug, TypeEq, PartialEq, Eq)]
 pub struct ClassSynthesizedField {
     pub inner: Arc<ClassField>,
+    /// Where go-to-definition should land, for the synthesized fields that mirror a
+    /// declaration written elsewhere in the same module (such as a Django reverse
+    /// accessor, whose source is the relation field that induced it). `None` for
+    /// fields with nothing to point at, which are then invisible to the IDE.
+    pub decl_range: Option<TextRange>,
 }
 
 impl VisitMut<Type> for ClassSynthesizedField {
@@ -478,13 +483,21 @@ impl ClassSynthesizedField {
     pub fn new(ty: Type) -> Self {
         Self {
             inner: Arc::new(ClassField::new_synthesized(ty)),
+            decl_range: None,
         }
     }
 
     pub fn new_classvar(ty: Type) -> Self {
         Self {
             inner: Arc::new(ClassField::new_synthesized_classvar(ty)),
+            decl_range: None,
         }
+    }
+
+    /// Point go-to-definition at `range`, which must be in the class's own module.
+    pub fn declared_at(mut self, range: TextRange) -> Self {
+        self.decl_range = Some(range);
+        self
     }
 }
 

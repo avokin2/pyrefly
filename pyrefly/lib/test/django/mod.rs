@@ -15,5 +15,6 @@ mod foreign_key;
 mod many_to_many;
 mod model;
 mod reverse_relations;
+mod type_test;
 mod util;
 mod view;

@@ -30,5 +30,34 @@ assert_type(book.authors.filter(name="Bob"), QuerySet[Author, Author])
 assert_type(book.authors.create(name="Alice"), Author) 
 
 book.authors.add("wrong type") # E: Argument `Literal['wrong type']` is not assignable to parameter `*objs` with type `Author | int` 
+book.authors.remove(Author())
+book.authors.clear()
+book.authors.set([Author()])
+"#,
+);
+
+django_testcase!(
+    test_explicit_through_model,
+    r#"
+from typing import assert_type, reveal_type
+from django.db import models
+from django.db.models.fields.related_descriptors import ManyRelatedManager
+
+class Author(models.Model):
+    pass
+
+class Authorship(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE)
+    book = models.ForeignKey("Book", on_delete=models.CASCADE)
+
+class Book(models.Model):
+    authors = models.ManyToManyField(Author, through=Authorship)
+
+book = Book()
+assert_type(book.authors, ManyRelatedManager[Author, Authorship])
+assert_type(book.authors.through, type[Authorship])
+reveal_type(book.authors.through)  # E: revealed type: type[Authorship]
+book.authors.add(Author(), through_defaults={})
+book.authors.set([Author()], through_defaults={})
 "#,
 );

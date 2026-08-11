@@ -81,6 +81,32 @@ assert_type(reporter.article_set, RelatedManager[Article])
 );
 
 django_testcase!(
+    test_nullable_foreign_key_reverse_manager_methods,
+    r#"
+from django.db import models
+
+class Reporter(models.Model):
+    pass
+
+class Article(models.Model):
+    reporter = models.ForeignKey(
+        Reporter,
+        null=True,
+        on_delete=models.CASCADE,
+    )
+
+reporter = Reporter()
+article = Article()
+reporter.article_set.add(article)
+reporter.article_set.remove(article)
+reporter.article_set.clear()
+reporter.article_set.set([article])
+reporter.article_set.add("wrong")  # E: Argument `Literal['wrong']` is not assignable to parameter `*objs` with type `Article | int`
+reporter.article_set.set(["wrong"])  # E: Argument `list[str]` is not assignable to parameter `objs` with type `Iterable[Article | int] | QuerySet[Article, Article]`
+"#,
+);
+
+django_testcase!(
     test_foreign_key_reverse_custom_name,
     r#"
 from django.db import models
@@ -362,6 +388,33 @@ class Article(models.Model):
 
 tag = Tag()
 assert_type(tag.tagged_articles, ManyRelatedManager[Article, models.Model])
+"#,
+);
+
+django_testcase!(
+    test_many_to_many_reverse_explicit_through_model,
+    r#"
+from typing import assert_type
+from django.db import models
+from django.db.models.fields.related_descriptors import ManyRelatedManager
+
+class Author(models.Model):
+    pass
+
+class Book(models.Model):
+    authors = models.ManyToManyField(
+        Author,
+        through="Authorship",
+        related_name="books",
+    )
+
+class Authorship(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE)
+    book = models.ForeignKey(Book, on_delete=models.CASCADE)
+
+author = Author()
+assert_type(author.books, ManyRelatedManager[Book, Authorship])
+assert_type(author.books.through, type[Authorship])
 "#,
 );
 

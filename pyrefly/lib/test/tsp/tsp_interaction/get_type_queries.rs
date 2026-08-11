@@ -1579,6 +1579,57 @@ add_method = Author().book_set.add
 }
 
 #[test]
+fn test_get_computed_type_django_many_related_manager_through_model() {
+    let (mut tsp, file_uri, snapshot) = setup_django_project(
+        r#"from django.db import models
+
+class Author(models.Model):
+    pass
+
+class Authorship(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE)
+    book = models.ForeignKey("Book", on_delete=models.CASCADE)
+
+class Book(models.Model):
+    authors = models.ManyToManyField(Author, through=Authorship)
+
+book = Book()
+manager = book.authors
+through = book.authors.through
+"#,
+    );
+
+    let manager = get_computed_type_ok(&mut tsp, &file_uri, 13, 20, snapshot);
+    assert_class_with_type_arg(&manager, "ManyRelatedManager", "Author");
+    assert_eq!(
+        manager
+            .pointer("/typeArgs/1/declaration/name")
+            .and_then(|v| v.as_str()),
+        Some("Authorship"),
+        "Expected the explicit through model type argument, got: {manager}"
+    );
+
+    let through = get_computed_type_ok(&mut tsp, &file_uri, 14, 23, snapshot);
+    assert_kind(&through, TypeKind::Class);
+    assert_eq!(
+        through
+            .pointer("/declaration/name")
+            .and_then(|v| v.as_str()),
+        Some("Authorship"),
+        "Expected type[Authorship], got: {through}"
+    );
+    assert!(
+        through
+            .get("flags")
+            .and_then(|v| v.as_i64())
+            .is_some_and(|flags| flags & 1 != 0),
+        "Expected the INSTANTIABLE flag for type[Authorship], got: {through}"
+    );
+
+    tsp.shutdown();
+}
+
+#[test]
 fn test_get_computed_type_django_members_include_source_declarations() {
     let (mut tsp, file_uri, snapshot) = setup_django_project(
         r#"from django.db import models

@@ -77,6 +77,7 @@ const FOREIGN_KEY: Name = Name::new_static("ForeignKey");
 const ONE_TO_ONE_FIELD: Name = Name::new_static("OneToOneField");
 const NULL: Name = Name::new_static("null");
 const BLANK: Name = Name::new_static("blank");
+const THROUGH: Name = Name::new_static("through");
 const CHAR_FIELD: Name = Name::new_static("CharField");
 const MANY_TO_MANY_FIELD: Name = Name::new_static("ManyToManyField");
 const MODEL: Name = Name::new_static("Model");
@@ -214,7 +215,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             if self.is_foreign_key_like_field(field) {
                 Some(model_type)
             } else if self.is_many_to_many_field(field) {
-                return self.get_manager_type(model_type);
+                let through_type = find_keyword(call_expr, &THROUGH)
+                    .and_then(|expr| self.resolve_target(expr, class));
+                return self.get_manager_type(model_type, through_type);
             } else {
                 None
             }
@@ -269,12 +272,20 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             })
     }
 
-    fn get_manager_type(&self, target_model_type: Type) -> Option<Type> {
-        let model_class = self.try_get_from_export(ModuleName::django_models(), MODEL)?;
-        let model_instance_type = self.class_def_to_instance_type(&model_class);
+    fn get_manager_type(
+        &self,
+        target_model_type: Type,
+        through_model_type: Option<Type>,
+    ) -> Option<Type> {
+        let through_model_type = if let Some(through_model_type) = through_model_type {
+            through_model_type
+        } else {
+            let model_class = self.try_get_from_export(ModuleName::django_models(), MODEL)?;
+            self.class_def_to_instance_type(&model_class)
+        };
         self.specialize_manager_type(
             MANYRELATEDMANAGER,
-            vec![target_model_type, model_instance_type],
+            vec![target_model_type, through_model_type],
         )
     }
 
@@ -684,7 +695,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     continue;
                 };
                 let Some(related_type) =
-                    self.django_reverse_field_type(relation_kind, source_class)
+                    self.django_reverse_field_type(relation_kind, source_class, call_expr)
                 else {
                     continue;
                 };
@@ -727,12 +738,17 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         &self,
         relation_kind: DjangoRelationKind,
         source_class: &Class,
+        call_expr: &ExprCall,
     ) -> Option<Type> {
         let source_type = self.instantiate(source_class);
         match relation_kind {
             DjangoRelationKind::ForeignKey => self.get_related_manager_type(source_type),
             DjangoRelationKind::OneToOne => Some(source_type),
-            DjangoRelationKind::ManyToMany => self.get_manager_type(source_type),
+            DjangoRelationKind::ManyToMany => {
+                let through_type = find_keyword(call_expr, &THROUGH)
+                    .and_then(|expr| self.resolve_target(expr, source_class));
+                self.get_manager_type(source_type, through_type)
+            }
         }
     }
 

@@ -58,6 +58,40 @@ fn setup_project_in_dir(temp_dir: TempDir, file_content: &str) -> (TspInteractio
     (tsp, file_uri, snapshot)
 }
 
+/// Set up a project that resolves the django-stubs fixture used by Django tests.
+fn setup_django_project(file_content: &str) -> (TspInteraction, String, i32) {
+    let temp_dir = TempDir::new().unwrap();
+    write_pyproject(temp_dir.path());
+
+    let django_path = std::env::var("DJANGO_TEST_PATH").expect("DJANGO_TEST_PATH must be set");
+    let site_packages = temp_dir.path().join("site-packages");
+    std::fs::create_dir(&site_packages).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&django_path, site_packages.join("django")).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(&django_path, site_packages.join("django")).unwrap();
+    std::fs::write(
+        temp_dir.path().join("pyrefly.toml"),
+        "site-package-path = [\"site-packages\"]\n",
+    )
+    .unwrap();
+
+    let test_file = temp_dir.path().join("main.py");
+    std::fs::write(&test_file, file_content).unwrap();
+
+    let mut tsp = TspInteraction::new();
+    tsp.set_root(temp_dir.path().to_path_buf());
+    tsp.initialize(Default::default());
+
+    tsp.server.did_open("main.py");
+    tsp.client.expect_any_message();
+
+    let snapshot = get_current_snapshot(&mut tsp, 2);
+    let file_uri = Url::from_file_path(&test_file).unwrap().to_string();
+
+    (tsp, file_uri, snapshot)
+}
+
 /// Helper to extract the "kind" field from a type query result.
 fn assert_kind(result: &serde_json::Value, expected_kind: TypeKind) {
     let kind = result
@@ -69,6 +103,30 @@ fn assert_kind(result: &serde_json::Value, expected_kind: TypeKind) {
         kind, expected,
         "Expected kind={expected_kind:?} ({expected}), got kind={kind} in: {result}"
     );
+}
+
+fn assert_class_with_type_arg(result: &serde_json::Value, class: &str, type_arg: &str) {
+    assert_kind(result, TypeKind::Class);
+    assert_eq!(
+        result.pointer("/declaration/name").and_then(|v| v.as_str()),
+        Some(class),
+        "Expected {class}, got: {result}"
+    );
+    assert_eq!(
+        result
+            .pointer("/typeArgs/0/declaration/name")
+            .and_then(|v| v.as_str()),
+        Some(type_arg),
+        "Expected {class}[{type_arg}], got: {result}"
+    );
+}
+
+fn assert_specialized_return_type(result: &serde_json::Value, class: &str, type_arg: &str) {
+    assert_kind(result, TypeKind::Function);
+    let return_type = result
+        .pointer("/specializedTypes/returnType")
+        .unwrap_or_else(|| panic!("Expected specialized return type, got: {result}"));
+    assert_class_with_type_arg(return_type, class, type_arg);
 }
 
 /// Helper to send a getComputedType request and return a successful result.
@@ -1427,6 +1485,77 @@ fn test_get_computed_type_generic_class_has_type_args() {
         type_args.is_some_and(|args| args.len() == 1),
         "Expected 1 typeArg for list[int], got {:?}",
         type_args
+    );
+
+    tsp.shutdown();
+}
+
+#[test]
+fn test_get_computed_type_django_manager_and_queryset_preserve_model_type() {
+    let (mut tsp, file_uri, snapshot) = setup_django_project(
+        r#"from django.db import models
+
+class Book(models.Model):
+    title = models.CharField(max_length=100)
+
+manager = Book.objects
+queryset = Book.objects.filter(title="TSP")
+filter_method = Book.objects.filter
+"#,
+    );
+
+    let manager = get_computed_type_ok(&mut tsp, &file_uri, 5, 0, snapshot);
+    assert_class_with_type_arg(&manager, "Manager", "Book");
+
+    let queryset = get_computed_type_ok(&mut tsp, &file_uri, 6, 0, snapshot);
+    assert_class_with_type_arg(&queryset, "QuerySet", "Book");
+
+    let filter_method = get_computed_type_ok(&mut tsp, &file_uri, 7, 0, snapshot);
+    assert_eq!(
+        filter_method
+            .pointer("/declaration/name")
+            .and_then(|v| v.as_str()),
+        Some("filter"),
+        "Expected the source declaration for Manager.filter, got: {filter_method}"
+    );
+    assert_specialized_return_type(&filter_method, "QuerySet", "Book");
+
+    tsp.shutdown();
+}
+
+#[test]
+fn test_get_computed_type_django_related_manager_preserves_model_and_signature() {
+    let (mut tsp, file_uri, snapshot) = setup_django_project(
+        r#"from django.db import models
+
+class Author(models.Model):
+    name = models.CharField(max_length=100)
+
+class Book(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE)
+
+related = Author().book_set
+add_method = Author().book_set.add
+"#,
+    );
+
+    let related = get_computed_type_ok(&mut tsp, &file_uri, 8, 0, snapshot);
+    assert_class_with_type_arg(&related, "RelatedManager", "Book");
+
+    let add_method = get_computed_type_ok(&mut tsp, &file_uri, 9, 0, snapshot);
+    assert_eq!(
+        add_method
+            .pointer("/declaration/name")
+            .and_then(|v| v.as_str()),
+        Some("add"),
+        "Expected the source declaration for RelatedManager.add, got: {add_method}"
+    );
+    assert!(
+        add_method
+            .pointer("/specializedTypes/parameterTypes")
+            .and_then(|v| v.as_array())
+            .is_some_and(|parameters| !parameters.is_empty()),
+        "Expected the specialized RelatedManager.add signature, got: {add_method}"
     );
 
     tsp.shutdown();

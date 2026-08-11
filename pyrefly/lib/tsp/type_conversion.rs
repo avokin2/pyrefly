@@ -236,7 +236,7 @@ impl TypeConverter<'_> {
             PyreflyType::ClassType(ct) => self.convert_class_type(ct, TypeFlags::INSTANCE),
 
             // --- Class definitions (the class object itself, e.g. `type[int]`) ---
-            PyreflyType::ClassDef(cls) => convert_class_def(cls),
+            PyreflyType::ClassDef(cls) => self.convert_class_def(cls),
 
             // --- Literals (Literal[42], Literal["hi"], etc.) ---
             PyreflyType::Literal(lit) => convert_literal(lit),
@@ -516,6 +516,23 @@ impl TypeConverter<'_> {
             literal_value: None,
             type_alias_info: None,
             type_args,
+        })
+    }
+
+    /// Convert a pyrefly `Class` (class definition object) to a TSP `ClassType`
+    /// with the `Instantiable` flag.
+    fn convert_class_def(&self, cls: &Class) -> TspType {
+        let declaration = make_class_declaration(cls);
+
+        TspType::Class(TspClassType {
+            declaration: Declaration::Regular(declaration),
+            source_declaration: None,
+            flags: TypeFlags::INSTANTIABLE,
+            id: next_id(),
+            kind: TypeKind::Class,
+            literal_value: None,
+            type_alias_info: None,
+            type_args: None,
         })
     }
 
@@ -839,22 +856,6 @@ fn mark_instantiable(mut ty: TspType) -> TspType {
         TspType::Reference(t) => t.flags = TypeFlags::INSTANTIABLE,
     }
     ty
-}
-
-/// Convert a pyrefly `Class` (class definition object) to a TSP `ClassType`
-/// with the `Instantiable` flag.
-fn convert_class_def(cls: &Class) -> TspType {
-    let declaration = make_class_declaration(cls);
-
-    TspType::Class(TspClassType {
-        declaration: Declaration::Regular(declaration),
-        flags: TypeFlags::INSTANTIABLE,
-        id: next_id(),
-        kind: TypeKind::Class,
-        literal_value: None,
-        type_alias_info: None,
-        type_args: None,
-    })
 }
 
 /// Convert a pyrefly `Literal` to a TSP `ClassType` with `literal_value`.

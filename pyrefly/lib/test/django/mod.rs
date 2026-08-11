@@ -12,6 +12,7 @@ mod enums;
 mod factory_boy;
 mod fields;
 mod foreign_key;
+mod managers;
 mod many_to_many;
 mod model;
 mod reverse_relations;

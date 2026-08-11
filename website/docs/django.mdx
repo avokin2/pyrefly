@@ -192,6 +192,76 @@ The manager provides methods like `.add()`, `.remove()`, `.clear()`, and `.all()
 
 ---
 
+### Managers and QuerySets
+
+Every manager and queryset carries its model as a type argument, so the model survives `filter()`
+chains, indexing and method calls without any further annotation:
+
+```python
+class Article(models.Model):
+    title = models.CharField(max_length=100)
+
+assert_type(Article.objects, Manager[Article])
+assert_type(Article.objects.get(), Article)
+assert_type(Article.objects.first(), Article | None)
+assert_type(Article.objects.filter(id=1), QuerySet[Article, Article])
+assert_type(Article.objects.all().order_by("title")[0], Article)
+```
+
+#### Custom Managers
+
+A manager declared in a model body belongs to that model, but a manager class names no model of its
+own. Pyrefly supplies the missing binding from the enclosing model:
+
+```python
+class ArticleManager[T: models.Model](models.Manager[T]):
+    def published(self) -> models.QuerySet[T, T]: ...
+
+class Article(models.Model):
+    objects = ArticleManager()
+
+assert_type(Article.objects, ArticleManager[Article])
+assert_type(Article.objects.published(), QuerySet[Article, Article])
+```
+
+A manager written without a type parameter cannot be spelled as `ArticleManager[Article]`. Pyrefly
+keeps both halves — the manager's own methods and the model-parameterized inherited ones:
+
+```python
+class ArticleManager(models.Manager):
+    def published(self) -> str: ...
+
+class Article(models.Model):
+    objects = ArticleManager()
+
+assert_type(Article.objects.published(), str)   # the manager's own method
+assert_type(Article.objects.get(), Article)     # inherited, bound to Article
+```
+
+An explicit parameter is always respected: `authors = ArticleManager[Author]()` stays
+`ArticleManager[Author]` rather than being rebound to the enclosing model.
+
+#### `as_manager()`
+
+`QuerySet.as_manager()` builds a manager that copies the queryset's methods. The stub signature
+returns a plain `Manager[_Model]`, so Pyrefly restores the queryset:
+
+```python
+class ArticleQuerySet(models.QuerySet):
+    def published(self) -> str: ...
+
+class Article(models.Model):
+    objects = ArticleQuerySet.as_manager()
+
+assert_type(Article.objects.get(), Article)
+assert_type(Article.objects.published(), str)
+```
+
+Note that Django skips methods marked `queryset_only = True` when building the manager; Pyrefly does
+not model that, so such methods still appear.
+
+---
+
 ### Django Model Enums
 
 Pyrefly supports Django's model choices using `Choices`, `IntegerChoices`, and `TextChoices`. These provide type-safe enumerations for model fields.
@@ -341,5 +411,28 @@ reveal_type(reporter.article_set)  # Expected: RelatedManager[Article]
 ### Advanced QuerySet Operations
 
 While basic `.all()` operations are supported, more complex QuerySet operations may not have complete type inference.
+
+### `Manager.from_queryset()`
+
+`Manager.from_queryset(MyQuerySet)` is declared as returning `type[Self]`, which erases the concrete
+queryset before the assignment is seen. The model is still recovered, but the queryset's own methods
+are not:
+
+```python
+ArticleManager = models.Manager.from_queryset(ArticleQuerySet)
+
+class Article(models.Model):
+    objects = ArticleManager()
+
+reveal_type(Article.objects.get())        # Article, as expected
+reveal_type(Article.objects.published())  # Not yet supported
+```
+
+Prefer `ArticleQuerySet.as_manager()`, which names the queryset at the call site and is fully supported.
+
+### Managers on Abstract Models
+
+A manager declared on an abstract base binds to that base rather than to each concrete subclass, so
+`Article.objects` is `ArticleManager[Base]` instead of `ArticleManager[Article]`.
 
 Those are not the only unsupported features, so if there are specific features you would like to see, please request them by opening a github issue and adding the Django label to it.

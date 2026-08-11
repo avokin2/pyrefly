@@ -129,6 +129,23 @@ fn assert_specialized_return_type(result: &serde_json::Value, class: &str, type_
     assert_class_with_type_arg(return_type, class, type_arg);
 }
 
+fn assert_source_declaration(result: &serde_json::Value, line: u64) {
+    assert_eq!(
+        result
+            .pointer("/sourceDeclaration/node/range/start/line")
+            .and_then(|v| v.as_u64()),
+        Some(line),
+        "Expected source declaration on line {line}, got: {result}"
+    );
+    assert!(
+        result
+            .pointer("/sourceDeclaration/node/uri")
+            .and_then(|v| v.as_str())
+            .is_some_and(|uri| uri.ends_with("/main.py")),
+        "Expected source declaration in main.py, got: {result}"
+    );
+}
+
 /// Helper to send a getComputedType request and return a successful result.
 fn get_computed_type_ok(
     tsp: &mut TspInteraction,
@@ -1557,6 +1574,56 @@ add_method = Author().book_set.add
             .is_some_and(|parameters| !parameters.is_empty()),
         "Expected the specialized RelatedManager.add signature, got: {add_method}"
     );
+
+    tsp.shutdown();
+}
+
+#[test]
+fn test_get_computed_type_django_members_include_source_declarations() {
+    let (mut tsp, file_uri, snapshot) = setup_django_project(
+        r#"from django.db import models
+
+class Author(models.Model):
+    name = models.CharField(max_length=100)
+
+class Book(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE)
+    tags = models.ManyToManyField(Author, related_name="tagged_books")
+    editor = models.ForeignKey(Author, on_delete=models.CASCADE, null=True, related_name="edited_books")
+
+forward_fk = Book().author
+nullable_fk = Book().editor
+forward_m2m = Book().tags
+reverse_fk = Author().book_set
+reverse_m2m = Author().tagged_books
+"#,
+    );
+
+    let forward_fk = get_computed_type_ok(&mut tsp, &file_uri, 10, 20, snapshot);
+    assert_eq!(
+        forward_fk
+            .pointer("/declaration/name")
+            .and_then(|v| v.as_str()),
+        Some("Author"),
+        "The class declaration must remain separate from the field source: {forward_fk}"
+    );
+    assert_source_declaration(&forward_fk, 6);
+
+    let nullable_fk = get_computed_type_ok(&mut tsp, &file_uri, 11, 21, snapshot);
+    assert_kind(&nullable_fk, TypeKind::Union);
+    assert_source_declaration(&nullable_fk, 8);
+
+    let forward_m2m = get_computed_type_ok(&mut tsp, &file_uri, 12, 21, snapshot);
+    assert_class_with_type_arg(&forward_m2m, "ManyRelatedManager", "Author");
+    assert_source_declaration(&forward_m2m, 7);
+
+    let reverse_fk = get_computed_type_ok(&mut tsp, &file_uri, 13, 25, snapshot);
+    assert_class_with_type_arg(&reverse_fk, "RelatedManager", "Book");
+    assert_source_declaration(&reverse_fk, 6);
+
+    let reverse_m2m = get_computed_type_ok(&mut tsp, &file_uri, 14, 29, snapshot);
+    assert_class_with_type_arg(&reverse_m2m, "ManyRelatedManager", "Book");
+    assert_source_declaration(&reverse_m2m, 7);
 
     tsp.shutdown();
 }

@@ -721,6 +721,11 @@ pub struct ClassType {
     /// Declaration node information (source location, category, name). Points to where this type was declared in the source code. Example: For a function, this contains the node pointing to the 'def' keyword and function name.
     pub declaration: Declaration,
 
+    /// Declaration of the expression or member that produced this type, when it differs from
+    /// the class declaration. For example, a synthesized attribute can point back to the source
+    /// field that induced it while `declaration` continues to identify the attribute's class.
+    pub source_declaration: Option<RegularDeclaration>,
+
     /// Bitfield of TypeFlags that describe characteristics of the type. Common flags: Instantiable (can create instances), Instance (is an instance), Callable (has __call__), Literal (is a literal value), Generic (has type parameters). Example: Check if type is callable: `(flags & TypeFlags.Callable) !== 0`
     pub flags: TypeFlags,
 
@@ -744,6 +749,9 @@ pub struct ClassType {
 #[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Clone)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UnionType {
+    /// Declaration of the expression or member that produced this union.
+    pub source_declaration: Option<RegularDeclaration>,
+
     /// Bitfield of TypeFlags that describe characteristics of the type. Common flags: Instantiable (can create instances), Instance (is an instance), Callable (has __call__), Literal (is a literal value), Generic (has type parameters). Example: Check if type is callable: `(flags & TypeFlags.Callable) !== 0`
     pub flags: TypeFlags,
 

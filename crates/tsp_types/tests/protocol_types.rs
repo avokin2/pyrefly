@@ -311,6 +311,7 @@ fn test_union_type_serialization() {
         possible_type: None,
     });
     let union = UnionType {
+        source_declaration: None,
         id: 3,
         kind: TypeKind::Union,
         flags: TypeFlags::INSTANCE,

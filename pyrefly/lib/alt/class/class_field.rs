@@ -2856,6 +2856,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             inherited_annotation.clone(),
             direct_qualifiers,
         );
+        let mut preserve_inferred_type = false;
         let inferred_ty = match value {
             ExprOrBinding::Expr(e) => {
                 match inherited_ty {
@@ -2903,6 +2904,26 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                             self.attribute_expr_infer(e, None, name, errors)
                         }
                     }
+                    _ if inherited_annotation.is_some()
+                        && self.may_preserve_inferred_class_field_type(class) =>
+                    {
+                        let uncontextualized_ty =
+                            self.attribute_expr_infer(e, None, name, &self.error_swallower());
+                        if self
+                            .should_preserve_inferred_class_field_type(class, &uncontextualized_ty)
+                        {
+                            preserve_inferred_type = true;
+                            is_inherited = IsInherited::No;
+                            self.attribute_expr_infer(e, None, name, errors)
+                        } else {
+                            self.attribute_expr_infer(
+                                e,
+                                inherited_annotation.as_ref(),
+                                name,
+                                errors,
+                            )
+                        }
+                    }
                     _ => self.attribute_expr_infer(e, inherited_annotation.as_ref(), name, errors),
                 }
             }
@@ -2914,11 +2935,15 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         // because we only want to override the `inferred_ty` when there's an inherited
         // *annotation*, and in some cases `inherited_ty` is inferred (which means we only
         // use it for contextual typing, not as an explicit type declaration)
-        let ty = final_annotation
-            .as_ref()
-            .and_then(|ann| ann.ty.clone())
-            .unwrap_or(inferred_ty);
-        (ty, final_annotation, is_inherited)
+        if preserve_inferred_type {
+            (inferred_ty, None, is_inherited)
+        } else {
+            let ty = final_annotation
+                .as_ref()
+                .and_then(|ann| ann.ty.clone())
+                .unwrap_or(inferred_ty);
+            (ty, final_annotation, is_inherited)
+        }
     }
 
     /// Given an inherited annotation and possible qualifiers from a direct annotation,

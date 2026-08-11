@@ -82,6 +82,7 @@ const MANY_TO_MANY_FIELD: Name = Name::new_static("ManyToManyField");
 const MODEL: Name = Name::new_static("Model");
 const MANYRELATEDMANAGER: Name = Name::new_static("ManyRelatedManager");
 const SYMMETRICAL: Name = Name::new_static("symmetrical");
+const BASEMANAGER: Name = Name::new_static("BaseManager");
 
 /// Find a keyword argument by name and return its value expression.
 fn find_keyword<'a>(call_expr: &'a ExprCall, name: &Name) -> Option<&'a Expr> {
@@ -116,6 +117,37 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             ModuleName::django_models_fields_related().as_str(),
             ONE_TO_ONE_FIELD.as_str(),
         )
+    }
+
+    pub(crate) fn may_preserve_inferred_class_field_type(&self, class: &Class) -> bool {
+        self.get_metadata_for_class(class).is_django_model()
+    }
+
+    /// Framework-owned class attributes may intentionally refine an annotation inherited
+    /// from the framework base class. Keep the concrete manager subtype declared by a model.
+    pub(crate) fn should_preserve_inferred_class_field_type(
+        &self,
+        class: &Class,
+        ty: &Type,
+    ) -> bool {
+        if !self.may_preserve_inferred_class_field_type(class) {
+            return false;
+        }
+        let Type::ClassType(manager) = ty else {
+            return false;
+        };
+        manager.has_qname(
+            ModuleName::from_str("django.db.models.manager").as_str(),
+            BASEMANAGER.as_str(),
+        ) || self
+            .get_mro_for_class(manager.class_object())
+            .ancestors(self.stdlib)
+            .any(|ancestor| {
+                ancestor.has_qname(
+                    ModuleName::from_str("django.db.models.manager").as_str(),
+                    BASEMANAGER.as_str(),
+                )
+            })
     }
 
     pub fn get_django_field_type(

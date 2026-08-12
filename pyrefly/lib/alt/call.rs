@@ -2512,7 +2512,18 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     hint,
                     errors,
                 ),
-                _ => self.freeform_call_infer(ty.clone(), &args, &kws, x.func.range(), x.arguments.range(), hint, errors),
+                _ => {
+                    let default = self.freeform_call_infer(
+                        ty.clone(),
+                        &args,
+                        &kws,
+                        x.func.range(),
+                        x.arguments.range(),
+                        hint,
+                        errors,
+                    );
+                    self.apply_framework_call_specialization(ty, x, default, errors)
+                }
             }});
             // TypeIs and TypeGuard functions return bool at runtime
             match result {

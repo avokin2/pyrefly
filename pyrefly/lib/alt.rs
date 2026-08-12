@@ -13,7 +13,6 @@ pub mod callable;
 pub mod class;
 pub mod debugging;
 pub mod expr;
-mod framework;
 pub mod function;
 pub mod functools;
 pub mod jaxtyping;

@@ -14,6 +14,7 @@ use pyrefly_types::callable::ParamList;
 use pyrefly_types::class::Class;
 use pyrefly_types::function::FuncMetadata;
 use pyrefly_types::function::Function;
+use pyrefly_types::function::FunctionKind;
 use pyrefly_types::function::PropertyMetadata;
 use pyrefly_types::function::PropertyRole;
 use pyrefly_types::heap::TypeHeap;
@@ -21,6 +22,7 @@ use pyrefly_types::literal::Lit;
 use pyrefly_types::tuple::Tuple;
 use pyrefly_types::type_alias::TypeAlias;
 use pyrefly_types::type_alias::TypeAliasStyle;
+use pyrefly_types::types::CalleeKind;
 use pyrefly_types::types::Type;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
@@ -117,6 +119,46 @@ enum DjangoRelationKind {
 }
 
 impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
+    pub(crate) fn apply_framework_call_specialization(
+        &self,
+        callee: &Type,
+        call: &ExprCall,
+        default: Type,
+        errors: &ErrorCollector,
+    ) -> Type {
+        let Some(CalleeKind::Function(FunctionKind::Def(id))) = callee.callee_kind() else {
+            return default;
+        };
+        if id.qname.module_name().as_str() != "django.forms.models"
+            || id.qname.id().as_str() != "modelform_factory"
+        {
+            return default;
+        }
+        let Some(model_expr) = call.arguments.find_argument_value("model", 0) else {
+            return default;
+        };
+        let Some(form_expr) = call.arguments.find_argument_value("form", 1) else {
+            return default;
+        };
+        let Type::ClassDef(model) = self.expr_infer(model_expr, errors) else {
+            return default;
+        };
+        let Type::ClassDef(form) = self.expr_infer(form_expr, errors) else {
+            return default;
+        };
+        let specialized =
+            self.specialize(&form, vec![self.instantiate(&model)], call.range, errors);
+        Type::Type(Box::new(specialized))
+    }
+
+    pub(crate) fn framework_type_alias_override(
+        &self,
+        name: &Name,
+        style: TypeAliasStyle,
+    ) -> Option<Arc<TypeAlias>> {
+        self.django_type_alias_override(name, style)
+    }
+
     fn is_one_to_one_field(&self, field: &Class) -> bool {
         field.has_toplevel_qname(
             ModuleName::django_models_fields_related().as_str(),

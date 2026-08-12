@@ -241,7 +241,7 @@ class Tag(models.Model):
     pass
 
 class File(models.Model):
-    folder = models.ManyToManyField(Tag, on_delete=models.CASCADE)
+    folder = models.ManyToManyField(Tag)
 
 expr = Tag.objects.get().file_set
 assert_type(expr, ManyRelatedManager[File])

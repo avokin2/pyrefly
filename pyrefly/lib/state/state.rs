@@ -1473,6 +1473,7 @@ impl<'a> Transaction<'a> {
                     .legacy_overload_expansion(module_data.handle.path().as_path()),
                 treat_all_caps_as_final: config
                     .treat_all_caps_as_final(module_data.handle.path().as_path()),
+                framework: config.framework.clone(),
                 recursion_limit_config: config.recursion_limit_config(),
                 pysa_context,
                 cinderx_enabled: self.data.cinderx_reporter.is_some(),
@@ -2485,6 +2486,7 @@ impl<'a> Transaction<'a> {
                 legacy_overload_expansion: config
                     .legacy_overload_expansion(m.handle.path().as_path()),
                 treat_all_caps_as_final: config.treat_all_caps_as_final(m.handle.path().as_path()),
+                framework: config.framework.clone(),
                 recursion_limit_config: config.recursion_limit_config(),
                 pysa_context: None,
                 cinderx_enabled: false,

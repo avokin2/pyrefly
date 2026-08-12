@@ -72,6 +72,7 @@ use crate::error::ErrorDisplayConfig;
 use crate::error_kind::ErrorKind;
 use crate::error_kind::Severity;
 use crate::finder::ConfigError;
+use crate::framework::FrameworkConfig;
 use crate::migration::run::MigratedFromKind;
 use crate::module_wildcard::Match;
 use crate::pyproject::PyProject;
@@ -593,6 +594,10 @@ pub struct ConfigFile {
     /// Override the bundled typeshed with a custom path.
     pub typeshed_path: Option<PathBuf>,
 
+    /// Opaque options interpreted by framework integrations.
+    #[serde(default, skip_serializing_if = "FrameworkConfig::is_empty")]
+    pub framework: FrameworkConfig,
+
     /// Path to baseline file for comparing type errors.
     /// Errors matching the baseline are suppressed.
     pub baseline: Option<PathBuf>,
@@ -709,6 +714,7 @@ impl Default for ConfigFile {
             source_db: Default::default(),
             use_ignore_files: true,
             typeshed_path: None,
+            framework: FrameworkConfig::default(),
             baseline: None,
             min_severity: None,
             output_format: None,
@@ -2046,6 +2052,7 @@ mod tests {
                     extras: Default::default(),
                 },
                 typeshed_path: None,
+                framework: FrameworkConfig::default(),
                 baseline: None,
                 min_severity: None,
                 skip_lsp_config_indexing: false,
@@ -2152,6 +2159,18 @@ mod tests {
                 .iter()
                 .all(|c| c.settings.extras.0.is_empty())
         );
+    }
+
+    #[test]
+    fn deserialize_framework_config() {
+        let config = ConfigFile::parse_config(
+            r#"
+            [framework.example]
+            setting = "value"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.framework.option("example", "setting"), Some("value"));
     }
 
     #[test]
@@ -2370,6 +2389,7 @@ mod tests {
                 extras: Default::default(),
             },
             typeshed_path: Some(PathBuf::from(typeshed)),
+            framework: FrameworkConfig::default(),
             baseline: Some(PathBuf::from("baseline.json")),
             min_severity: None,
             skip_lsp_config_indexing: false,
@@ -2441,6 +2461,7 @@ mod tests {
                 extras: Default::default(),
             },
             typeshed_path: Some(expected_typeshed),
+            framework: FrameworkConfig::default(),
             baseline: Some(test_path.join("baseline.json")),
             min_severity: None,
             skip_lsp_config_indexing: false,

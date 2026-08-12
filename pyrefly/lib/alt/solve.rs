@@ -2776,6 +2776,14 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 is_explicit,
                 ..
             } => {
+                let style = if *is_explicit {
+                    TypeAliasStyle::LegacyExplicit
+                } else {
+                    TypeAliasStyle::LegacyImplicit
+                };
+                if let Some(alias) = self.framework_type_alias_override(name, style.clone()) {
+                    return alias;
+                }
                 let (annot, ty) =
                     self.name_assign_infer(name, annot_key.as_ref(), None, expr, None, errors);
                 if let Some(annot) = &annot
@@ -2783,17 +2791,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 {
                     self.check_final_reassignment(annot, expr.range(), errors);
                 }
-                Arc::new(self.as_type_alias(
-                    name,
-                    if *is_explicit {
-                        TypeAliasStyle::LegacyExplicit
-                    } else {
-                        TypeAliasStyle::LegacyImplicit
-                    },
-                    ty,
-                    expr,
-                    errors,
-                ))
+                Arc::new(self.as_type_alias(name, style, ty, expr, errors))
             }
             BindingTypeAlias::Scoped { name, expr, .. } => {
                 let ty = self.expr_infer(expr, errors);

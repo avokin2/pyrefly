@@ -144,6 +144,7 @@ pub struct TestEnv {
     implicit_reexport_error: bool,
     default_require_level: Require,
     extra_file_extensions: Vec<String>,
+    framework: crate::config::framework::FrameworkConfig,
     /// The `Require` level passed to `run()` in `to_state()`. Controls whether
     /// IDE features (indexing, hover) are enabled. Defaults to `Require::Everything`.
     run_require: Require,
@@ -199,6 +200,7 @@ impl TestEnv {
             implicit_reexport_error: false,
             default_require_level: Require::Exports,
             extra_file_extensions: Vec::new(),
+            framework: Default::default(),
             run_require: Require::Everything,
         }
     }
@@ -211,6 +213,17 @@ impl TestEnv {
 
     pub fn with_site_package_paths(mut self, paths: Vec<PathBuf>) -> Self {
         self.site_package_path = paths;
+        self
+    }
+
+    pub fn with_framework_option(
+        mut self,
+        framework: &str,
+        option: &str,
+        value: &str,
+    ) -> Self {
+        self.framework
+            .set_option(framework, option, value.to_owned());
         self
     }
 
@@ -555,6 +568,7 @@ impl TestEnv {
         config.python_environment.python_version = Some(self.version);
         config.python_environment.python_platform = Some(self.platform.clone());
         config.python_environment.site_package_path = Some(self.site_package_path.clone());
+        config.framework = self.framework.clone();
         config.root.check_unannotated_defs = Some(self.check_unannotated_defs);
         config.root.infer_return_types = Some(self.infer_return_types);
         config.root.infer_with_first_use = Some(self.infer_with_first_use);

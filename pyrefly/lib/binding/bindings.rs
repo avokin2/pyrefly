@@ -108,6 +108,7 @@ use crate::binding::scope::is_constant_name;
 use crate::binding::table::TableKeyed;
 use crate::config::base::InferReturnTypes;
 use crate::config::error_kind::ErrorKind;
+use crate::config::framework::FrameworkConfig;
 use crate::error::collector::ErrorCollector;
 use crate::export::definitions::MutableCaptureKind;
 use crate::export::exports::Exports;
@@ -234,6 +235,7 @@ struct BindingsInner {
     /// these declarations, since the following assignment counts as the
     /// initializer.
     subsequently_initialized: SmallSet<Idx<KeyAnnotation>>,
+    framework: FrameworkConfig,
 }
 
 impl Display for Bindings {
@@ -378,6 +380,7 @@ impl Bindings {
             lambda_yield_keys: Vec::new(),
             class_scopes: Vec::new(),
             subsequently_initialized: SmallSet::new(),
+            framework: FrameworkConfig::default(),
             promote_ranges: SmallSet::new(),
         }))
     }
@@ -620,6 +623,7 @@ impl Bindings {
         analyze_unannotated_for_ide: bool,
         infer_return_types: InferReturnTypes,
         treat_all_caps_as_final: bool,
+        framework: FrameworkConfig,
     ) -> Self {
         let pytest_info = PytestBindingInfo::from_module(&x);
         // Compute module ranges from the AST before consuming it. These are
@@ -778,8 +782,13 @@ impl Bindings {
             lambda_yield_keys: builder.lambda_yield_keys,
             class_scopes: builder.class_scopes,
             subsequently_initialized: builder.subsequently_initialized,
+            framework,
             promote_ranges: builder.promote_ranges,
         }))
+    }
+
+    pub fn framework(&self) -> &FrameworkConfig {
+        &self.0.framework
     }
 
     fn should_emit_semantic_syntax_error(error: &SemanticSyntaxError) -> bool {

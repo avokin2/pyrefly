@@ -17,9 +17,6 @@ use pyrefly_types::class::ClassDefIndex;
 use pyrefly_types::class::ClassFields;
 use pyrefly_types::meta_shape_dsl::ShapeDslFunction;
 use ruff_python_ast::name::Name;
-use starlark_map::small_map::SmallMap;
-
-use crate::binding::django::DjangoReverseRelation;
 
 /// Metadata for a single class definition, populated during binding.
 #[derive(Debug, Clone, Default)]
@@ -46,11 +43,6 @@ pub struct ClassMetadata {
 pub struct BindingsMetadata {
     classes: Vec<ClassMetadata>,
     shape_dsl_functions: Vec<(Name, Arc<ShapeDslFunction>)>,
-    /// Django reverse accessors, keyed by the name of the model they are added to.
-    /// A relation field is only visible while binding the model that declares it, so
-    /// the entries are collected here and read back when the *target* model
-    /// synthesizes its fields.
-    django_reverse_relations: SmallMap<Name, Vec<DjangoReverseRelation>>,
 }
 
 impl BindingsMetadata {
@@ -58,7 +50,6 @@ impl BindingsMetadata {
         Self {
             classes: Vec::new(),
             shape_dsl_functions: Vec::new(),
-            django_reverse_relations: SmallMap::new(),
         }
     }
 
@@ -94,18 +85,4 @@ impl BindingsMetadata {
         &self.shape_dsl_functions
     }
 
-    pub fn push_django_reverse_relation(&mut self, target: Name, relation: DjangoReverseRelation) {
-        self.django_reverse_relations
-            .entry(target)
-            .or_default()
-            .push(relation);
-    }
-
-    /// The reverse accessors that relation fields elsewhere in this module add to the
-    /// model named `target`.
-    pub fn django_reverse_relations(&self, target: &Name) -> &[DjangoReverseRelation] {
-        self.django_reverse_relations
-            .get(target)
-            .map_or(&[], Vec::as_slice)
-    }
 }

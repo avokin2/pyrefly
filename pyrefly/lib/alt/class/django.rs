@@ -19,6 +19,8 @@ use pyrefly_types::function::PropertyRole;
 use pyrefly_types::heap::TypeHeap;
 use pyrefly_types::literal::Lit;
 use pyrefly_types::tuple::Tuple;
+use pyrefly_types::type_alias::TypeAlias;
+use pyrefly_types::type_alias::TypeAliasStyle;
 use pyrefly_types::types::Type;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
@@ -38,6 +40,7 @@ use crate::alt::types::class_metadata::DjangoReverseRelationIndex;
 use crate::binding::binding::BindingDjangoRelations;
 use crate::binding::binding::ClassFieldDefinition;
 use crate::binding::binding::ExprOrBinding;
+use crate::binding::binding::KeyExport;
 use crate::error::collector::ErrorCollector;
 use crate::types::simplify::unions;
 
@@ -84,6 +87,7 @@ const MODEL: Name = Name::new_static("Model");
 const MANYRELATEDMANAGER: Name = Name::new_static("ManyRelatedManager");
 const SYMMETRICAL: Name = Name::new_static("symmetrical");
 const BASEMANAGER: Name = Name::new_static("BaseManager");
+const AUTH_USER_MODEL: Name = Name::new_static("AUTH_USER_MODEL");
 
 /// Find a keyword argument by name and return its value expression.
 fn find_keyword<'a>(call_expr: &'a ExprCall, name: &Name) -> Option<&'a Expr> {
@@ -118,6 +122,52 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             ModuleName::django_models_fields_related().as_str(),
             ONE_TO_ONE_FIELD.as_str(),
         )
+    }
+
+    pub(crate) fn django_type_alias_override(
+        &self,
+        name: &Name,
+        style: TypeAliasStyle,
+    ) -> Option<Arc<TypeAlias>> {
+        if self.module().name().as_str() != "django.contrib.auth.models" || name.as_str() != "_User"
+        {
+            return None;
+        }
+        let settings = self
+            .bindings()
+            .framework()
+            .option("django", "settings-module")
+            .map(ModuleName::from_str)
+            .or_else(|| {
+                std::env::var("DJANGO_SETTINGS_MODULE")
+                    .ok()
+                    .map(|x| ModuleName::from_str(&x))
+            })?;
+        if !self.exports.export_exists(settings, &AUTH_USER_MODEL) {
+            return None;
+        }
+        let setting = self.get_from_export(settings, None, &KeyExport(AUTH_USER_MODEL));
+        let Type::Literal(lit) = setting.as_ref() else {
+            return None;
+        };
+        let Lit::Str(model_label) = &lit.value else {
+            return None;
+        };
+        let (app_label, model_name) = model_label.split_once('.')?;
+        let models_module = ModuleName::from_str(&format!("{app_label}.models"));
+        let model_name = Name::new(model_name);
+        if !self.exports.export_exists(models_module, &model_name) {
+            return None;
+        }
+        let model = self.get_from_export(models_module, None, &KeyExport(model_name));
+        let Type::ClassDef(_) = model.as_ref() else {
+            return None;
+        };
+        Some(Arc::new(TypeAlias::new(
+            name.clone(),
+            self.class_def_to_instance_type(&model),
+            style,
+        )))
     }
 
     pub(crate) fn may_preserve_inferred_class_field_type(&self, class: &Class) -> bool {

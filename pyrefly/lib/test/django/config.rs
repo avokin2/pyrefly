@@ -6,6 +6,8 @@
  */
 
 use crate::django_testcase;
+use crate::test::django::util::django_env;
+use crate::test::util::testcase_for_macro;
 
 django_testcase!(
     test_model,
@@ -22,3 +24,36 @@ assert_type(
 ) 
 "#,
 );
+
+#[test]
+fn test_auth_user_model_configures_http_request_user() -> anyhow::Result<()> {
+    let mut env = django_env().with_framework_option(
+        "django",
+        "settings-module",
+        "project.settings",
+    );
+    env.add("project.settings", "AUTH_USER_MODEL = 'accounts.User'");
+    env.add(
+        "accounts.models",
+        r#"
+from django.db.models import Model
+
+class User(Model):
+    username: str
+"#,
+    );
+    testcase_for_macro(
+        env,
+        r#"
+from django.contrib.auth.models import AnonymousUser
+from django.http import HttpRequest
+from accounts.models import User
+from typing_extensions import assert_type
+
+request = HttpRequest()
+assert_type(request.user, User | AnonymousUser)
+"#,
+        file!(),
+        line!(),
+    )
+}

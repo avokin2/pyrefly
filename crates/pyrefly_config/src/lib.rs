@@ -13,6 +13,7 @@ pub mod error;
 pub mod error_kind;
 pub mod file_kind;
 pub mod finder;
+pub mod framework;
 pub mod migration;
 pub(crate) mod module_wildcard;
 pub mod pyproject;

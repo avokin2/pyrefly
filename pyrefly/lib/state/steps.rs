@@ -28,6 +28,7 @@ use crate::alt::answers::LookupAnswer;
 use crate::alt::answers::Solutions;
 use crate::binding::bindings::Bindings;
 use crate::config::base::InferReturnTypes;
+use crate::config::framework::FrameworkConfig;
 use crate::config::base::RecursionLimitConfig;
 use crate::error::style::ErrorStyle;
 use crate::export::exports::Exports;
@@ -65,6 +66,7 @@ pub struct Context<'a, Lookup> {
     pub spec_compliant_overloads: bool,
     pub legacy_overload_expansion: bool,
     pub treat_all_caps_as_final: bool,
+    pub framework: FrameworkConfig,
     pub recursion_limit_config: Option<RecursionLimitConfig>,
     /// Pysa context for building PysaSolutions during the Solutions step.
     pub pysa_context: Option<PysaContext<'a>>,
@@ -510,6 +512,7 @@ impl Step {
             ctx.require.keep_index(),
             ctx.infer_return_types,
             ctx.treat_all_caps_as_final,
+            ctx.framework.clone(),
         );
         let answers = Answers::new(&bindings, solver, enable_index, enable_trace);
         Arc::new((bindings, Arc::new(answers)))

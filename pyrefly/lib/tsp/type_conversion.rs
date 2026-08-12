@@ -275,6 +275,7 @@ impl TypeConverter<'_> {
             PyreflyType::Union(u) => {
                 let sub_types: Vec<TspType> = u.members.iter().map(|m| self.convert(m)).collect();
                 TspType::Union(UnionType {
+                    source_declaration: None,
                     flags: TypeFlags::NONE,
                     id: next_id(),
                     kind: TypeKind::Union,
@@ -308,6 +309,7 @@ impl TypeConverter<'_> {
                     let declaration = make_class_declaration(cls);
                     TspType::Class(TspClassType {
                         declaration: Declaration::Regular(declaration),
+                        source_declaration: None,
                         flags: TypeFlags::INSTANCE,
                         id: next_id(),
                         kind: TypeKind::Class,
@@ -349,6 +351,7 @@ impl TypeConverter<'_> {
                         kind: DeclarationKind::Synthesized,
                         uri: String::new(),
                     }),
+                    source_declaration: None,
                     flags: TypeFlags::INSTANCE,
                     id: next_id(),
                     kind: TypeKind::Class,
@@ -510,6 +513,7 @@ impl TypeConverter<'_> {
 
         TspType::Class(TspClassType {
             declaration: Declaration::Regular(declaration),
+            source_declaration: None,
             flags,
             id: next_id(),
             kind: TypeKind::Class,
@@ -594,6 +598,7 @@ impl TypeConverter<'_> {
                 name: Some(r.name.to_string()),
                 node: Node { range, uri },
             }),
+            source_declaration: None,
             flags: TypeFlags::INSTANTIABLE,
             id: next_id(),
             kind: TypeKind::Class,
@@ -773,6 +778,7 @@ impl TypeConverter<'_> {
     fn typing_class(&self, name: &str, flags: TypeFlags) -> TspType {
         TspType::Class(TspClassType {
             declaration: Declaration::Regular(self.typing_class_declaration(name)),
+            source_declaration: None,
             flags,
             id: next_id(),
             kind: TypeKind::Class,
@@ -867,6 +873,7 @@ fn convert_literal(lit: &pyrefly_types::literal::Literal) -> TspType {
             let declaration = make_class_declaration(cls);
             TspType::Class(TspClassType {
                 declaration: Declaration::Regular(declaration),
+                source_declaration: None,
                 flags: TypeFlags::LITERAL,
                 id: next_id(),
                 kind: TypeKind::Class,
@@ -888,6 +895,7 @@ fn convert_literal(lit: &pyrefly_types::literal::Literal) -> TspType {
             if let Some(lv) = literal_value {
                 TspType::Class(TspClassType {
                     declaration: Declaration::Regular(make_builtin_class_declaration(class_name)),
+                    source_declaration: None,
                     flags: TypeFlags::INSTANCE.with_literal(),
                     id: next_id(),
                     kind: TypeKind::Class,
@@ -902,6 +910,7 @@ fn convert_literal(lit: &pyrefly_types::literal::Literal) -> TspType {
                         kind: DeclarationKind::Synthesized,
                         uri: String::new(),
                     }),
+                    source_declaration: None,
                     flags: TypeFlags::INSTANCE.with_literal(),
                     id: next_id(),
                     kind: TypeKind::Class,
@@ -930,6 +939,7 @@ fn convert_sentinel(sentinel: &Sentinel) -> TspType {
             name: Some(qname.id().to_string()),
             node: node.clone(),
         }),
+        source_declaration: None,
         flags: TypeFlags::INSTANCE.with_literal(),
         id: next_id(),
         kind: TypeKind::Class,

@@ -216,12 +216,7 @@ impl TestEnv {
         self
     }
 
-    pub fn with_framework_option(
-        mut self,
-        framework: &str,
-        option: &str,
-        value: &str,
-    ) -> Self {
+    pub fn with_framework_option(mut self, framework: &str, option: &str, value: &str) -> Self {
         self.framework
             .set_option(framework, option, value.to_owned());
         self

@@ -84,5 +84,4 @@ impl BindingsMetadata {
     pub fn shape_dsl_functions(&self) -> &[(Name, Arc<ShapeDslFunction>)] {
         &self.shape_dsl_functions
     }
-
 }

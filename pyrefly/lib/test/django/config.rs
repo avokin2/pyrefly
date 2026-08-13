@@ -27,11 +27,8 @@ assert_type(
 
 #[test]
 fn test_auth_user_model_configures_http_request_user() -> anyhow::Result<()> {
-    let mut env = django_env().with_framework_option(
-        "django",
-        "settings-module",
-        "project.settings",
-    );
+    let mut env =
+        django_env().with_framework_option("django", "settings-module", "project.settings");
     env.add("project.settings", "AUTH_USER_MODEL = 'accounts.User'");
     env.add(
         "accounts.models",

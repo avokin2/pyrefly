@@ -131,6 +131,25 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let Some(CalleeKind::Function(FunctionKind::Def(id))) = callee.callee_kind() else {
             return default;
         };
+        if id.qname.module_name().as_str() == "django.forms.formsets"
+            && id.qname.id().as_str() == "formset_factory"
+        {
+            let Some(form_expr) = call.arguments.find_argument_value("form", 0) else {
+                return default;
+            };
+            let Some(formset_expr) = call.arguments.find_argument_value("formset", 1) else {
+                return default;
+            };
+            let Type::ClassDef(form) = self.expr_infer(form_expr, errors) else {
+                return default;
+            };
+            let Type::ClassDef(formset) = self.expr_infer(formset_expr, errors) else {
+                return default;
+            };
+            let specialized =
+                self.specialize(&formset, vec![self.instantiate(&form)], call.range, errors);
+            return Type::Type(Box::new(specialized));
+        }
         if id.qname.module_name().as_str() != "django.forms.models" {
             return default;
         }

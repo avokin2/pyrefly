@@ -250,7 +250,7 @@ assert_type(expr, ManyRelatedManager[File])
 
 // AUTH_USER_MODEL is unset, so `request.user` should be the default `User | AnonymousUser`.
 fn env_user_model_default() -> TestEnv {
-    let mut env = django_env();
+    let mut env = django_env().with_framework_option("django", "settings-module", "app.settings");
     env.add(
         "app.settings",
         r#"
@@ -283,14 +283,16 @@ testcase!(
     test_user_model_type_is_default,
     env_user_model_default(),
     r#"
-from typing import assert_type
+from typing import assert_type, override
 from django import views
 from django.contrib.auth.models import User, AnonymousUser
 
 class ApiView(views.View):
+    @override
     def dispatch(self, request, *args, **kwargs):
         expr = request.user
         assert_type(expr, User | AnonymousUser)
+        return super().dispatch(request, *args, **kwargs)
 "#,
 );
 

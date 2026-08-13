@@ -90,6 +90,7 @@ const MANYRELATEDMANAGER: Name = Name::new_static("ManyRelatedManager");
 const SYMMETRICAL: Name = Name::new_static("symmetrical");
 const BASEMANAGER: Name = Name::new_static("BaseManager");
 const AUTH_USER_MODEL: Name = Name::new_static("AUTH_USER_MODEL");
+const USER: Name = Name::new_static("User");
 const MODEL_FORM: Name = Name::new_static("ModelForm");
 const BASE_MODEL_FORM_SET: Name = Name::new_static("BaseModelFormSet");
 
@@ -245,8 +246,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         {
             return None;
         }
-        let settings = self
-            .bindings()
+        let model = self.auth_user_model()?;
+        Some(Arc::new(TypeAlias::new(name.clone(), model, style)))
+    }
+
+    fn django_settings_module(&self) -> Option<ModuleName> {
+        self.bindings()
             .framework()
             .option("django", "settings-module")
             .map(ModuleName::from_str)
@@ -254,9 +259,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 std::env::var("DJANGO_SETTINGS_MODULE")
                     .ok()
                     .map(|x| ModuleName::from_str(&x))
-            })?;
+            })
+    }
+
+    fn auth_user_model_from_settings(&self, settings: ModuleName) -> Option<Type> {
         if !self.exports.export_exists(settings, &AUTH_USER_MODEL) {
-            return None;
+            return self.default_auth_user_model();
         }
         let setting = self.get_from_export(settings, None, &KeyExport(AUTH_USER_MODEL));
         let Type::Literal(lit) = setting.as_ref() else {
@@ -265,21 +273,64 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let Lit::Str(model_label) = &lit.value else {
             return None;
         };
-        let (app_label, model_name) = model_label.split_once('.')?;
-        let models_module = ModuleName::from_str(&format!("{app_label}.models"));
-        let model_name = Name::new(model_name);
-        if !self.exports.export_exists(models_module, &model_name) {
-            return None;
+        self.resolve_django_model_label(model_label, None)
+    }
+
+    fn default_auth_user_model(&self) -> Option<Type> {
+        self.django_model_from_export(ModuleName::from_str("django.contrib.auth.models"), USER)
+    }
+
+    fn auth_user_model(&self) -> Option<Type> {
+        if let Some(settings) = self.django_settings_module() {
+            self.auth_user_model_from_settings(settings)
+        } else {
+            self.default_auth_user_model()
         }
-        let model = self.get_from_export(models_module, None, &KeyExport(model_name));
+    }
+
+    fn django_model_from_export(&self, module: ModuleName, name: Name) -> Option<Type> {
+        let model = self.try_get_from_export(module, name)?;
         let Type::ClassDef(_) = model.as_ref() else {
             return None;
         };
-        Some(Arc::new(TypeAlias::new(
-            name.clone(),
-            self.class_def_to_instance_type(&model),
-            style,
-        )))
+        Some(self.class_def_to_instance_type(&model))
+    }
+
+    fn resolve_django_model_label(
+        &self,
+        model_label: &str,
+        current_class: Option<&Class>,
+    ) -> Option<Type> {
+        if model_label == "self" {
+            return current_class.map(|class| self.instantiate(class));
+        }
+        let Some((app_label, model_name)) = model_label.rsplit_once('.') else {
+            return self
+                .django_model_from_export(current_class?.module_name(), Name::new(model_label));
+        };
+        // Django's built-in `auth` app label does not match its import package.
+        let models_module = if app_label == "auth" {
+            ModuleName::from_str("django.contrib.auth.models")
+        } else {
+            ModuleName::from_str(&format!("{app_label}.models"))
+        };
+        self.django_model_from_export(models_module, Name::new(model_name))
+            .or_else(|| {
+                self.django_model_from_export(current_class?.module_name(), Name::new(model_name))
+            })
+    }
+
+    fn is_auth_user_model_setting(&self, expr: &Expr) -> bool {
+        let Expr::Attribute(attr) = expr else {
+            return false;
+        };
+        if attr.attr.id != AUTH_USER_MODEL {
+            return false;
+        }
+        matches!(
+            self.expr_infer(&attr.value, &self.error_swallower()),
+            Type::ClassType(settings) if settings.has_qname("django.conf", "LazySettings")
+        )
     }
 
     pub(crate) fn may_preserve_inferred_class_field_type(&self, class: &Class) -> bool {
@@ -470,29 +521,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
     }
 
     fn resolve_target(&self, to_expr: &Expr, class: &Class) -> Option<Type> {
+        if self.is_auth_user_model_setting(to_expr) {
+            return self.auth_user_model();
+        }
         match to_expr {
             // Use expr_infer to resolve the model in the current scope.
             Expr::Name(_) | Expr::Attribute(_) => {
                 let model_type = self.expr_infer(to_expr, &self.error_swallower());
-                Some(self.class_def_to_instance_type(&model_type))
+                if let Type::Literal(lit) = &model_type
+                    && let Lit::Str(model_label) = &lit.value
+                {
+                    self.resolve_django_model_label(model_label, Some(class))
+                } else {
+                    Some(self.class_def_to_instance_type(&model_type))
+                }
             }
             Expr::StringLiteral(ExprStringLiteral { value, .. }) => {
-                if value.to_str() == "self" {
-                    Some(self.instantiate(class))
-                } else {
-                    // Django string references may include an app label, but the imported model is
-                    // still looked up by its class name in the current module.
-                    let target = value.to_str();
-                    let class_name = Name::new(
-                        target
-                            .rsplit_once('.')
-                            .map_or(target, |(_, model_name)| model_name),
-                    );
-                    let module_name = class.module_name();
-
-                    self.try_get_from_export(module_name, class_name)
-                        .map(|model_type| self.class_def_to_instance_type(&model_type))
-                }
+                self.resolve_django_model_label(value.to_str(), Some(class))
             }
             // we may have to extend this function to handle different kinds of fields in the future
             _ => None,

@@ -195,7 +195,7 @@ The manager provides methods like `.add()`, `.remove()`, `.clear()`, and `.all()
 ### Reverse Relationships
 
 Django adds an accessor to the model a relation field points at. Pyrefly synthesizes
-these too, as long as both models are in the same module:
+these too:
 
 ```python
 class Question(models.Model):
@@ -215,8 +215,21 @@ The accessor is named after the source model — `<model_lowercase>_set` for
 `related_name` argument overrides that name, and `related_name='+'` removes the
 accessor entirely.
 
-Since the accessor has no declaration of its own, go-to-definition on it jumps to the
-relation field that induced it, which is also where `related_name` is configured.
+Because a relation can be declared anywhere in the project, Pyrefly scans your
+project's files for relation fields so that it knows which modules to consult. Two
+things fall outside what that scan can see, and no accessor is synthesized for them:
+
+```python
+MyAlias = Question
+
+class Choice(models.Model):
+    # The target is an alias, so it cannot be matched by name.
+    question = models.ForeignKey(MyAlias, on_delete=models.CASCADE)
+
+class Vote(models.Model):
+    # The target is passed by keyword rather than positionally.
+    question = models.ForeignKey(to=Question, on_delete=models.CASCADE)
+```
 
 ---
 
@@ -350,26 +363,17 @@ Pyrefly (following stubs):
 
 These are some of the Django features that are **not yet supported**:
 
-### Cross-Module Reverse Relationships
+### Reverse Relationships From Abstract Bases
 
-Reverse relationships are only synthesized when the two models live in the same
-module, since Pyrefly discovers them by scanning the module that declares the
-relation field:
+Pyrefly does not track `Meta.abstract`. A relation field on an abstract base class
+gets its reverse accessor named after the base rather than after each concrete
+subclass, so the accessor Pyrefly offers may not be the one Django creates.
 
-```python
-from .reporter import Reporter
+### Reverse Relationships From Installed Packages
 
-class Article(models.Model):
-    reporter = models.ForeignKey(Reporter, on_delete=models.CASCADE)
-
-# Not yet supported: Reporter comes from another module
-reporter = Reporter()
-reveal_type(reporter.article_set)  # Expected: RelatedManager[Article]
-```
-
-Relatedly, Pyrefly does not track `Meta.abstract`. A relation field on an abstract
-base class gets its reverse accessor named after the base rather than after each
-concrete subclass, so the accessor Pyrefly offers may not be the one Django creates.
+The scan that finds relation fields covers your project's files, not installed
+packages. A model in a third-party app that points at one of your models therefore
+adds no reverse accessor.
 
 ### Advanced QuerySet Operations
 

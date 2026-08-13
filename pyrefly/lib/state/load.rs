@@ -42,6 +42,13 @@ impl FileContents {
     pub fn from_source(source: String) -> Self {
         Self::Source(Arc::new(source))
     }
+
+    pub fn source(&self) -> &str {
+        match self {
+            Self::Source(contents) => contents.as_str(),
+            Self::Notebook(notebook) => notebook.source_code(),
+        }
+    }
 }
 
 /// This is the representation of files in the language server

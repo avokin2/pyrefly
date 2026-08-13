@@ -1907,6 +1907,24 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .expect("the current module must be available while solving its Django relations")
     }
 
+    /// Another module's relation map. `None` means that module is undergoing
+    /// concurrent modification; `LookupAnswer::get` panics itself when that is
+    /// unexpected, so the caller should simply skip the candidate.
+    pub fn django_reverse_relations_index_of(
+        &self,
+        module: ModuleName,
+        path: &ModulePath,
+    ) -> Option<Arc<DjangoReverseRelationIndex>> {
+        self.answers
+            .get(module, Some(path), &KeyDjangoRelations, self.thread_state)
+    }
+
+    /// The modules that may declare a reverse accessor on a model named
+    /// `target`, in a deterministic order.
+    pub fn django_relation_candidates(&self, target: &Name) -> Vec<(ModuleName, ModulePath)> {
+        self.answers.django_relation_candidates(target)
+    }
+
     /// Access the thread-local state for trace recording.
     pub(crate) fn trace_state(&self) -> &ThreadState {
         self.thread_state

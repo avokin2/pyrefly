@@ -596,6 +596,14 @@ pub trait LookupAnswer: Sized {
         BindingTable: TableKeyed<K, Value = BindingEntry<K>>,
         SolutionsTable: TableKeyed<K, Value = SolutionsEntry<K>>;
 
+    /// The modules that may declare a Django reverse accessor on a model
+    /// named `target`, from the project-wide routing table.
+    ///
+    /// This records no dependency: the edge is created by the `get` of each
+    /// candidate's relation map, and a change to the table itself is handled
+    /// by whoever refreshes it.
+    fn django_relation_candidates(&self, target: &Name) -> Vec<(ModuleName, ModulePath)>;
+
     /// Commit a preliminary answer to a specific module's Calculation cell.
     /// Used for cross-module batch commit when an SCC spans module boundaries.
     ///

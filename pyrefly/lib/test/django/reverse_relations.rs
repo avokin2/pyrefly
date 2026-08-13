@@ -5,15 +5,27 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use dupe::Dupe;
+use pyrefly_build::handle::Handle;
+use pyrefly_python::module_name::ModuleName;
+use pyrefly_python::module_path::ModulePath;
+use pyrefly_util::thread_pool::TEST_THREAD_COUNT;
+
 use crate::binding::binding::KeyClassSynthesizedFields;
 use crate::django_testcase;
+use crate::state::load::FileContents;
+use crate::state::require::Require;
+use crate::state::state::State;
 use crate::test::django::util::django_env;
 use crate::test::util::TestEnv;
 use crate::test::util::get_class;
 use crate::testcase;
 
-// Cross-module reverse relations: when the FK target is in a different module,
-// reverse relations cannot be synthesized yet because our current analysis only scans the current module.
+/// A target model living in a module of its own, so that the reverse accessor
+/// has to be found through the project-wide relation index.
 fn django_env_with_separate_models() -> TestEnv {
     let mut env = django_env();
     env.add(
@@ -283,19 +295,19 @@ assert_type(reporter.überbook_set, RelatedManager[ÜberBook])
 );
 
 testcase!(
-    bug = "Cross-module reverse relations not supported",
     test_foreign_key_reverse_cross_module,
     django_env_with_separate_models(),
     r#"
 from django.db import models
+from django.db.models.fields.related_descriptors import RelatedManager
+from typing import assert_type
 from .author import Author
 
 class Book(models.Model):
     author = models.ForeignKey(Author, on_delete=models.CASCADE)
 
-# Author is defined in a different module, so reverse relation won't be synthesized
 author = Author()
-author.book_set  # E: `Author` has no attribute `book_set`
+assert_type(author.book_set, RelatedManager[Book])
 "#,
 );
 
@@ -485,5 +497,329 @@ class Person(models.Model):
 
 person = Person()
 assert_type(person.followers, ManyRelatedManager[Person, models.Model])
+"#,
+);
+
+testcase!(
+    test_one_to_one_reverse_cross_module,
+    django_env_with_separate_models(),
+    r#"
+from django.db import models
+from typing import assert_type
+from .author import Author
+
+class Profile(models.Model):
+    author = models.OneToOneField(Author, on_delete=models.CASCADE)
+
+author = Author()
+assert_type(author.profile, Profile)
+"#,
+);
+
+testcase!(
+    test_many_to_many_reverse_cross_module,
+    django_env_with_separate_models(),
+    r#"
+from django.db import models
+from django.db.models.fields.related_descriptors import ManyRelatedManager
+from typing import assert_type
+from .author import Author
+
+class Anthology(models.Model):
+    authors = models.ManyToManyField(Author)
+
+author = Author()
+assert_type(author.anthology_set, ManyRelatedManager[Anthology, models.Model])
+"#,
+);
+
+testcase!(
+    test_foreign_key_reverse_cross_module_custom_name,
+    django_env_with_separate_models(),
+    r#"
+from django.db import models
+from django.db.models.fields.related_descriptors import RelatedManager
+from typing import assert_type
+from .author import Author
+
+class Book(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE, related_name='written_books')
+
+author = Author()
+assert_type(author.written_books, RelatedManager[Book])
+"#,
+);
+
+testcase!(
+    test_foreign_key_reverse_cross_module_disabled,
+    django_env_with_separate_models(),
+    r#"
+from django.db import models
+from .author import Author
+
+class Book(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE, related_name='+')
+
+author = Author()
+author.book_set  # E: `Author` has no attribute `book_set`
+"#,
+);
+
+// A string forward reference resolves against the exports of the module that
+// declares the relation, so it reaches a model defined elsewhere as long as the
+// name is imported here.
+testcase!(
+    test_foreign_key_reverse_cross_module_string_target,
+    django_env_with_separate_models(),
+    r#"
+from django.db import models
+from django.db.models.fields.related_descriptors import RelatedManager
+from typing import assert_type
+from .author import Author
+
+class Book(models.Model):
+    author = models.ForeignKey('Author', on_delete=models.CASCADE)
+
+author = Author()
+assert_type(author.book_set, RelatedManager[Book])
+"#,
+);
+
+// Two source modules add accessors to the same target, and the target module
+// itself is a third one.
+#[test]
+fn test_foreign_key_reverse_from_several_modules() {
+    let mut env = django_env_with_separate_models();
+    env.add(
+        "library",
+        r#"
+from django.db import models
+from author import Author
+
+class Book(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE)
+"#,
+    );
+    env.add(
+        "press",
+        r#"
+from django.db import models
+from author import Author
+
+class Magazine(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE)
+"#,
+    );
+    env.add(
+        "main",
+        r#"
+from author import Author
+
+author = Author()
+author.book_set
+author.magazine_set
+"#,
+    );
+    let (state, handle_for) = env.to_state();
+    let handle = handle_for("main");
+    let errors = state.transaction().get_errors([&handle]);
+    assert_eq!(
+        errors.collect_errors().ordinary.len(),
+        0,
+        "accessors from both source modules should exist: {:?}",
+        errors.collect_errors().ordinary
+    );
+}
+
+// The routing table keys on the model's short name, so two same-named models in
+// different modules land in the same bucket. The relation maps key on the exact
+// class, so the accessor must not leak from one to the other.
+#[test]
+fn test_same_named_models_do_not_share_reverse_accessors() {
+    let mut env = django_env_with_separate_models();
+    env.add(
+        "other",
+        r#"
+from django.db import models
+
+class Author(models.Model): ...
+
+class Note(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE)
+"#,
+    );
+    env.add(
+        "main",
+        r#"
+from author import Author
+
+author = Author()
+author.note_set
+"#,
+    );
+    let (state, handle_for) = env.to_state();
+    let handle = handle_for("main");
+    let errors = state.transaction().get_errors([&handle]);
+    let shown = errors.collect_errors().ordinary;
+    assert_eq!(
+        shown.len(),
+        1,
+        "`note_set` belongs to `other.Author`, not `author.Author`: {shown:?}"
+    );
+}
+
+// Models in two modules pointing at each other must not deadlock or lose their
+// accessors to a solve cycle.
+#[test]
+fn test_mutually_referencing_modules() {
+    let mut env = django_env();
+    env.add(
+        "left",
+        r#"
+from django.db import models
+from right import Right
+
+class Left(models.Model):
+    right = models.ForeignKey(Right, on_delete=models.CASCADE)
+"#,
+    );
+    env.add(
+        "right",
+        r#"
+from django.db import models
+
+class Right(models.Model): ...
+"#,
+    );
+    env.add(
+        "main",
+        r#"
+from left import Left
+from right import Right
+
+Right().left_set
+"#,
+    );
+    let (state, handle_for) = env.to_state();
+    let handle = handle_for("main");
+    let errors = state.transaction().get_errors([&handle]);
+    let shown = errors.collect_errors().ordinary;
+    assert_eq!(shown.len(), 0, "{shown:?}");
+}
+
+/// A relation appearing in a module the target does not import must still reach
+/// the target on a recheck. No dependency edge exists yet at the moment the
+/// relation is added, so this only works if refreshing the relation index marks
+/// the modules defining the target as needing recomputation.
+#[test]
+fn test_relation_added_in_another_module_reaches_the_target() {
+    let mut env = django_env();
+    env.add(
+        "author",
+        r#"
+from django.db import models
+
+class Author(models.Model): ...
+"#,
+    );
+    env.add("book", "");
+    env.add(
+        "main",
+        r#"
+from author import Author
+
+Author().book_set
+"#,
+    );
+    let sys_info = env.sys_info();
+    let handles = ["author", "book", "main"]
+        .map(|name| {
+            Handle::new(
+                ModuleName::from_str(name),
+                ModulePath::memory(PathBuf::from(format!("{name}.py"))),
+                sys_info.dupe(),
+            )
+        })
+        .to_vec();
+    let state = State::new(env.config_finder(), TEST_THREAD_COUNT);
+
+    let run = |memory: Vec<(PathBuf, Option<Arc<FileContents>>)>| {
+        let mut transaction = state.new_committable_transaction(Require::Exports, None);
+        transaction.as_mut().set_memory(memory);
+        state.run_with_committing_transaction(
+            transaction,
+            &handles,
+            Require::Everything,
+            None,
+            None,
+        );
+        state
+            .transaction()
+            .get_errors(&handles)
+            .collect_errors()
+            .ordinary
+            .len()
+    };
+
+    let book_with_relation = r#"
+from django.db import models
+from author import Author
+
+class Book(models.Model):
+    author = models.ForeignKey(Author, on_delete=models.CASCADE)
+"#;
+    let set_book = |contents: &str| {
+        vec![(
+            PathBuf::from("book.py"),
+            Some(Arc::new(FileContents::from_source(contents.to_owned()))),
+        )]
+    };
+
+    assert_eq!(run(env.get_memory()), 1, "`book_set` should not exist yet");
+    assert_eq!(
+        run(set_book(book_with_relation)),
+        0,
+        "adding the relation should make `book_set` appear on `Author`"
+    );
+    assert_eq!(
+        run(set_book("")),
+        1,
+        "removing the relation should make `book_set` disappear again"
+    );
+}
+
+// The scan matches the target by name, so an alias is invisible to it and the
+// accessor is not synthesized across modules. Documented in `django.mdx`.
+testcase!(
+    test_foreign_key_reverse_cross_module_alias_target,
+    django_env_with_separate_models(),
+    r#"
+from django.db import models
+from .author import Author
+
+MyAlias = Author
+
+class Book(models.Model):
+    author = models.ForeignKey(MyAlias, on_delete=models.CASCADE)
+
+author = Author()
+author.book_set  # E: `Author` has no attribute `book_set`
+"#,
+);
+
+// The solver reads the target from the first positional argument only, so a
+// keyword target synthesizes nothing even within one module.
+django_testcase!(
+    test_foreign_key_reverse_keyword_target,
+    r#"
+from django.db import models
+
+class Author(models.Model): ...
+
+class Book(models.Model):
+    author = models.ForeignKey(to=Author, on_delete=models.CASCADE)
+
+author = Author()
+author.book_set  # E: `Author` has no attribute `book_set`
 "#,
 );

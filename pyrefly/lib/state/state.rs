@@ -28,14 +28,18 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use arc_swap::ArcSwapOption;
 use dupe::Dupe;
+use dupe::IterDupedExt;
 use dupe::OptionDupedExt;
 use enum_iterator::Sequence;
 use fxhash::FxHashMap;
 use itertools::Itertools;
 use pyrefly_build::handle::Handle;
+use pyrefly_python::ast::Ast;
 use pyrefly_python::module::Module;
 use pyrefly_python::module_name::ModuleName;
+use pyrefly_python::module_name::ModuleNameWithKind;
 use pyrefly_python::module_path::ModulePath;
 use pyrefly_python::module_path::ModulePathDetails;
 use pyrefly_python::sys_info::SysInfo;
@@ -46,6 +50,7 @@ use pyrefly_util::demand_tree::DemandEdge;
 use pyrefly_util::demand_tree::DemandSpan;
 use pyrefly_util::events::CategorizedEvents;
 use pyrefly_util::fs_anyhow;
+use pyrefly_util::includes::Includes;
 use pyrefly_util::lock::Mutex;
 use pyrefly_util::lock::RwLock;
 use pyrefly_util::locked_map::LockedMap;
@@ -62,6 +67,7 @@ use pyrefly_util::thread_pool::ThreadCount;
 use pyrefly_util::thread_pool::ThreadPool;
 use pyrefly_util::timer::Timer;
 use pyrefly_util::uniques::UniqueFactory;
+use ruff_python_ast::PySourceType;
 use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
 use starlark_map::Hashed;
@@ -104,6 +110,7 @@ use crate::binding::metadata::BindingsMetadata;
 use crate::binding::scope::builtin_module_for_name;
 use crate::binding::table::TableKeyed;
 use crate::config::config::ConfigFile;
+use crate::config::config::ConfigScope;
 use crate::config::error_kind::ErrorKind;
 use crate::config::finder::ConfigError;
 use crate::config::finder::ConfigFinder;
@@ -119,6 +126,13 @@ use crate::module::finder::find_import_prefixes;
 use crate::module::typeshed::BundledTypeshedStdlib;
 use crate::module::typeshed::custom_typeshed_stdlib_config;
 use crate::solver::solver::VarRecurser;
+use crate::state::django_index::ChangedTargets;
+use crate::state::django_index::DjangoReaders;
+use crate::state::django_index::DjangoRelationIndex;
+use crate::state::django_index::DjangoScan;
+use crate::state::django_index::IndexedModule;
+use crate::state::django_index::RELATION_TOKENS;
+use crate::state::django_index::django_scan;
 use crate::state::epoch::Epoch;
 use crate::state::errors::Errors;
 use crate::state::load::FileContents;
@@ -567,6 +581,13 @@ struct StateData {
     loaders: SmallMap<ArcId<ConfigFile>, Arc<LoaderFindCache>>,
     /// The contents for ModulePath::memory values
     memory: MemoryFiles,
+    /// Which modules declare a Django relation to which model name. Empty
+    /// until some config in which Django resolves has been walked.
+    django_index: Arc<DjangoRelationIndex>,
+    /// Configs whose project files have been walked for `django_index`.
+    django_scanned_configs: SmallSet<ArcId<ConfigFile>>,
+    /// Which modules have consulted `django_index` about which model names.
+    django_readers: DjangoReaders,
     /// The current epoch, gets incremented every time we recompute
     now: Epoch,
 }
@@ -578,6 +599,9 @@ impl StateData {
             modules: Default::default(),
             loaders: Default::default(),
             memory: Default::default(),
+            django_index: Default::default(),
+            django_scanned_configs: Default::default(),
+            django_readers: Default::default(),
             now: Epoch::zero(),
         }
     }
@@ -671,6 +695,20 @@ pub(crate) struct TransactionData<'a> {
     changed: Mutex<Vec<(ArcId<ModuleDataMut>, ModuleChanges)>>,
     /// Handles which are dirty
     dirty: Mutex<SmallSet<ArcId<ModuleDataMut>>>,
+    /// This transaction's Django routing table, once it has diverged from the
+    /// committed one. `None` means "use the committed snapshot".
+    django_index: ArcSwapOption<DjangoRelationIndex>,
+    /// Configs this transaction has walked, on top of the committed set.
+    django_scanned_configs: SmallSet<ArcId<ConfigFile>>,
+    /// Files whose contents may have changed since the routing table was last
+    /// refreshed. Fed by the `invalidate_*` entry points.
+    django_dirty_paths: SmallSet<ModulePath>,
+    /// Set when the previous walk of a config can no longer be trusted, so the
+    /// next refresh re-enumerates instead of only rescanning dirty files.
+    django_rescan: AtomicBool,
+    /// Routing table reads made during this transaction, merged into the
+    /// committed set so that a later refresh can find the stale readers.
+    django_readers: Mutex<DjangoReaders>,
     /// Thing to tell about each action.
     subscriber: Option<Box<dyn Subscriber + 'a>>,
     /// When set, pysa reporting is done during answer solving and before memory eviction.
@@ -1921,6 +1959,224 @@ impl<'a> Transaction<'a> {
             .is_some()
     }
 
+    /// The Django reverse relation routing table this transaction sees.
+    pub(crate) fn django_relation_index(&self) -> Arc<DjangoRelationIndex> {
+        match self.data.django_index.load_full() {
+            Some(index) => index,
+            None => self.readable.django_index.dupe(),
+        }
+    }
+
+    fn django_available(&self, config: &ArcId<ConfigFile>) -> bool {
+        self.get_cached_loader(config)
+            .find_import_for_django(None, Some(&self.timing))
+            .finding()
+            .is_some()
+    }
+
+    /// Bring the Django routing table up to date before anything can read it.
+    ///
+    /// This must happen before type checking starts, for two reasons. Modules
+    /// are solved in parallel in an unspecified order, so a table filled in as
+    /// modules are processed would be read while still incomplete, making the
+    /// answer depend on thread scheduling. And a module that has only just
+    /// started referencing a model has no dependency edge to it yet, so the
+    /// stale readers have to be marked dirty from here, which only code
+    /// holding `&mut Transaction` can do.
+    fn refresh_django_index(
+        &mut self,
+        handles: &[Handle],
+        custom_thread_pool: Option<&ThreadPool>,
+    ) {
+        let configs: SmallSet<ArcId<ConfigFile>> = handles
+            .iter()
+            .map(|handle| self.data.state.get_config(handle))
+            .collect::<SmallSet<_>>()
+            .into_iter()
+            .filter(|config| self.django_available(config))
+            .collect();
+        if configs.is_empty() {
+            // Not a Django project: the whole feature costs nothing.
+            return;
+        }
+
+        // A config edit can change both the include globs and how paths map to
+        // module names, so the previous walk of it cannot be trusted.
+        let force_walk = self.data.django_rescan.swap(false, Ordering::Relaxed);
+        let walked: SmallSet<ArcId<ConfigFile>> = configs
+            .iter()
+            .filter(|config| {
+                force_walk
+                    || !(self.readable.django_scanned_configs.contains(*config)
+                        || self.data.django_scanned_configs.contains(*config))
+            })
+            .duped()
+            .collect();
+
+        let index = self.django_relation_index();
+        let mut to_scan: SmallSet<ModulePath> = mem::take(&mut self.data.django_dirty_paths);
+        for config in &walked {
+            to_scan.extend(self.project_files(config));
+        }
+        // A walk enumerates everything its config covers, so an existing entry
+        // under one of those configs that the walk did not produce is a file
+        // that no longer exists. Entries under other configs are untouched,
+        // because this run may have been given handles from only some of them.
+        let vanished: Vec<ModulePath> = index
+            .files()
+            .keys()
+            .filter(|path| !to_scan.contains(*path) && walked.contains(&self.path_config(path)))
+            .duped()
+            .collect();
+        if to_scan.is_empty() && vanished.is_empty() {
+            return;
+        }
+
+        let Some(scanned) = self.scan_for_django_relations(&to_scan, custom_thread_pool) else {
+            // Cancelled mid-walk. Roll back rather than keep what we have: a
+            // partial routing table names too few candidate modules, which
+            // costs missing accessors, and the paths we already took out of
+            // `django_dirty_paths` would otherwise be forgotten. Rescanning a
+            // few files next time is cheaper than reasoning about a half-built
+            // table.
+            self.data.django_dirty_paths.extend(to_scan);
+            return;
+        };
+
+        let mut files = index.files().clone();
+        let mut changed = ChangedTargets::default();
+        for path in vanished {
+            if let Some((_, before)) = files.shift_remove(&path) {
+                changed.record(Some(&before), None);
+            }
+        }
+        for (path, scan) in scanned {
+            let before = files
+                .get(&path)
+                .map(|(_, scan): &IndexedModule| scan.clone());
+            match scan {
+                Some(scan) => {
+                    // The source db resolves in-memory test modules, which no
+                    // path heuristic would name correctly.
+                    let module = self
+                        .path_config(&path)
+                        .handle_from_module_path(path.dupe())
+                        .module();
+                    changed.record(before.as_ref(), Some(&scan));
+                    files.insert(path, (module, scan));
+                }
+                None => {
+                    files.shift_remove(&path);
+                    changed.record(before.as_ref(), None);
+                }
+            }
+        }
+
+        let index = Arc::new(DjangoRelationIndex::new(files));
+        let mut readers = self.readable.django_readers.clone();
+        readers.merge(self.data.django_readers.lock().clone());
+        let stale: SmallSet<ModulePath> = changed.stale_readers(&readers).duped().collect();
+        self.data.django_index.store(Some(index));
+        self.data.django_scanned_configs.extend(walked);
+
+        if !stale.is_empty() {
+            // Recheck the modules that asked about a model whose set of
+            // incoming relations changed. Value-level changes to an existing
+            // relation are already covered by `ModuleDeps::django_relations`;
+            // what needs this is a module that has only just started (or
+            // stopped) pointing at the model, for which no dependency edge
+            // exists yet.
+            self.invalidate(
+                |handle| stale.contains(handle.path()),
+                |state| state.set_dirty_deps(),
+            );
+        }
+    }
+
+    /// Which config governs a path, ignoring the module name (we only need the
+    /// config, and the name is not known at this point).
+    fn path_config(&self, path: &ModulePath) -> ArcId<ConfigFile> {
+        self.data
+            .state
+            .config_finder
+            .python_file(ModuleNameWithKind::guaranteed(ModuleName::unknown()), path)
+    }
+
+    /// Every source file covered by a config, including unsaved editor buffers
+    /// and the in-memory modules test environments use, neither of which the
+    /// on-disk globs can see.
+    fn project_files(&self, config: &ArcId<ConfigFile>) -> SmallSet<ModulePath> {
+        let mut files = SmallSet::new();
+        let globs = config.get_filtered_globs(None, ConfigScope::Default);
+        if let Ok(paths) = globs.files_iter() {
+            for path in paths {
+                let module_path = ModulePath::filesystem(path);
+                if *config == self.path_config(&module_path) {
+                    files.insert(module_path);
+                }
+            }
+        }
+        let memory = self.memory_lookup();
+        for path in memory.paths() {
+            let module_path = ModulePath::memory(path.clone());
+            if *config == self.path_config(&module_path) {
+                // An in-memory buffer shadows its on-disk file, so drop the
+                // filesystem twin to avoid scanning stale contents.
+                files.shift_remove(&ModulePath::filesystem(path.clone()));
+                files.insert(module_path);
+            }
+        }
+        files
+    }
+
+    /// Read and scan the given files, discarding the source and the AST as
+    /// soon as the relations are extracted. A `None` scan means the file
+    /// contributes nothing and should be dropped from the table; a `None`
+    /// return means the work was cancelled and nothing may be used.
+    fn scan_for_django_relations(
+        &self,
+        paths: &SmallSet<ModulePath>,
+        custom_thread_pool: Option<&ThreadPool>,
+    ) -> Option<Vec<(ModulePath, Option<DjangoScan>)>> {
+        let paths = paths.iter().duped().collect::<Vec<_>>();
+        let results = paths.iter().map(|_| Mutex::new(None)).collect::<Vec<_>>();
+        let next = AtomicUsize::new(0);
+        let cancellation = self.get_cancellation_handle();
+        let pool = custom_thread_pool.unwrap_or(&self.data.state.threads);
+        pool.spawn_many(|| {
+            loop {
+                if cancellation.is_cancelled() {
+                    break;
+                }
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(path) = paths.get(i) else { break };
+                let (contents, error) =
+                    Load::load_from_path(path, &self.memory_lookup(), Some(&self.timing));
+                let source = contents.source();
+                // Most files mention none of the relation constructors, so
+                // this check saves parsing the overwhelming majority of a
+                // project's files.
+                let scan = if error.is_some()
+                    || !RELATION_TOKENS.iter().any(|token| source.contains(token))
+                {
+                    None
+                } else {
+                    // Parsing as `Python` rather than `Stub` does not change
+                    // the result, per `Ast::parse_with_version`.
+                    let (module, _, _) = Ast::parse(source, PySourceType::Python);
+                    let scan = django_scan(&module);
+                    if scan.is_empty() { None } else { Some(scan) }
+                };
+                *results[i].lock() = Some(scan);
+            }
+        });
+        paths
+            .into_iter()
+            .zip(results)
+            .map(|(path, scan)| Some((path, scan.into_inner()?)))
+            .collect()
+    }
+
     pub fn get_stdlib(&self, handle: &Handle) -> Arc<Stdlib> {
         if self.data.stdlib.len() == 1 {
             // Since we know our one must exist, we can shortcut
@@ -2123,6 +2379,10 @@ impl<'a> Transaction<'a> {
             }
         }
 
+        // Bring the Django routing table up to date before any module is
+        // solved, so that every reader of it sees the same complete table.
+        self.refresh_django_index(handles, custom_thread_pool);
+
         // We first compute all the modules that are either new or have changed.
         // Then we repeatedly compute all the modules who depend on modules that changed.
         //
@@ -2321,6 +2581,11 @@ impl<'a> Transaction<'a> {
         // This is reasonable, because we will cache the result on ModuleData.
         self.data.state.config_finder.clear();
 
+        // Include globs and path-to-module-name resolution both come from the
+        // config, so the Django routing table has to be rebuilt from a fresh
+        // enumeration rather than patched from dirty files.
+        self.data.django_rescan.store(true, Ordering::Relaxed);
+
         // Wipe the copy of ConfigFile on each module that has changed.
         // If they change, set find to dirty.
         let mut dirty_set = self.data.dirty.lock();
@@ -2404,6 +2669,7 @@ impl<'a> Transaction<'a> {
         if changed.is_empty() {
             return;
         }
+        self.data.django_dirty_paths.extend(changed.iter().duped());
         self.invalidate(
             |handle| changed.contains(handle.path()),
             |state| state.set_dirty_load(),
@@ -2423,6 +2689,7 @@ impl<'a> Transaction<'a> {
             .iter()
             .map(|x| ModulePath::filesystem(x.clone()))
             .collect::<SmallSet<_>>();
+        self.data.django_dirty_paths.extend(files.iter().duped());
         self.invalidate(
             |handle| files.contains(handle.path()),
             |state| state.set_dirty_load(),
@@ -3077,6 +3344,19 @@ impl<'a> LookupAnswer for TransactionHandle<'a> {
         res
     }
 
+    fn django_relation_candidates(&self, target: &Name) -> Vec<(ModuleName, ModulePath)> {
+        // Remember that this module asked, so that a later refresh can find it
+        // when a module starts or stops pointing at `target`. Recording here
+        // rather than deriving readers from the scan is what lets the scan skip
+        // parsing files that mention no relation at all.
+        self.transaction
+            .data
+            .django_readers
+            .lock()
+            .record(target, self.module_data.handle.path());
+        self.transaction.django_relation_index().candidates(target)
+    }
+
     fn commit_to_module(
         &self,
         calc_id: CalcId,
@@ -3361,6 +3641,11 @@ impl State {
                 todo: Default::default(),
                 changed: Default::default(),
                 dirty: Default::default(),
+                django_index: Default::default(),
+                django_scanned_configs: Default::default(),
+                django_dirty_paths: Default::default(),
+                django_rescan: AtomicBool::new(false),
+                django_readers: Default::default(),
                 subscriber,
                 pysa_reporter: None,
                 cinderx_reporter: None,
@@ -3435,6 +3720,11 @@ impl State {
                             todo,
                             changed,
                             dirty,
+                            django_index,
+                            django_scanned_configs,
+                            django_dirty_paths: _,
+                            django_rescan: _,
+                            django_readers,
                             subscriber: _,
                             pysa_reporter: _,
                             cinderx_reporter: _,
@@ -3488,6 +3778,11 @@ impl State {
         for (loader_id, additional_loader) in updated_loaders {
             state.loaders.insert(loader_id, additional_loader);
         }
+        if let Some(django_index) = django_index.into_inner() {
+            state.django_index = django_index;
+        }
+        state.django_scanned_configs.extend(django_scanned_configs);
+        state.django_readers.merge(django_readers.into_inner());
 
         // Garbage-collect stale loader entries. Loaders are keyed by ArcId<ConfigFile>
         // which uses pointer-identity equality, so config reloads (via invalidate_config)

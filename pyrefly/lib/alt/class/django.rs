@@ -838,6 +838,25 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             );
         }
 
+        // A relation to this model can be declared in any module, so consult
+        // every candidate the project-wide routing table names. The table keys
+        // on the model's short name while the maps key on the exact `Class`, so
+        // a name collision between apps costs a wasted lookup, not a wrong
+        // accessor. This module goes last, so that a same-module declaration
+        // wins a collision on the accessor name.
+        let own_module = self.module();
+        for (module, path) in self.django_relation_candidates(cls.name()) {
+            if module == own_module.name() && path == *own_module.path() {
+                continue;
+            }
+            if let Some(index) = self.django_reverse_relations_index_of(module, &path)
+                && let Some(reverse_fields) = index.get(cls)
+            {
+                for (name, field) in reverse_fields.fields() {
+                    fields.insert(name.clone(), field.clone());
+                }
+            }
+        }
         let reverse_relations = self.django_reverse_relations_index();
         if let Some(reverse_fields) = reverse_relations.get(cls) {
             for (name, field) in reverse_fields.fields() {

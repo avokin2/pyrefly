@@ -52,4 +52,19 @@ impl<'a> MemoryFilesLookup<'a> {
             None => self.base.0.get(path),
         }
     }
+
+    /// Every in-memory file that currently exists. Deleted overlay entries are
+    /// skipped, so the result is the live set rather than the union of keys.
+    pub fn paths(&self) -> impl Iterator<Item = &'a PathBuf> {
+        self.base
+            .0
+            .keys()
+            .filter(|path| !self.overlay.0.contains_key(*path))
+            .chain(
+                self.overlay
+                    .0
+                    .iter()
+                    .filter_map(|(path, contents)| contents.as_ref().map(|_| path)),
+            )
+    }
 }

@@ -319,15 +319,35 @@ impl LoaderFindCache {
         origin: Option<&ModulePath>,
         timing: Option<&TransactionTimingCounters>,
     ) -> FindingOrError<ModulePath> {
-        let module = ModuleName::from_str("shape_extensions");
-        if self.can_cache_missing_shape_extensions_independent_of_origin(module) {
+        self.find_import_for_framework(ModuleName::from_str("shape_extensions"), origin, timing)
+    }
+
+    /// Whether Django is resolvable, which gates the project-wide scan for
+    /// cross-module reverse relations.
+    pub fn find_import_for_django(
+        &self,
+        origin: Option<&ModulePath>,
+        timing: Option<&TransactionTimingCounters>,
+    ) -> FindingOrError<ModulePath> {
+        self.find_import_for_framework(ModuleName::from_str("django"), origin, timing)
+    }
+
+    /// Resolve a framework's marker module, collapsing the lookup to a single
+    /// origin-independent cache entry whenever the config makes that sound.
+    fn find_import_for_framework(
+        &self,
+        module: ModuleName,
+        origin: Option<&ModulePath>,
+        timing: Option<&TransactionTimingCounters>,
+    ) -> FindingOrError<ModulePath> {
+        if self.can_cache_missing_framework_module_independent_of_origin(module) {
             self.find_import(module, None, timing)
         } else {
             self.find_import(module, origin, timing)
         }
     }
 
-    fn can_cache_missing_shape_extensions_independent_of_origin(&self, module: ModuleName) -> bool {
+    fn can_cache_missing_framework_module_independent_of_origin(&self, module: ModuleName) -> bool {
         self.config
             .source_db
             .as_ref()

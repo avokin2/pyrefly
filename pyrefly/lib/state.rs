@@ -6,6 +6,7 @@
  */
 
 pub mod dirty;
+pub mod django_index;
 pub mod epoch;
 pub mod errors;
 pub mod ide;

@@ -318,6 +318,43 @@ assert_type(A.X.label, str)
 );
 
 django_testcase!(
+    bug = "Django Choices values and validation are incorrect",
+    test_choices_strip_trailing_label_and_validate_value,
+    r#"
+from typing import Literal, assert_type
+
+from django.db.models import Choices, IntegerChoices, TextChoices
+
+class MyChoices(Choices):
+    OK = "x", "label"
+    SCALAR = "y"
+    OK_2 = 1, "label"
+    NOT_A_LABEL = "z", 5
+
+assert_type(MyChoices.OK.value, tuple[Literal["x"]])
+assert_type(MyChoices.SCALAR.value, Literal["y"])
+assert_type(MyChoices.OK_2.value, tuple[Literal[1]])
+assert_type(MyChoices.NOT_A_LABEL.value, tuple[Literal["z"]])
+
+class MyTextChoices(TextChoices):
+    BAD = 1, "label"
+    OK = "x", "label"
+    SCALAR = "y"
+    NOT_A_LABEL = "z", 5
+
+assert_type(MyTextChoices.OK.value, str)
+assert_type(MyTextChoices.SCALAR.value, str)
+
+class MyIntegerChoices(IntegerChoices):
+    BAD = "s", "label"
+    OK = 1, "label"
+    NOT_A_LABEL = 1, 5
+
+assert_type(MyIntegerChoices.OK.value, int)
+"#,
+);
+
+django_testcase!(
     test_override_properties,
     r#"
 from typing import Any

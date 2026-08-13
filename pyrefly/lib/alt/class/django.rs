@@ -90,6 +90,8 @@ const MANYRELATEDMANAGER: Name = Name::new_static("ManyRelatedManager");
 const SYMMETRICAL: Name = Name::new_static("symmetrical");
 const BASEMANAGER: Name = Name::new_static("BaseManager");
 const AUTH_USER_MODEL: Name = Name::new_static("AUTH_USER_MODEL");
+const MODEL_FORM: Name = Name::new_static("ModelForm");
+const BASE_MODEL_FORM_SET: Name = Name::new_static("BaseModelFormSet");
 
 /// Find a keyword argument by name and return its value expression.
 fn find_keyword<'a>(call_expr: &'a ExprCall, name: &Name) -> Option<&'a Expr> {
@@ -129,26 +131,75 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let Some(CalleeKind::Function(FunctionKind::Def(id))) = callee.callee_kind() else {
             return default;
         };
-        if id.qname.module_name().as_str() != "django.forms.models"
-            || id.qname.id().as_str() != "modelform_factory"
-        {
+        if id.qname.module_name().as_str() != "django.forms.models" {
             return default;
         }
         let Some(model_expr) = call.arguments.find_argument_value("model", 0) else {
             return default;
         };
-        let Some(form_expr) = call.arguments.find_argument_value("form", 1) else {
-            return default;
-        };
         let Type::ClassDef(model) = self.expr_infer(model_expr, errors) else {
             return default;
         };
-        let Type::ClassDef(form) = self.expr_infer(form_expr, errors) else {
-            return default;
-        };
-        let specialized =
-            self.specialize(&form, vec![self.instantiate(&model)], call.range, errors);
-        Type::Type(Box::new(specialized))
+        match id.qname.id().as_str() {
+            "modelform_factory" => {
+                let Some(form_expr) = call.arguments.find_argument_value("form", 1) else {
+                    return default;
+                };
+                let Type::ClassDef(form) = self.expr_infer(form_expr, errors) else {
+                    return default;
+                };
+                let specialized =
+                    self.specialize(&form, vec![self.instantiate(&model)], call.range, errors);
+                Type::Type(Box::new(specialized))
+            }
+            "modelformset_factory" => {
+                let form = if let Some(form_expr) = call.arguments.find_argument_value("form", 1) {
+                    let Type::ClassDef(form) = self.expr_infer(form_expr, errors) else {
+                        return default;
+                    };
+                    form
+                } else {
+                    let Some(form) = self.try_get_from_export(
+                        ModuleName::from_str("django.forms.models"),
+                        MODEL_FORM,
+                    ) else {
+                        return default;
+                    };
+                    let Type::ClassDef(form) = form.as_ref() else {
+                        return default;
+                    };
+                    form.clone()
+                };
+                let specialized_form =
+                    self.specialize(&form, vec![self.instantiate(&model)], call.range, errors);
+                let formset =
+                    if let Some(formset_expr) = call.arguments.find_argument_value("formset", 3) {
+                        let Type::ClassDef(formset) = self.expr_infer(formset_expr, errors) else {
+                            return default;
+                        };
+                        formset
+                    } else {
+                        let Some(formset) = self.try_get_from_export(
+                            ModuleName::from_str("django.forms.models"),
+                            BASE_MODEL_FORM_SET,
+                        ) else {
+                            return default;
+                        };
+                        let Type::ClassDef(formset) = formset.as_ref() else {
+                            return default;
+                        };
+                        formset.clone()
+                    };
+                let specialized = self.specialize(
+                    &formset,
+                    vec![self.instantiate(&model), specialized_form],
+                    call.range,
+                    errors,
+                );
+                Type::Type(Box::new(specialized))
+            }
+            _ => default,
+        }
     }
 
     pub(crate) fn framework_type_alias_override(

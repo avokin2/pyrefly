@@ -296,7 +296,7 @@ class ApiView(views.View):
 
 // AUTH_USER_MODEL points at a custom model, so `request.user` should be `CustomUser | AnonymousUser`.
 fn env_user_model_from_settings() -> TestEnv {
-    let mut env = django_env();
+    let mut env = django_env().with_framework_option("django", "settings-module", "app.settings");
     env.add(
         "app.settings",
         r#"
@@ -332,15 +332,17 @@ testcase!(
     test_user_model_type_parsed_from_settings,
     env_user_model_from_settings(),
     r#"
-from typing import assert_type
+from typing import assert_type, override
 from django import views
 from django.contrib.auth.models import AnonymousUser
 from users.models import CustomUser
 
 class ApiView(views.View):
+    @override
     def dispatch(self, request, *args, **kwargs):
         expr = request.user
         assert_type(expr, CustomUser | AnonymousUser)
+        return super().dispatch(request, *args, **kwargs)
 "#,
 );
 

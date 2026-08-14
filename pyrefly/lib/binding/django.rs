@@ -6,6 +6,7 @@
  */
 
 use ruff_python_ast::Expr;
+use ruff_python_ast::ExprCall;
 use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
 use starlark_map::small_map::SmallMap;
@@ -19,6 +20,15 @@ const FOREIGN_KEY: Name = Name::new_static("ForeignKey");
 const ONE_TO_ONE_FIELD: Name = Name::new_static("OneToOneField");
 const MANY_TO_MANY_FIELD: Name = Name::new_static("ManyToManyField");
 const CHOICES: Name = Name::new_static("choices");
+
+/// Return the target expression passed to a Django relation constructor.
+pub fn django_relation_target(call: &ExprCall) -> Option<&Expr> {
+    call.arguments.args.first().or_else(|| {
+        call.arguments
+            .find_keyword("to")
+            .map(|keyword| &keyword.value)
+    })
+}
 
 /// Django-specific field information detected during binding phase.
 #[derive(Clone, Debug, Default)]

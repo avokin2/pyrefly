@@ -34,6 +34,8 @@ use ruff_python_ast::name::Name;
 use starlark_map::small_map::SmallMap;
 use starlark_map::small_set::SmallSet;
 
+use crate::binding::django::django_relation_target;
+
 const FOREIGN_KEY: Name = Name::new_static("ForeignKey");
 const ONE_TO_ONE_FIELD: Name = Name::new_static("OneToOneField");
 const MANY_TO_MANY_FIELD: Name = Name::new_static("ManyToManyField");
@@ -213,10 +215,7 @@ fn scan_class_member(stmt: &Stmt, scan: &mut DjangoScan) {
     {
         return;
     }
-    // The solver reads the target from the first positional argument only
-    // (`alt/class/django.rs`), so `ForeignKey(to=Question)` contributes no
-    // reverse accessor today. We must ignore it for the same reason.
-    let Some(target) = call.arguments.args.first() else {
+    let Some(target) = django_relation_target(call) else {
         return;
     };
     if let Some(name) = relation_target(target) {
@@ -320,12 +319,11 @@ class Book(models.Model):
     }
 
     #[test]
-    fn test_keyword_target_is_ignored_like_the_solver_does() {
-        // `alt/class/django.rs` reads the first positional argument only, so
-        // `to=` synthesizes nothing. Recording it here would promise an
-        // accessor the solver never produces.
-        let scan = scan("class B(models.Model):\n    a = models.ForeignKey(to=Author)\n");
-        assert!(scan.is_empty());
+    fn test_keyword_target_is_indexed() {
+        assert_eq!(
+            targets("class B(models.Model):\n    a = models.ForeignKey(to=Author)\n"),
+            vec!["Author"]
+        );
     }
 
     #[test]

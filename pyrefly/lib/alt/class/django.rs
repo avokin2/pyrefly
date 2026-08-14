@@ -43,6 +43,7 @@ use crate::binding::binding::BindingDjangoRelations;
 use crate::binding::binding::ClassFieldDefinition;
 use crate::binding::binding::ExprOrBinding;
 use crate::binding::binding::KeyExport;
+use crate::binding::django::django_relation_target;
 use crate::error::collector::ErrorCollector;
 use crate::types::simplify::unions;
 
@@ -422,7 +423,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         let base_type = if field_name.is_some()
             && let Some(e) = initial_value_expr
             && let Some(call_expr) = e.as_call_expr()
-            && let Some(to_expr) = call_expr.arguments.args.first()
+            && let Some(to_expr) = django_relation_target(call_expr)
             && let Some(model_type) = self.resolve_target(to_expr, class)
         {
             if self.is_foreign_key_like_field(field) {
@@ -899,7 +900,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     continue;
                 };
 
-                let Some(to_expr) = call_expr.arguments.args.first() else {
+                let Some(to_expr) = django_relation_target(call_expr) else {
                     continue;
                 };
                 let Some(target_type) = self.resolve_target(to_expr, source_class) else {

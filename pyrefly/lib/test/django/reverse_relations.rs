@@ -311,6 +311,23 @@ assert_type(author.book_set, RelatedManager[Book])
 "#,
 );
 
+testcase!(
+    test_foreign_key_reverse_cross_module_keyword_target,
+    django_env_with_separate_models(),
+    r#"
+from django.db import models
+from django.db.models.fields.related_descriptors import RelatedManager
+from typing import assert_type
+from .author import Author
+
+class Book(models.Model):
+    author = models.ForeignKey(to=Author, on_delete=models.CASCADE)
+
+author = Author()
+assert_type(author.book_set, RelatedManager[Book])
+"#,
+);
+
 // OneToOneField reverse relation: returns single object (not a manager like FK)
 // Default name is just the lowercase model name without `_set`
 django_testcase!(
@@ -807,19 +824,22 @@ author.book_set  # E: `Author` has no attribute `book_set`
 "#,
 );
 
-// The solver reads the target from the first positional argument only, so a
-// keyword target synthesizes nothing even within one module.
 django_testcase!(
     test_foreign_key_reverse_keyword_target,
     r#"
 from django.db import models
+from django.db.models.fields.related_descriptors import RelatedManager
+from typing import assert_type
 
 class Author(models.Model): ...
 
 class Book(models.Model):
     author = models.ForeignKey(to=Author, on_delete=models.CASCADE)
 
+book = Book()
+assert_type(book.author, Author)
+
 author = Author()
-author.book_set  # E: `Author` has no attribute `book_set`
+assert_type(author.book_set, RelatedManager[Book])
 "#,
 );

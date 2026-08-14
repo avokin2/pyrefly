@@ -48,15 +48,11 @@ pub const RELATION_TOKENS: [&str; 3] = ["ForeignKey", "OneToOneField", "ManyToMa
 pub struct DjangoScan {
     /// Short names of the models this module declares relations to.
     pub targets: SmallSet<Name>,
-    /// Whether some relation here has a target we cannot read syntactically,
-    /// such as a variable or an f-string. Such a module is consulted for every
-    /// target, because we cannot rule it out.
-    pub unresolved_target: bool,
 }
 
 impl DjangoScan {
     pub fn is_empty(&self) -> bool {
-        self.targets.is_empty() && !self.unresolved_target
+        self.targets.is_empty()
     }
 }
 
@@ -76,9 +72,6 @@ pub struct DjangoRelationIndex {
     /// Target short name to the modules that may declare a relation to it,
     /// sorted for deterministic merge order.
     by_target: SmallMap<Name, Vec<(ModuleName, ModulePath)>>,
-    /// Modules whose relation target we could not read syntactically. They are
-    /// consulted for every target, because we cannot rule them out.
-    unresolved: Vec<(ModuleName, ModulePath)>,
 }
 
 /// Sorting by the rendered strings rather than by `ModuleName`'s derived
@@ -90,7 +83,6 @@ fn candidate_sort_key(candidate: &(ModuleName, ModulePath)) -> (String, String) 
 impl DjangoRelationIndex {
     pub fn new(files: SmallMap<ModulePath, IndexedModule>) -> Self {
         let mut by_target: SmallMap<Name, Vec<(ModuleName, ModulePath)>> = SmallMap::new();
-        let mut unresolved = Vec::new();
         for (path, (module, scan)) in &files {
             let candidate = (*module, path.dupe());
             for target in &scan.targets {
@@ -99,19 +91,11 @@ impl DjangoRelationIndex {
                     .or_default()
                     .push(candidate.clone());
             }
-            if scan.unresolved_target {
-                unresolved.push(candidate);
-            }
         }
         for candidates in by_target.values_mut() {
             candidates.sort_by_key(candidate_sort_key);
         }
-        unresolved.sort_by_key(candidate_sort_key);
-        Self {
-            files,
-            by_target,
-            unresolved,
-        }
+        Self { files, by_target }
     }
 
     pub fn files(&self) -> &SmallMap<ModulePath, IndexedModule> {
@@ -121,19 +105,7 @@ impl DjangoRelationIndex {
     /// The modules that may declare a reverse accessor on a model named
     /// `target`, in a deterministic order.
     pub fn candidates(&self, target: &Name) -> Vec<(ModuleName, ModulePath)> {
-        let named = self.by_target.get(target).map_or(&[][..], Vec::as_slice);
-        if self.unresolved.is_empty() {
-            return named.to_vec();
-        }
-        let mut candidates = named.to_vec();
-        candidates.extend(
-            self.unresolved
-                .iter()
-                .filter(|c| !named.contains(c))
-                .cloned(),
-        );
-        candidates.sort_by_key(candidate_sort_key);
-        candidates
+        self.by_target.get(target).map_or_else(Vec::new, Vec::clone)
     }
 }
 
@@ -165,19 +137,12 @@ impl DjangoReaders {
             .into_iter()
             .flat_map(|paths| paths.iter())
     }
-
-    fn all(&self) -> impl Iterator<Item = &ModulePath> {
-        self.0.values().flat_map(|paths| paths.iter())
-    }
 }
 
 /// Accumulates the target names whose candidate set changed during a refresh.
 #[derive(Debug, Default)]
 pub struct ChangedTargets {
     names: SmallSet<Name>,
-    /// Set when a module gained or lost an unreadable target, which changes
-    /// the candidate set of every name at once.
-    all: bool,
 }
 
 impl ChangedTargets {
@@ -186,9 +151,6 @@ impl ChangedTargets {
         let empty = DjangoScan::default();
         let before = before.unwrap_or(&empty);
         let after = after.unwrap_or(&empty);
-        if before.unresolved_target != after.unresolved_target {
-            self.all = true;
-        }
         for target in before.targets.difference(&after.targets) {
             self.names.insert(target.clone());
         }
@@ -201,25 +163,9 @@ impl ChangedTargets {
     pub fn stale_readers<'a>(
         &'a self,
         readers: &'a DjangoReaders,
-    ) -> Box<dyn Iterator<Item = &'a ModulePath> + 'a> {
-        if self.all {
-            Box::new(readers.all())
-        } else {
-            Box::new(self.names.iter().flat_map(|name| readers.of(name)))
-        }
+    ) -> impl Iterator<Item = &'a ModulePath> + 'a {
+        self.names.iter().flat_map(|name| readers.of(name))
     }
-}
-
-/// What the first positional argument of a relation constructor names.
-enum RelationTarget {
-    /// A model we can name syntactically.
-    Named(Name),
-    /// The literal `"self"`. The accessor lands on the declaring class, so the
-    /// declaring module's own relation map already covers it and no
-    /// cross-module routing entry is needed.
-    SelfReference,
-    /// Something we cannot read without inferring types.
-    Unresolved,
 }
 
 /// Collect the Django relation routing information of a parsed module.
@@ -270,36 +216,32 @@ fn scan_class_member(stmt: &Stmt, scan: &mut DjangoScan) {
     // The solver reads the target from the first positional argument only
     // (`alt/class/django.rs`), so `ForeignKey(to=Question)` contributes no
     // reverse accessor today. We must ignore it for the same reason.
-    match call
-        .arguments
-        .args
-        .first()
-        .map_or(RelationTarget::Unresolved, relation_target)
-    {
-        RelationTarget::Named(name) => {
-            scan.targets.insert(name);
-        }
-        RelationTarget::SelfReference => {}
-        RelationTarget::Unresolved => scan.unresolved_target = true,
+    let Some(target) = call.arguments.args.first() else {
+        return;
+    };
+    if let Some(name) = relation_target(target) {
+        scan.targets.insert(name);
     }
 }
 
-fn relation_target(arg: &Expr) -> RelationTarget {
+fn relation_target(arg: &Expr) -> Option<Name> {
     match arg {
-        Expr::Name(x) => RelationTarget::Named(x.id.clone()),
-        Expr::Attribute(x) => RelationTarget::Named(x.attr.id.clone()),
+        Expr::Name(x) => Some(x.id.clone()),
+        Expr::Attribute(x) => Some(x.attr.id.clone()),
         Expr::StringLiteral(x) => {
             let value = x.value.to_str();
             if value == "self" {
-                return RelationTarget::SelfReference;
+                // The accessor lands on the declaring class, so the module's
+                // own relation map already covers it.
+                return None;
             }
             // `"app_label.Model"` — the app label is not used for lookup, the
             // same way `resolve_target` discards it.
-            RelationTarget::Named(Name::new(
+            Some(Name::new(
                 value.rsplit_once('.').map_or(value, |(_, model)| model),
             ))
         }
-        _ => RelationTarget::Unresolved,
+        _ => None,
     }
 }
 
@@ -339,7 +281,6 @@ class Book(models.Model):
             scan.targets.iter().map(|x| x.as_str()).collect::<Vec<_>>(),
             vec!["Author", "Editor", "Place", "Tag"]
         );
-        assert!(!scan.unresolved_target);
     }
 
     #[test]
@@ -367,17 +308,15 @@ class Book(models.Model):
         // The accessor lands on the declaring class, which the module's own
         // relation map already covers.
         let scan = scan("class B(models.Model):\n    parent = models.ForeignKey('self')\n");
-        assert!(scan.targets.is_empty());
-        assert!(!scan.unresolved_target);
+        assert!(scan.is_empty());
     }
 
     #[test]
-    fn test_unreadable_target_marks_module_as_always_consulted() {
+    fn test_unreadable_target_is_ignored() {
         let scan = scan(
             "class B(models.Model):\n    a = models.ForeignKey(settings.AUTH_USER_MODEL_REF())\n",
         );
-        assert!(scan.targets.is_empty());
-        assert!(scan.unresolved_target);
+        assert!(scan.is_empty());
     }
 
     #[test]
@@ -386,8 +325,7 @@ class Book(models.Model):
         // `to=` synthesizes nothing. Recording it here would promise an
         // accessor the solver never produces.
         let scan = scan("class B(models.Model):\n    a = models.ForeignKey(to=Author)\n");
-        assert!(scan.targets.is_empty());
-        assert!(scan.unresolved_target);
+        assert!(scan.is_empty());
     }
 
     #[test]
@@ -428,8 +366,7 @@ class B(models.Model):
     count = models.IntegerField()
 "#,
         );
-        assert!(scan.targets.is_empty());
-        assert!(!scan.unresolved_target);
+        assert!(scan.is_empty());
     }
 
     #[test]

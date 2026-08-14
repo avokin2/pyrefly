@@ -66,10 +66,12 @@ fn setup_django_project(file_content: &str) -> (TspInteraction, String, i32) {
     let django_path = std::env::var("DJANGO_TEST_PATH").expect("DJANGO_TEST_PATH must be set");
     let site_packages = temp_dir.path().join("site-packages");
     std::fs::create_dir(&site_packages).unwrap();
+    let django_stubs_path = std::path::Path::new(&django_path).join("django-stubs");
     #[cfg(unix)]
-    std::os::unix::fs::symlink(&django_path, site_packages.join("django")).unwrap();
+    std::os::unix::fs::symlink(&django_stubs_path, site_packages.join("django-stubs")).unwrap();
     #[cfg(windows)]
-    std::os::windows::fs::symlink_dir(&django_path, site_packages.join("django")).unwrap();
+    std::os::windows::fs::symlink_dir(&django_stubs_path, site_packages.join("django-stubs"))
+        .unwrap();
     std::fs::write(
         temp_dir.path().join("pyrefly.toml"),
         "site-package-path = [\"site-packages\"]\n",

@@ -127,10 +127,9 @@ use crate::module::typeshed::BundledTypeshedStdlib;
 use crate::module::typeshed::custom_typeshed_stdlib_config;
 use crate::solver::solver::VarRecurser;
 use crate::state::django_index::ChangedTargets;
+use crate::state::django_index::DjangoModuleData;
 use crate::state::django_index::DjangoReaders;
 use crate::state::django_index::DjangoRelationIndex;
-use crate::state::django_index::DjangoScan;
-use crate::state::django_index::IndexedModule;
 use crate::state::django_index::RELATION_TOKENS;
 use crate::state::django_index::django_scan;
 use crate::state::epoch::Epoch;
@@ -2023,7 +2022,7 @@ impl<'a> Transaction<'a> {
         // that no longer exists. Entries under other configs are untouched,
         // because this run may have been given handles from only some of them.
         let vanished: Vec<ModulePath> = index
-            .files()
+            .module_data_by_path()
             .keys()
             .filter(|path| !to_scan.contains(*path) && walked.contains(&self.path_config(path)))
             .duped()
@@ -2043,17 +2042,15 @@ impl<'a> Transaction<'a> {
             return;
         };
 
-        let mut files = index.files().clone();
+        let mut modules = index.module_data_by_path().clone();
         let mut changed = ChangedTargets::default();
         for path in vanished {
-            if let Some((_, before)) = files.shift_remove(&path) {
-                changed.record(Some(&before), None);
+            if let Some(before) = modules.shift_remove(&path) {
+                changed.record(Some(&before.relation_targets), None);
             }
         }
         for (path, scan) in scanned {
-            let before = files
-                .get(&path)
-                .map(|(_, scan): &IndexedModule| scan.clone());
+            let before = modules.get(&path).map(|data| data.relation_targets.clone());
             match scan {
                 Some(scan) => {
                     // The source db resolves in-memory test modules, which no
@@ -2063,16 +2060,22 @@ impl<'a> Transaction<'a> {
                         .handle_from_module_path(path.dupe())
                         .module();
                     changed.record(before.as_ref(), Some(&scan));
-                    files.insert(path, (module, scan));
+                    modules.insert(
+                        path,
+                        DjangoModuleData {
+                            module_name: module,
+                            relation_targets: scan,
+                        },
+                    );
                 }
                 None => {
-                    files.shift_remove(&path);
+                    modules.shift_remove(&path);
                     changed.record(before.as_ref(), None);
                 }
             }
         }
 
-        let index = Arc::new(DjangoRelationIndex::new(files));
+        let index = Arc::new(DjangoRelationIndex::new(modules));
         let mut readers = self.readable.django_readers.clone();
         readers.merge(self.data.django_readers.lock().clone());
         let stale: SmallSet<ModulePath> = changed.stale_readers(&readers).duped().collect();
@@ -2137,7 +2140,7 @@ impl<'a> Transaction<'a> {
         &self,
         paths: &SmallSet<ModulePath>,
         custom_thread_pool: Option<&ThreadPool>,
-    ) -> Option<Vec<(ModulePath, Option<DjangoScan>)>> {
+    ) -> Option<Vec<(ModulePath, Option<SmallSet<Name>>)>> {
         let paths = paths.iter().duped().collect::<Vec<_>>();
         let results = paths.iter().map(|_| Mutex::new(None)).collect::<Vec<_>>();
         let next = AtomicUsize::new(0);
@@ -3354,7 +3357,9 @@ impl<'a> LookupAnswer for TransactionHandle<'a> {
             .django_readers
             .lock()
             .record(target, self.module_data.handle.path());
-        self.transaction.django_relation_index().candidates(target)
+        self.transaction
+            .django_relation_index()
+            .modules_for_relation_target(target)
     }
 
     fn commit_to_module(

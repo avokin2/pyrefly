@@ -45,69 +45,73 @@ const MANY_TO_MANY_FIELD: Name = Name::new_static("ManyToManyField");
 /// parsing the overwhelming majority of a project's files.
 pub const RELATION_TOKENS: [&str; 3] = ["ForeignKey", "OneToOneField", "ManyToManyField"];
 
-/// What one module contributes to the routing table.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DjangoScan {
-    /// Short names of the models this module declares relations to.
-    pub targets: SmallSet<Name>,
+/// The relation-routing information contributed by one module.
+#[derive(Debug, Clone)]
+pub struct DjangoModuleData {
+    pub module_name: ModuleName,
+    pub relation_targets: SmallSet<Name>,
 }
-
-impl DjangoScan {
-    pub fn is_empty(&self) -> bool {
-        self.targets.is_empty()
-    }
-}
-
-/// One module's entry in the index: how to demand its relation map, and what
-/// it contributes.
-pub type IndexedModule = (ModuleName, DjangoScan);
 
 /// The project-wide routing table.
 ///
-/// Immutable once built. A refresh produces a new one from an updated file
-/// map, so a transaction that is never committed simply drops its copy.
+/// Immutable once built. A refresh produces a new one from updated module
+/// information, so a transaction that is never committed simply drops its copy.
 #[derive(Debug, Default)]
 pub struct DjangoRelationIndex {
     /// Only modules with something to contribute are stored; a module absent
     /// here has been scanned and found empty.
-    files: SmallMap<ModulePath, IndexedModule>,
-    /// Target short name to the modules that may declare a relation to it,
+    modules: SmallMap<ModulePath, DjangoModuleData>,
+    /// Model short name to the modules that may declare a relation to it,
     /// sorted for deterministic merge order.
-    by_target: SmallMap<Name, Vec<(ModuleName, ModulePath)>>,
-}
-
-/// Sorting by the rendered strings rather than by `ModuleName`'s derived
-/// ordering, which compares interned pointers and so varies between runs.
-fn candidate_sort_key(candidate: &(ModuleName, ModulePath)) -> (String, String) {
-    (candidate.0.as_str().to_owned(), candidate.1.to_string())
+    modules_by_relation_target: SmallMap<Name, Vec<ModulePath>>,
 }
 
 impl DjangoRelationIndex {
-    pub fn new(files: SmallMap<ModulePath, IndexedModule>) -> Self {
-        let mut by_target: SmallMap<Name, Vec<(ModuleName, ModulePath)>> = SmallMap::new();
-        for (path, (module, scan)) in &files {
-            let candidate = (*module, path.dupe());
-            for target in &scan.targets {
-                by_target
-                    .entry(target.clone())
+    pub fn new(module_data_by_path: SmallMap<ModulePath, DjangoModuleData>) -> Self {
+        let mut module_paths_by_relation_target: SmallMap<Name, Vec<ModulePath>> = SmallMap::new();
+        for (path, data) in &module_data_by_path {
+            for model_name in &data.relation_targets {
+                module_paths_by_relation_target
+                    .entry(model_name.clone())
                     .or_default()
-                    .push(candidate.clone());
+                    .push(path.dupe());
             }
         }
-        for candidates in by_target.values_mut() {
-            candidates.sort_by_key(candidate_sort_key);
+        for paths in module_paths_by_relation_target.values_mut() {
+            // Sort by rendered names because `ModuleName`'s derived ordering
+            // compares interned pointers and varies between runs.
+            paths.sort_by_key(|path| {
+                let data = module_data_by_path
+                    .get(path)
+                    .expect("the reverse index must reference an indexed module");
+                (data.module_name.as_str().to_owned(), path.to_string())
+            });
         }
-        Self { files, by_target }
+        Self {
+            modules: module_data_by_path,
+            modules_by_relation_target: module_paths_by_relation_target,
+        }
     }
 
-    pub fn files(&self) -> &SmallMap<ModulePath, IndexedModule> {
-        &self.files
+    pub fn module_data_by_path(&self) -> &SmallMap<ModulePath, DjangoModuleData> {
+        &self.modules
     }
 
-    /// The modules that may declare a reverse accessor on a model named
-    /// `target`, in a deterministic order.
-    pub fn candidates(&self, target: &Name) -> Vec<(ModuleName, ModulePath)> {
-        self.by_target.get(target).map_or_else(Vec::new, Vec::clone)
+    /// The modules that may declare a reverse accessor on `model_name`, in a
+    /// deterministic order.
+    pub fn modules_for_relation_target(&self, model_name: &Name) -> Vec<(ModuleName, ModulePath)> {
+        self.modules_by_relation_target
+            .get(model_name)
+            .into_iter()
+            .flatten()
+            .map(|path| {
+                let data = self
+                    .modules
+                    .get(path)
+                    .expect("the reverse index must reference an indexed module");
+                (data.module_name, path.dupe())
+            })
+            .collect()
     }
 }
 
@@ -149,14 +153,14 @@ pub struct ChangedTargets {
 
 impl ChangedTargets {
     /// Record the difference a rescan of one file made.
-    pub fn record(&mut self, before: Option<&DjangoScan>, after: Option<&DjangoScan>) {
-        let empty = DjangoScan::default();
+    pub fn record(&mut self, before: Option<&SmallSet<Name>>, after: Option<&SmallSet<Name>>) {
+        let empty = SmallSet::new();
         let before = before.unwrap_or(&empty);
         let after = after.unwrap_or(&empty);
-        for target in before.targets.difference(&after.targets) {
+        for target in before.difference(after) {
             self.names.insert(target.clone());
         }
-        for target in after.targets.difference(&before.targets) {
+        for target in after.difference(before) {
             self.names.insert(target.clone());
         }
     }
@@ -171,15 +175,15 @@ impl ChangedTargets {
 }
 
 /// Collect the Django relation routing information of a parsed module.
-pub fn django_scan(module: &ModModule) -> DjangoScan {
-    let mut scan = DjangoScan::default();
+pub fn django_scan(module: &ModModule) -> SmallSet<Name> {
+    let mut scan = SmallSet::new();
     for stmt in &module.body {
         scan_stmt(stmt, &mut scan);
     }
     scan
 }
 
-fn scan_stmt(stmt: &Stmt, scan: &mut DjangoScan) {
+fn scan_stmt(stmt: &Stmt, scan: &mut SmallSet<Name>) {
     if let Stmt::ClassDef(cls) = stmt {
         for member in &cls.body {
             scan_class_member(member, scan);
@@ -192,7 +196,7 @@ fn scan_stmt(stmt: &Stmt, scan: &mut DjangoScan) {
 }
 
 /// Record the relation declared by a class-body assignment, if there is one.
-fn scan_class_member(stmt: &Stmt, scan: &mut DjangoScan) {
+fn scan_class_member(stmt: &Stmt, scan: &mut SmallSet<Name>) {
     let value = match stmt {
         Stmt::Assign(x) => Some(&*x.value),
         Stmt::AnnAssign(x) => x.value.as_deref(),
@@ -219,7 +223,7 @@ fn scan_class_member(stmt: &Stmt, scan: &mut DjangoScan) {
         return;
     };
     if let Some(name) = relation_target(target) {
-        scan.targets.insert(name);
+        scan.insert(name);
     }
 }
 
@@ -251,18 +255,14 @@ mod tests {
 
     use super::*;
 
-    fn scan(contents: &str) -> DjangoScan {
+    fn scan(contents: &str) -> SmallSet<Name> {
         let (module, errors, _) = Ast::parse(contents, PySourceType::Python);
         assert!(errors.is_empty(), "test source failed to parse: {errors:?}");
         django_scan(&module)
     }
 
     fn targets(contents: &str) -> Vec<String> {
-        scan(contents)
-            .targets
-            .into_iter()
-            .map(|x| x.to_string())
-            .collect()
+        scan(contents).into_iter().map(|x| x.to_string()).collect()
     }
 
     #[test]
@@ -277,7 +277,7 @@ class Book(models.Model):
 "#,
         );
         assert_eq!(
-            scan.targets.iter().map(|x| x.as_str()).collect::<Vec<_>>(),
+            scan.iter().map(|x| x.as_str()).collect::<Vec<_>>(),
             vec!["Author", "Editor", "Place", "Tag"]
         );
     }
@@ -350,7 +350,7 @@ def factory():
 "#,
         );
         assert_eq!(
-            scan.targets.iter().map(|x| x.as_str()).collect::<Vec<_>>(),
+            scan.iter().map(|x| x.as_str()).collect::<Vec<_>>(),
             vec!["Author", "Editor"]
         );
     }

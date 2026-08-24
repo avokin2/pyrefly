@@ -10,6 +10,7 @@ use std::sync::Arc;
 use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::module_name::is_python_identifier;
 use pyrefly_types::callable::Callable;
+use pyrefly_types::callable::Param;
 use pyrefly_types::callable::ParamList;
 use pyrefly_types::class::Class;
 use pyrefly_types::function::FuncMetadata;
@@ -803,6 +804,40 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         }))
     }
 
+    /// Create a `get_next_by_FOO` / `get_previous_by_FOO` method signature. Django forwards any
+    /// extra keyword arguments to the underlying `filter()`, and returns the neighbouring instance
+    /// of the model that declares the field.
+    fn get_neighbour_by_field_method(
+        &self,
+        cls: &Class,
+        method_name: &Name,
+    ) -> ClassSynthesizedField {
+        let params = vec![
+            self.class_self_param(cls, false),
+            Param::Kwargs(None, self.heap.mk_any_implicit()),
+        ];
+        let ret = self.instantiate(cls);
+        ClassSynthesizedField::new(self.heap.mk_function(Function {
+            signature: Callable::list(ParamList::new(params), ret),
+            metadata: FuncMetadata::method(cls, method_name.clone()),
+        }))
+    }
+
+    /// Whether a field's resolved type says it is a non-nullable date or datetime field, which is
+    /// the condition Django puts on adding the `get_next_by_FOO()` accessors. Reading the resolved
+    /// type rather than the constructor call covers the `null=` argument too: a nullable field
+    /// resolves to `date | None`, and Django adds no accessor for one.
+    fn is_non_null_date_field_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::ClassType(cls) => {
+                let cls = cls.class_object();
+                cls == self.stdlib.date().class_object()
+                    || cls == self.stdlib.datetime().class_object()
+            }
+            _ => false,
+        }
+    }
+
     /// Returns the primary key type of the related model.
     fn get_foreign_key_id_type(&self, class_field: &ClassField) -> Option<Type> {
         // Check if this is a ForeignKey field using the cached metadata
@@ -871,6 +906,23 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 method_name.clone(),
                 self.get_display_method(cls, &method_name),
             );
+        }
+
+        // Synthesize `get_next_by_<field_name>()` / `get_previous_by_<field_name>()` for
+        // non-nullable date and datetime fields. Binding names the candidates cheaply; the
+        // resolved field type decides, so a class merely *named* like a date field is rejected.
+        for field_name in &django_metadata.date_field_candidates {
+            if let Some(class_field) = self.get_field_from_current_class_only(cls, field_name)
+                && self.is_non_null_date_field_type(&class_field.ty())
+            {
+                for prefix in ["get_next_by", "get_previous_by"] {
+                    let method_name = Name::new(format!("{}_{}", prefix, field_name));
+                    fields.insert(
+                        method_name.clone(),
+                        self.get_neighbour_by_field_method(cls, &method_name),
+                    );
+                }
+            }
         }
 
         // A relation to this model can be declared in any module, so consult

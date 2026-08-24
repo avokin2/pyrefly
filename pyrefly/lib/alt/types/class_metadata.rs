@@ -714,6 +714,8 @@ pub struct DjangoModelMetadata {
     pub foreign_key_like_fields: Vec<Name>,
     /// Names of fields with choices=...
     pub fields_with_choices: Vec<Name>,
+    /// Names of fields that may be date or datetime fields
+    pub date_field_candidates: Vec<Name>,
 }
 
 #[derive(Clone, Debug, TypeEq, PartialEq, Eq, Default)]

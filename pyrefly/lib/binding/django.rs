@@ -20,6 +20,8 @@ const FOREIGN_KEY: Name = Name::new_static("ForeignKey");
 const ONE_TO_ONE_FIELD: Name = Name::new_static("OneToOneField");
 const MANY_TO_MANY_FIELD: Name = Name::new_static("ManyToManyField");
 const CHOICES: Name = Name::new_static("choices");
+const DATE_FIELD_SUFFIX: &str = "DateField";
+const DATE_TIME_FIELD_SUFFIX: &str = "DateTimeField";
 
 /// Return the target expression passed to a Django relation constructor.
 pub fn django_relation_target(call: &ExprCall) -> Option<&Expr> {
@@ -41,6 +43,9 @@ pub struct DjangoFieldInfo {
     pub relation_fields: Vec<Name>,
     /// Names of fields with choices=...
     pub fields_with_choices: Vec<Name>,
+    /// Names of fields whose constructor looks like a date or datetime field. These are only
+    /// candidates for `get_next_by_FOO()` / `get_previous_by_FOO()`.
+    pub date_field_candidates: Vec<Name>,
 }
 
 impl<'a> BindingsBuilder<'a> {
@@ -55,6 +60,7 @@ impl<'a> BindingsBuilder<'a> {
         let mut foreign_key_like_fields = Vec::new();
         let mut relation_fields = Vec::new();
         let mut fields_with_choices = Vec::new();
+        let mut date_field_candidates = Vec::new();
         for (name, (definition, _range)) in field_definitions.iter() {
             if let ClassFieldDefinition::AssignedInBody { value, .. } = definition
                 && let ExprOrBinding::Expr(e) = value.as_ref()
@@ -70,6 +76,11 @@ impl<'a> BindingsBuilder<'a> {
                         relation_fields.push(name.clone());
                     } else if *constructor_name == MANY_TO_MANY_FIELD {
                         relation_fields.push(name.clone());
+                    }
+                    if constructor_name.ends_with(DATE_FIELD_SUFFIX)
+                        || constructor_name.ends_with(DATE_TIME_FIELD_SUFFIX)
+                    {
+                        date_field_candidates.push(name.clone());
                     }
                 }
 
@@ -96,6 +107,7 @@ impl<'a> BindingsBuilder<'a> {
             foreign_key_like_fields,
             relation_fields,
             fields_with_choices,
+            date_field_candidates,
         }
     }
 }

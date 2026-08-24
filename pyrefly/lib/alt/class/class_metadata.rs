@@ -302,6 +302,7 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                 ),
                 foreign_key_like_fields: django_field_info.foreign_key_like_fields.clone(),
                 fields_with_choices: django_field_info.fields_with_choices.clone(),
+                date_field_candidates: django_field_info.date_field_candidates.clone(),
             })
         } else {
             None

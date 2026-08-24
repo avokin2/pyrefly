@@ -109,3 +109,78 @@ assert_type(obj.id, str)
 assert_type(obj.pk, str)
 "#,
 );
+
+// Django adds `get_next_by_FOO()` / `get_previous_by_FOO()` for every date and datetime field that
+// cannot be null. Both return the neighbouring instance of the declaring model.
+django_testcase!(
+    test_get_next_and_previous_by_date_field,
+    r#"
+from typing import assert_type
+
+from django.db import models
+
+class Person(models.Model):
+    birthday = models.DateField()
+    created = models.DateTimeField()
+
+person = Person()
+assert_type(person.get_next_by_birthday(), Person)
+assert_type(person.get_previous_by_birthday(), Person)
+assert_type(person.get_next_by_created(), Person)
+assert_type(person.get_previous_by_created(), Person)
+# Django forwards extra keywords to the underlying `filter()` call.
+assert_type(person.get_next_by_birthday(created__gt=person.created), Person)
+"#,
+);
+
+django_testcase!(
+    test_no_get_next_by_for_nullable_or_non_date_fields,
+    r#"
+from django.db import models
+
+class Person(models.Model):
+    # A nullable column has no defined neighbour, so Django adds no accessor.
+    maybe_birthday = models.DateField(null=True)
+    name = models.CharField(max_length=60)
+
+person = Person()
+person.get_next_by_maybe_birthday  # E: Object of class `Person` has no attribute `get_next_by_maybe_birthday`
+person.get_next_by_name  # E: Object of class `Person` has no attribute `get_next_by_name`
+"#,
+);
+
+django_testcase!(
+    test_get_next_by_with_explicit_null_false,
+    r#"
+from typing import assert_type
+
+from django.db import models
+
+class Person(models.Model):
+    birthday = models.DateField(null=False)
+
+assert_type(Person().get_next_by_birthday(), Person)
+"#,
+);
+
+// The accessors follow the field's resolved type, not its constructor name: a subclass of
+// `DateField` keeps them, and a class that merely looks like one does not get them.
+django_testcase!(
+    test_get_next_by_follows_resolved_field_type,
+    r#"
+from typing import assert_type
+
+from django.db import models
+
+class AuditDateField(models.DateField): ...
+
+class NotReallyADateField(models.CharField): ...
+
+class Person(models.Model):
+    reviewed = AuditDateField()
+    label = NotReallyADateField()
+
+assert_type(Person().get_next_by_reviewed(), Person)
+Person().get_next_by_label  # E: Object of class `Person` has no attribute `get_next_by_label`
+"#,
+);

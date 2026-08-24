@@ -305,6 +305,14 @@ impl ModuleName {
         Self::from_str("django.utils.functional")
     }
 
+    pub fn django_models_manager() -> Self {
+        Self::from_str("django.db.models.manager")
+    }
+
+    pub fn django_models_query() -> Self {
+        Self::from_str("django.db.models.query")
+    }
+
     pub fn factory_base() -> Self {
         Self::from_str("factory.base")
     }

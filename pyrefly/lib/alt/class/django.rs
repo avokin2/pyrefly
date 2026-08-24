@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+use dupe::Dupe;
 use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::module_name::is_python_identifier;
 use pyrefly_types::callable::Callable;
@@ -99,6 +100,9 @@ const FILE_FIELD: Name = Name::new_static("FileField");
 const IMAGE_FIELD: Name = Name::new_static("ImageField");
 const FIELD_FILE: Name = Name::new_static("FieldFile");
 const IMAGE_FIELD_FILE: Name = Name::new_static("ImageFieldFile");
+const MANAGER: Name = Name::new_static("Manager");
+const QUERY_SET: Name = Name::new_static("QuerySet");
+const AS_MANAGER: Name = Name::new_static("as_manager");
 
 /// Find a keyword argument by name and return its value expression.
 fn find_keyword<'a>(call_expr: &'a ExprCall, name: &Name) -> Option<&'a Expr> {
@@ -377,6 +381,28 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
         field_name: Option<&Name>,
         initial_value_expr: Option<&Expr>,
     ) -> Option<Type> {
+        self.get_django_field_type_inner(ty, class, field_name, initial_value_expr)
+            // A manager is not a Django field, so the paths above decline it and django-stubs'
+            // `objects: ClassVar[Manager[Self]]` declaration would otherwise win. Rebuild the
+            // manager type from the assignment instead. This runs last so that resolving a real
+            // field never has to infer the constructor expression, which would cost the field its
+            // source declaration.
+            .or_else(|| {
+                let e = initial_value_expr?;
+                if !self.get_metadata_for_class(class).is_django_model() {
+                    return None;
+                }
+                self.get_django_manager_type(class, e)
+            })
+    }
+
+    fn get_django_field_type_inner(
+        &self,
+        ty: &Type,
+        class: &Class,
+        field_name: Option<&Name>,
+        initial_value_expr: Option<&Expr>,
+    ) -> Option<Type> {
         match ty {
             Type::ClassType(cls)
                 if cls.has_qname(ModuleName::django_utils_functional().as_str(), "_Getter") =>
@@ -519,6 +545,88 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             return None;
         };
         self.django_model_from_export(files, target)
+    }
+
+    /// Type of a manager assigned in a Django model body, e.g. `objects = ArticleManager()`.
+    fn get_django_manager_type(&self, model: &Class, initial_value_expr: &Expr) -> Option<Type> {
+        let call_expr = initial_value_expr.as_call_expr()?;
+
+        // `objects = ArticleQuerySet.as_manager()` produces a manager that copies the queryset's
+        // methods. The stub return type is a plain `Manager[_Model]`, so intersect the queryset
+        // back in to keep them reachable.
+        if let Expr::Attribute(attribute) = call_expr.func.as_ref()
+            && attribute.attr.id == AS_MANAGER
+            && let Type::ClassDef(queryset) =
+                self.expr_infer(&attribute.value, &self.error_swallower())
+            && self.inherits_from(&queryset, ModuleName::django_models_query(), &QUERY_SET)
+        {
+            let manager = self.get_plain_manager_type(model)?;
+            return Some(
+                self.heap
+                    .mk_intersect(vec![manager.clone(), self.instantiate(&queryset)], manager),
+            );
+        }
+
+        // `ArticleManager()` infers to the class itself; `ArticleManager[Article]()` to an already
+        // specialized `type[ArticleManager[Article]]`.
+        let (manager, explicit) = match self.expr_infer(&call_expr.func, &self.error_swallower()) {
+            Type::ClassDef(cls) => (cls, None),
+            Type::Type(inner) => match *inner {
+                Type::ClassType(cls) => (cls.class_object().dupe(), Some(cls)),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        if !self.inherits_from(&manager, ModuleName::django_models_manager(), &BASEMANAGER) {
+            return None;
+        }
+        // A solved parameter is the user telling us which model this manager serves. Keep it, but
+        // still return it so the inherited `Manager[Self]` declaration does not erase the class.
+        // An unsolved one — as `Manager.from_queryset(...)` produces — falls through to be filled in.
+        if let Some(cls) = explicit
+            && cls.targs().as_slice().first().is_some_and(|t| !t.is_any())
+        {
+            return Some(Type::ClassType(cls));
+        }
+
+        let tparams = self.get_class_tparams(&manager);
+        if tparams.is_empty() {
+            // A bare `class ArticleManager(models.Manager)` has no parameter to bind the model to,
+            // so `ArticleManager[Article]` is unspellable. Intersecting with `Manager[Article]`
+            // keeps the manager's own methods while making the inherited, model-parameterized
+            // ones resolve.
+            let plain = self.get_plain_manager_type(model)?;
+            return Some(
+                self.heap
+                    .mk_intersect(vec![self.instantiate(&manager), plain.clone()], plain),
+            );
+        }
+
+        // Only the first parameter names the model; the rest keep their declared defaults, the way
+        // `QuerySet`'s `_Row` and `ManyRelatedManager`'s `_Through` do.
+        let mut targs: Vec<Type> = tparams.iter().map(|q| q.as_gradual_type()).collect();
+        targs[0] = self.instantiate(model);
+        Some(self.specialize(
+            &manager,
+            targs,
+            TextRange::default(),
+            &self.error_swallower(),
+        ))
+    }
+
+    /// `django.db.models.manager.Manager[model]`, the stub type every manager ultimately inherits.
+    fn get_plain_manager_type(&self, model: &Class) -> Option<Type> {
+        let manager_class_type =
+            self.try_get_from_export(ModuleName::django_models_manager(), MANAGER)?;
+        let Type::ClassDef(manager) = manager_class_type.as_ref() else {
+            return None;
+        };
+        Some(self.specialize(
+            manager,
+            vec![self.instantiate(model)],
+            TextRange::default(),
+            &self.error_swallower(),
+        ))
     }
 
     fn get_manager_type(

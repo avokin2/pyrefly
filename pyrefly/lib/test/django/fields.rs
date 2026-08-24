@@ -88,3 +88,61 @@ total_sum_typed = Default.objects.aggregate(
 assert_type(total_sum_typed, dict[str, Any]) 
 "#,
 );
+
+django_testcase!(
+    test_file_field_is_field_file,
+    r#"
+from typing import assert_type
+
+from django.db import models
+from django.db.models.fields.files import FieldFile, ImageFieldFile
+
+class Layout(models.Model):
+    attachment = models.FileField(upload_to="file")
+    avatar = models.ImageField(upload_to="file")
+
+layout = Layout()
+# django-stubs types `FileField.__get__` as `Any` because the attribute also accepts a bare path.
+# Django hands back a `FieldFile`, which is what makes `.path` and `.width` resolve.
+assert_type(layout.attachment, FieldFile)
+assert_type(layout.avatar, ImageFieldFile)
+assert_type(layout.attachment.path, str)
+assert_type(layout.avatar.width, int)
+"#,
+);
+
+django_testcase!(
+    test_file_field_subclass_is_field_file,
+    r#"
+from typing import assert_type
+
+from django.db import models
+from django.db.models.fields.files import FieldFile, ImageFieldFile
+
+class MyFileField(models.FileField): ...
+class MyImageField(models.ImageField): ...
+
+class Layout(models.Model):
+    attachment = MyFileField()
+    avatar = MyImageField()
+
+layout = Layout()
+assert_type(layout.attachment, FieldFile)
+assert_type(layout.avatar, ImageFieldFile)
+"#,
+);
+
+django_testcase!(
+    test_nullable_file_field,
+    r#"
+from typing import assert_type
+
+from django.db import models
+from django.db.models.fields.files import FieldFile
+
+class Layout(models.Model):
+    attachment = models.FileField(null=True)
+
+assert_type(Layout().attachment, FieldFile | None)
+"#,
+);

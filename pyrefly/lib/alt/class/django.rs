@@ -94,6 +94,10 @@ const AUTH_USER_MODEL: Name = Name::new_static("AUTH_USER_MODEL");
 const USER: Name = Name::new_static("User");
 const MODEL_FORM: Name = Name::new_static("ModelForm");
 const BASE_MODEL_FORM_SET: Name = Name::new_static("BaseModelFormSet");
+const FILE_FIELD: Name = Name::new_static("FileField");
+const IMAGE_FIELD: Name = Name::new_static("ImageField");
+const FIELD_FILE: Name = Name::new_static("FieldFile");
+const IMAGE_FIELD_FILE: Name = Name::new_static("ImageFieldFile");
 
 /// Find a keyword argument by name and return its value expression.
 fn find_keyword<'a>(call_expr: &'a ExprCall, name: &Name) -> Option<&'a Expr> {
@@ -439,10 +443,12 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             None
         };
 
-        let base_type = base_type.or_else(|| {
-            self.get_class_member(field, &DJANGO_PRIVATE_GET_TYPE)
-                .map(|field| field.ty())
-        })?;
+        let base_type = base_type
+            .or_else(|| self.get_django_file_field_type(field))
+            .or_else(|| {
+                self.get_class_member(field, &DJANGO_PRIVATE_GET_TYPE)
+                    .map(|field| field.ty())
+            })?;
 
         let maybe_narrowed_type =
             self.narrow_charfield_choices(field, initial_value_expr, base_type);
@@ -484,6 +490,34 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             .any(|ancestor| {
                 ancestor.has_qname(ModuleName::django_models_fields().as_str(), "Field")
             })
+    }
+
+    /// True when `cls` is, or inherits from, `<module>.<name>`.
+    fn inherits_from(&self, cls: &Class, module: ModuleName, name: &Name) -> bool {
+        cls.has_toplevel_qname(module.as_str(), name.as_str())
+            || self
+                .get_mro_for_class(cls)
+                .ancestors(self.stdlib)
+                .any(|ancestor| ancestor.has_qname(module.as_str(), name.as_str()))
+    }
+
+    /// The instance type of `FileField` / `ImageField`.
+    ///
+    /// django-stubs deliberately declares `FileField.__get__(instance: Model) -> Any` because the
+    /// attribute also accepts a bare path on assignment, so the descriptor type alone offers no
+    /// members. Django always hands back a `FieldFile` (an `ImageFieldFile` for `ImageField`),
+    /// which is what makes `model.attachment.path` and `model.avatar.width` resolve.
+    fn get_django_file_field_type(&self, field: &Class) -> Option<Type> {
+        let files = ModuleName::django_models_fields_files();
+        // ImageField is a FileField, so it has to be checked first.
+        let target = if self.inherits_from(field, files, &IMAGE_FIELD) {
+            IMAGE_FIELD_FILE
+        } else if self.inherits_from(field, files, &FILE_FIELD) {
+            FIELD_FILE
+        } else {
+            return None;
+        };
+        self.django_model_from_export(files, target)
     }
 
     fn get_manager_type(

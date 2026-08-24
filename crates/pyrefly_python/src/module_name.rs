@@ -289,6 +289,10 @@ impl ModuleName {
         Self::from_str("django.db.models.fields")
     }
 
+    pub fn django_models_fields_files() -> Self {
+        Self::from_str("django.db.models.fields.files")
+    }
+
     pub fn django_models_fields_related() -> Self {
         Self::from_str("django.db.models.fields.related")
     }
